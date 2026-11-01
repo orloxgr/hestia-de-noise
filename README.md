@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.2.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.2.2.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -89,6 +89,24 @@ crawler names do not match the rule.
 
 Preset buttons fill the form; they do not save or reload Nginx. Repeated clicks
 keep matching existing rules and their edited rates, switches and domain scope.
+
+## Exclude files from static-file protection
+
+1. Open **Missing static files → File exceptions by domain**.
+2. Choose the domain and enter one exact URL path per line:
+
+   ```text
+   /wp-content/plugins/example/assets/app.js.map
+   /wp-content/themes/example/assets/theme.css.map
+   ```
+
+3. **Save & Apply**. You can edit multiple domains before saving.
+
+Exceptions keep normal site routing even if the file is missing. They cover all
+static rules for the selected domain and its aliases, for any query string.
+They are case-sensitive exact paths, not full URLs, filesystem paths or wildcards.
+Encoded URL paths are accepted. Clearing the list removes the exceptions. Other
+De-Noise rules, including agent and private-file blocks, still apply.
 
 ## Disable or uninstall
 

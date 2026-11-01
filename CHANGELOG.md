@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+- Add per-domain, one-file-per-line exceptions for static-file protection,
+  editable inside Missing static files with a domain selector.
+- Match normalized exact URL paths, including encoded filenames, across all
+  static rules and aliases while retaining ordinary application routing.
+- Preserve other filtering modules, existing policy and exceptions when saving
+  from an older panel page; migrate previous policy formats on upgrade.
+
 ## 0.2.1
 
 - Add visible one-click presets for WordPress source maps, plugin/theme/core

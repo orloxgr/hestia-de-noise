@@ -64,7 +64,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_upgrade_keeps_old_policy_without_adding_restrictions(self):
         old = copy.deepcopy(DEFAULT)
-        del old['filters'], old['static']
+        del old['filters'], old['static'], old['static_exceptions']
         old.update(schema=1, mode='enforce', agents=['ExistingBot'])
         old['overrides'] = {'alice/one.test': 'off'}
         upgraded = validate(old)
@@ -73,6 +73,26 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(upgraded['mode'], 'enforce')
         self.assertEqual(upgraded['filters'], [])
         self.assertEqual(upgraded['static'], [])
+        self.assertEqual(upgraded['static_exceptions'], {})
+        old2 = copy.deepcopy(DEFAULT)
+        del old2['static_exceptions']
+        old2['schema'] = 2
+        old2['static'] = [{'id': 'maps', 'enabled': True, 'path': '/wp-content/', 'extensions': ['map'], 'targets': []}]
+        upgraded2 = validate(old2)
+        self.assertEqual(upgraded2['static'], old2['static'])
+        self.assertEqual(upgraded2['static_exceptions'], {})
+
+    def test_static_exceptions_are_exact_paths_with_idempotent_encoding(self):
+        policy = copy.deepcopy(DEFAULT)
+        policy['static_exceptions'] = {'alice/one.test': ['/wp-content/a b.map', '/wp-content/a%20b.map', '/wp-content/a%25name.map']}
+        validated = validate(policy)
+        self.assertEqual(validated['static_exceptions']['alice/one.test'], ['/wp-content/a%20b.map', '/wp-content/a%25name.map'])
+        self.assertEqual(validate(validated), validated)
+        for path in ['https://one.test/x.map', '/x/../y.map', '/%2e%2e/y.map', '/folder/', '/x.map?ver=1',
+                     '/x.map#fragment', '/bad%ZZ.map', '/bad%00.map', '/bad%FF.map', '/wild*.map']:
+            policy['static_exceptions'] = {'alice/one.test': [path]}
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                validate(policy)
 
     def test_bundled_rule_presets_are_valid_together_and_do_not_modify_defaults(self):
         from presets import RULES

@@ -97,6 +97,22 @@ class TransactionTests(unittest.TestCase):
 
 
 class AuthorizationTests(unittest.TestCase):
+    def test_old_panel_save_preserves_exceptions_but_new_panel_can_clear_them(self):
+        saved = copy.deepcopy(DEFAULT)
+        saved['static_exceptions'] = {'alice/example.test': ['/wp-content/dynamic.map']}
+        old = copy.deepcopy(DEFAULT)
+        del old['static_exceptions']
+        old['schema'] = 2
+        with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
+                patch.object(engine, 'load', return_value=saved), \
+                patch.object(engine, 'collect', return_value=[]), \
+                patch.object(engine, 'apply') as apply, \
+                patch.object(engine.activity, 'summary', return_value={}):
+            engine.dispatch({'actor': 'admin', 'action': 'save', 'policy': old})
+            self.assertEqual(apply.call_args.args[0]['static_exceptions'], saved['static_exceptions'])
+            engine.dispatch({'actor': 'admin', 'action': 'save', 'policy': copy.deepcopy(DEFAULT)})
+            self.assertEqual(apply.call_args.args[0]['static_exceptions'], {})
+
     def test_user_cannot_change_global_policy_or_select_another_owner(self):
         def user(*args):
             return {'alice': {'SUSPENDED': 'no', 'ROLE': 'user'}}

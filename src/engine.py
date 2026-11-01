@@ -201,6 +201,7 @@ def apply(policy, sites, remove=False):
     if not remove:
         known = {site['key'] for site in sites}
         policy['overrides'] = {key: mode for key, mode in policy['overrides'].items() if key in known}
+        policy['static_exceptions'] = {key: paths for key, paths in policy['static_exceptions'].items() if key in known}
     desired = {}
     if not remove:
         desired[str(GLOBAL)] = global_config(policy, sites)
@@ -291,7 +292,10 @@ def dispatch(request):
         incoming = request.get('policy')
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
+        previous_exceptions = policy['static_exceptions']
         policy = validate({**incoming, 'overrides': policy['overrides']})
+        if incoming.get('schema') in (1, 2):
+            policy['static_exceptions'] = previous_exceptions
         apply(policy, sites)
     elif action == 'bulk':
         selection = request.get('targets')

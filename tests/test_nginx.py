@@ -60,7 +60,13 @@ class NativeNginxTests(unittest.TestCase):
              'parameters': ['listing_tag'], 'agents': ['Reflectionbot'],
              'action': 'block', 'rate': 30, 'burst': 3}]
         policy['static'] = [{'id': 'maps', 'enabled': True, 'path': '/wp-content/',
+                             'extensions': ['map'], 'targets': []},
+                            {'id': 'special_maps', 'enabled': True, 'path': '/wp-content/special/',
                              'extensions': ['map'], 'targets': []}]
+        policy['static_exceptions'] = {'alice/enforce.test': [
+            '/wp-content/missing-generated.map', '/wp-content/special/dynamic.map',
+            '/wp-content/a%20b.map', '/wp-content/%CF%87.map', '/wp-content/a%25name.map',
+            '/wp-content/literal$var.map', '/wp-content/quote%22%3Bfile.map', '/wp-content/.env.map']}
         (cls.directory / 'wp-content').mkdir()
         (cls.directory / 'wp-content/existing.map').write_text('existing')
         sites = [{'key': 'alice/' + host} for host in ('enforce.test', 'other.test', 'observe.test', 'off.test')]
@@ -161,6 +167,20 @@ class NativeNginxTests(unittest.TestCase):
         for host in ('observe.test', 'off.test'):
             self.assertEqual(self.request('/wp-content/missing.map', host=host), 200)
         self.assertEqual(self.request('/wp-content/missing.map', method='POST'), 200)
+
+    def test_static_exceptions_are_domain_scoped_exact_and_do_not_bypass_other_rules(self):
+        for path in ['/wp-content/missing-generated.map', '/wp-content/special/dynamic.map',
+                     '/wp-content/a%20b.map', '/wp-content/%CF%87.map', '/wp-content/a%25name.map',
+                     '/wp-content/literal$var.map', '/wp-content/quote%22%3Bfile.map']:
+            self.assertEqual(self.request(path), 200, path)
+            self.assertEqual(self.request(path + '?ver=2', host='www.enforce.test'), 200, path)
+            self.assertEqual(self.request(path, host='other.test'), 404, path)
+        self.assertEqual(self.request('/wp-content/%6dissing-generated.map'), 200)
+        for path in ['/wp-content/MISSING-generated.map', '/wp-content/missing-generated.map/more.map',
+                     '/wp-content/missing-generated.map2.map']:
+            self.assertEqual(self.request(path), 404, path)
+        self.assertEqual(self.request('/wp-content/missing-generated.map', agent='Crawler'), 403)
+        self.assertEqual(self.request('/wp-content/.env.map'), 403)
 
     def test_rates_apply_to_post_only_and_aliases_share_the_budget(self):
         self.assertEqual(self.request('/wp-login.php?action=lostpassword', method='POST'), 200)

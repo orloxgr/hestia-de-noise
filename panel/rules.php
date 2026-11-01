@@ -57,6 +57,23 @@ foreach (['filters' => 'Filtered URL crawling', 'static' => 'Missing static file
         <?php foreach (is_array($policy[$module] ?? null) ? $policy[$module] : [] as $index => $rule) { $renderRule($module, $index, $rule); } ?>
         </div>
         <button type="button" class="button button-secondary" data-hdn-add="<?= $module ?>">Add rule</button>
+        <?php if ($module === 'static' && !empty($data['sites'])): ?>
+        <h3 class="u-mt20 u-mb10">File exceptions by domain</h3>
+        <label class="form-label" for="hdn-exception-domain">Domain</label>
+        <select class="form-select u-mb10" id="hdn-exception-domain">
+            <?php foreach ($data['sites'] as $site): ?>
+            <option value="<?= $escape($site['key']) ?>"><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php foreach ($data['sites'] as $index => $site):
+            $exceptions = $policy['static_exceptions'][$site['key']] ?? []; ?>
+        <div data-hdn-exception-domain="<?= $escape($site['key']) ?>" <?= $index !== 0 ? 'hidden' : '' ?>>
+            <label class="form-label u-block" for="hdn-exceptions-<?= $index ?>">Allowed file paths — one per line</label>
+            <textarea class="form-control" rows="4" maxlength="65536" spellcheck="false" id="hdn-exceptions-<?= $index ?>" name="static_exceptions[<?= $escape($site['key']) ?>]" placeholder="/wp-content/plugins/example/assets/app.js.map"><?= $escape(implode("\n", is_array($exceptions) ? $exceptions : [])) ?></textarea>
+        </div>
+        <?php endforeach; ?>
+        <p class="u-mt10">Exact URL paths, starting with /. Exceptions use the domain's normal routing for every query string and apply to its aliases too. Save &amp; Apply to save all domains.</p>
+        <?php endif; ?>
     </div>
 </details>
 <template id="hdn-<?= $module ?>-template">

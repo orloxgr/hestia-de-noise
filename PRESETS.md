@@ -1,4 +1,4 @@
-# Presets — 0.2.1
+# Presets — 0.2.2
 
 ## Scanner tools
 
@@ -96,6 +96,10 @@ rule, initially `/wp-content/` with extension `map`. Nothing is saved until
 **Save & Apply**. Repeated preset clicks preserve matching existing rules,
 including their switches and domain selection. Observe records candidates and
 allows them; Off disables them.
+
+**File exceptions by domain** accepts one exact URL path per line. A listed
+file follows normal routing on that domain and its aliases, regardless of query
+string, across every static rule. It does not bypass other De-Noise modules.
 
 All rules are bundled and editable. There is no automatic external deny-list
 import or application/plugin detection.

@@ -2,9 +2,10 @@
 import copy
 import hashlib
 import re
+from urllib.parse import quote, unquote
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.2.1'
+VERSION = '0.2.2'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -13,10 +14,10 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 2, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 3, 'mode': 'observe', 'agents': [], 'scanners': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
            'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
-           'filters': [], 'static': []}
+           'filters': [], 'static': [], 'static_exceptions': {}}
 
 
 def account(value):
@@ -45,9 +46,11 @@ def validate(raw):
     if not isinstance(raw, dict):
         raise ValueError('Unsupported policy format')
     data = copy.deepcopy(raw)
-    if data.get('schema') == 1 and set(data) == set(DEFAULT) - {'filters', 'static'}:
+    if data.get('schema') == 1 and set(data) == set(DEFAULT) - {'filters', 'static', 'static_exceptions'}:
         data.update(schema=2, filters=[], static=[])
-    if data.get('schema') != 2 or set(data) != set(DEFAULT):
+    if data.get('schema') == 2 and set(data) == set(DEFAULT) - {'static_exceptions'}:
+        data.update(schema=3, static_exceptions={})
+    if data.get('schema') != 3 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
@@ -124,7 +127,42 @@ def validate(raw):
                             for x in rule['extensions'])):
                     raise ValueError('Enter 1–20 lowercase static file extensions, without dots')
                 rule['extensions'] = list(dict.fromkeys(rule['extensions']))
+    exceptions = data['static_exceptions']
+    if not isinstance(exceptions, dict) or len(exceptions) > 10000:
+        raise ValueError('Invalid static-file exceptions')
+    normalized, count, size = {}, 0, 0
+    for site, paths in exceptions.items():
+        target(site)
+        if not isinstance(paths, list) or len(paths) > 500:
+            raise ValueError('Use at most 500 file exceptions per domain')
+        paths = list(dict.fromkeys(exception_path(path) for path in paths))
+        if paths:
+            normalized[site] = paths
+            count += len(paths)
+            size += sum(len((site.split('/', 1)[1] + ':' + unquote(path)).encode('utf-8')) for path in paths)
+    if count > 2000 or size > 65536:
+        raise ValueError('Use at most 2000 file exceptions and 64 KiB of exception entries in total')
+    data['static_exceptions'] = normalized
     return data
+
+
+def exception_path(value):
+    """Canonical URL-encoded representation; decode exactly once when compiling."""
+    if not isinstance(value, str) or not value.startswith('/') or re.search(r'%(?![0-9A-Fa-f]{2})', value):
+        raise ValueError('File exceptions must be URL paths starting with /, one per line')
+    try:
+        decoded = unquote(value, encoding='utf-8', errors='strict')
+    except UnicodeError as error:
+        raise ValueError('File exceptions must contain valid UTF-8 URL paths') from error
+    if (len(decoded.encode('utf-8')) > 2048 or decoded.endswith('/') or '//' in decoded or
+            any(part in ('.', '..') for part in decoded.split('/')) or
+            any(char in decoded for char in '?#*\\') or not decoded.isprintable()):
+        raise ValueError('Enter exact file paths without query strings, wildcards or traversal')
+    return quote(decoded, safe='/-._~$&()+,;=:@')
+
+
+def exact_uri_pattern(value):
+    return '"~^' + ''.join(r'\\x' + format(byte, '02x') for byte in value.encode('utf-8')) + '$"'
 
 
 def literal_regex(value):
@@ -185,6 +223,13 @@ def global_config(policy, sites):
                  r'(?:^|/)var/run/secrets/kubernetes\.io/serviceaccount(?:/|$)']
         lines += ['    ' + pattern(p) + ' 1;' for p in paths]
     lines += ['}']
+    lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
+    for site in sites:
+        if site.get('supported', True) and not site.get('suspended'):
+            name = domain(site.get('domain', site['key'].split('/', 1)[1]))
+            lines += ['    ' + exact_uri_pattern(name + ':' + unquote(path)) + ' 1;'
+                      for path in policy['static_exceptions'].get(site['key'], [])]
+    lines += ['}']
     block_variables = []
     for index, rule in enumerate(policy['filters']):
         tag = 'hdn_f' + str(index)
@@ -207,8 +252,8 @@ def global_config(policy, sites):
         tag = 'hdn_s' + str(index)
         lines += scope_map(tag + '_site', rule, sites)
         regex = '^' + re.escape(rule['path']) + '.*\\.(?:' + '|'.join(rule['extensions']) + ')$'
-        lines += ['map "$hdn_mode:$' + tag + '_site:$request_method:$uri" $' + tag + '_candidate {', '    default "";',
-                  '    ' + pattern('^(observe|enforce):1:(GET|HEAD):' + regex[1:]) + ' static-' + rule['id'] + ';', '}']
+        lines += ['map "$hdn_mode:$' + tag + '_site:$hdn_static_exempt:$request_method:$uri" $' + tag + '_candidate {', '    default "";',
+                  '    ' + pattern('^(observe|enforce):1:0:(GET|HEAD):' + regex[1:]) + ' static-' + rule['id'] + ';', '}']
         static.append('$' + tag + '_candidate')
     lines += ['map "' + ':'.join(static) + '" $hdn_static_candidate {', '    default "";']
     for rule in policy['static']:

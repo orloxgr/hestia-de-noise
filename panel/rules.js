@@ -3,6 +3,12 @@
     const presets = JSON.parse(document.getElementById('hdn-rule-presets').textContent);
     const names = value => value.toLowerCase().split(/[\s,]+/).filter(Boolean).sort().join(',');
     const path = value => value.replace(/\/+$/, '') || '/';
+    const domainSelect = document.getElementById('hdn-exception-domain');
+    domainSelect?.addEventListener('change', () => {
+        document.querySelectorAll('[data-hdn-exception-domain]').forEach(row => {
+            row.hidden = row.dataset.hdnExceptionDomain !== domainSelect.value;
+        });
+    });
     document.querySelectorAll('[data-hdn-add]').forEach(button => button.addEventListener('click', () => {
         const module = button.dataset.hdnAdd;
         const list = document.getElementById('hdn-' + module + '-rows');

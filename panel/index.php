@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $request = [...$statusRequest, 'action' => $_POST['action'] ?? ''];
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
-            $submitted = ['schema' => 2, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 3, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'scanners' => isset($_POST['scanners'])];
             foreach (['login', 'xmlrpc'] as $key) {
                 $submitted[$key] = ['enabled' => isset($_POST[$key . '_enabled']),
@@ -66,6 +66,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!is_string($value)) return [];
                 return array_values(array_filter(array_map('trim', preg_split($lines ? '/\r\n|\r|\n/' : '/[\s,]+/', $value)), static fn($x) => $x !== ''));
             };
+            $submitted['static_exceptions'] = [];
+            if (!is_array($_POST['static_exceptions'] ?? [])) { $submitted['static_exceptions'] = false; }
+            else {
+                foreach ($_POST['static_exceptions'] ?? [] as $site => $paths) {
+                    if (!is_string($paths)) { $submitted['static_exceptions'] = false; break; }
+                    $paths = $list($paths, true);
+                    if ($paths) $submitted['static_exceptions'][$site] = $paths;
+                }
+            }
             foreach (['filters', 'static'] as $module) {
                 $submitted[$module] = [];
                 if (!is_array($_POST[$module] ?? [])) { $submitted[$module] = false; continue; }
@@ -83,6 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             $request['policy'] = $submitted;
+            if (is_array($submitted['static_exceptions'])) $request['policy']['static_exceptions'] = (object)$submitted['static_exceptions'];
         } elseif ($request['action'] === 'bulk') {
             $request['targets'] = $_POST['targets'] ?? [];
             $request['mode'] = $_POST['bulk_mode'] ?? '';
