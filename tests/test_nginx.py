@@ -1,0 +1,147 @@
+"""Optional real Nginx tests in a disposable local directory, never Hestia."""
+import copy
+import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from policy import DEFAULT, global_config, site_config
+
+NGINX = os.environ.get('HDN_TEST_NGINX')
+
+
+class Origin(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'OK')
+    do_POST = do_GET
+
+    def log_message(self, *args):
+        pass
+
+
+@unittest.skipUnless(NGINX, 'Set HDN_TEST_NGINX to a local Nginx binary to run live request checks')
+class NativeNginxTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory(prefix='hdn-test-')
+        cls.directory = Path(cls.temp.name)
+        (cls.directory / 'logs').mkdir()
+        (cls.directory / 'temp').mkdir()
+        cls.origin = ThreadingHTTPServer(('127.0.0.1', 0), Origin)
+        cls.thread = threading.Thread(target=cls.origin.serve_forever, daemon=True); cls.thread.start()
+        cls.origin_port = cls.origin.server_address[1]
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0)); cls.port = probe.getsockname()[1]
+        policy = copy.deepcopy(DEFAULT)
+        policy['mode'] = 'enforce'
+        cls.literal = 'Odd";${literal}#(a)+[b]\\c'
+        policy['agents'] = ['Crawler', cls.literal]
+        policy['scanners'] = True
+        policy['login'] = {'enabled': True, 'rate': 1, 'burst': 1}
+        policy['xmlrpc'] = {'enabled': True, 'rate': 10, 'burst': 3}
+        policy['overrides'] = {'alice/observe.test': 'observe', 'alice/off.test': 'off'}
+        text = 'worker_processes 1;\npid logs/nginx.pid;\nerror_log logs/error.log notice;\nevents { worker_connections 64; }\nhttp {\n'
+        text += global_config(policy, [])
+        for host in ('enforce.test', 'observe.test', 'off.test'):
+            site = {'key': 'alice/' + host}
+            text += 'server { listen 127.0.0.1:' + str(cls.port) + '; server_name ' + host + ' www.' + host + ';\n'
+            text += site_config(policy, site).replace('/var/log/hestia-de-noise/matches.log',
+                                                     (cls.directory / 'matches.log').as_posix())
+            text += 'location / { proxy_pass http://127.0.0.1:' + str(cls.origin_port) + '; }\n}\n'
+        text += '}\n'
+        (cls.directory / 'nginx.conf').write_text(text)
+        cls.command = [NGINX, '-p', cls.directory.as_posix() + '/', '-c', 'nginx.conf']
+        result = subprocess.run([*cls.command, '-t'], capture_output=True, text=True)
+        if result.returncode:
+            cls.origin.shutdown(); cls.origin.server_close()
+            cls.temp.cleanup()
+            raise AssertionError(result.stderr)
+        cls.process = subprocess.Popen(cls.command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                with socket.create_connection(('127.0.0.1', cls.port), timeout=.1):
+                    break
+            except OSError:
+                if time.monotonic() > deadline:
+                    cls.tearDownClass()
+                    raise AssertionError('Local test Nginx did not start')
+                time.sleep(.05)
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, 'process'):
+            subprocess.run([*cls.command, '-s', 'quit'], capture_output=True, timeout=5)
+            cls.process.wait(timeout=10)
+        cls.origin.shutdown(); cls.origin.server_close(); cls.thread.join(timeout=2)
+        cls.temp.cleanup()
+
+    def request(self, path='/', agent='Mozilla/5.0', host='enforce.test', method='GET'):
+        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+        connection.request(method, path, headers={'Host': host, 'User-Agent': agent})
+        response = connection.getresponse()
+        status = response.status; response.read(); connection.close()
+        return status
+
+    def test_agent_blocks_case_insensitive_literal_and_observe_off_allow(self):
+        self.assertEqual(self.request(agent='Some CRAWLER v1'), 403)
+        self.assertEqual(self.request(agent=self.literal), 403)
+        self.assertEqual(self.request(agent='Odd'), 200)
+        self.assertEqual(self.request(agent='Crawler', host='observe.test'), 200)
+        self.assertEqual(self.request(agent='Crawler', host='off.test'), 200)
+
+    def test_configuration_is_valid_before_any_domains_exist(self):
+        text = 'pid logs/empty.pid;\nerror_log logs/empty.log;\nevents {}\nhttp {\n'
+        text += global_config(DEFAULT, []) + '\n}\n'
+        (self.directory / 'empty.conf').write_text(text)
+        command = [NGINX, '-p', self.directory.as_posix() + '/', '-c', 'empty.conf', '-t']
+        result = subprocess.run(command, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_private_paths_block_but_well_known_and_ordinary_config_paths_work(self):
+        for path in ('/.env', '/.env.backup', '/.git/config', '/wp-config.php.old'):
+            self.assertEqual(self.request(path), 403, path)
+        for path in ('/.well-known/acme-challenge/test', '/config', '/api', '/.environment'):
+            self.assertEqual(self.request(path), 200, path)
+
+    def test_rates_apply_to_post_only_and_aliases_share_the_budget(self):
+        self.assertEqual(self.request('/wp-login.php?action=lostpassword', method='POST'), 200)
+        # Both native limit zones exist; an alias must not obtain a new budget.
+        self.request('/wp-login.php', method='POST', host='www.enforce.test')
+        self.assertEqual(self.request('/wp-login.php/', method='POST'), 429)
+        self.assertEqual(self.request('/wp-login.php', method='POST', host='www.enforce.test'), 429)
+        for path in ('/wp-login.php', '/wp-admin/admin-ajax.php', '/wp-json/plugin/test'):
+            self.assertEqual(self.request(path), 200)
+        self.assertEqual(self.request('/wp-json/plugin/test', method='POST'), 200)
+        for _ in range(5):
+            self.assertEqual(self.request('/wp-login.php', method='POST', host='observe.test'), 200)
+            self.assertEqual(self.request('/wp-login.php', method='POST', host='off.test'), 200)
+
+    def test_search_social_agents_are_not_automatically_blocked(self):
+        for agent in ('Googlebot', 'bingbot', 'Applebot', 'facebookexternalhit', 'Twitterbot', 'WhatsApp'):
+            self.assertEqual(self.request(agent=agent), 200)
+
+    def test_xmlrpc_has_its_own_budget_and_logs_do_not_store_request_values(self):
+        self.assertEqual(self.request('/xmlrpc.php', method='POST'), 200)
+        statuses = [self.request('/xmlrpc.php', method='POST') for _ in range(5)]
+        self.assertIn(429, statuses)
+        self.assertEqual(self.request('/xmlrpc.php'), 200)
+        self.assertEqual(self.request('/?password=synthetic-sensitive-value', agent='Crawler'), 403)
+        text = (self.directory / 'matches.log').read_text()
+        self.assertIn('enforce.test', text)
+        self.assertNotIn('synthetic-sensitive-value', text)
+        self.assertNotIn('Crawler', text)
+        self.assertNotIn('127.0.0.1', text)
+
+
+if __name__ == '__main__':
+    unittest.main()

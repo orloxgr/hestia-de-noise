@@ -1,6 +1,10 @@
-# Proposed presets
+# Preset catalog
 
-These are editable suggestions for the planned panel, not deployed rules.
+Version 0.1.0 includes the initial agent suggestions, POST login/XML-RPC rate
+limits and the private-file preset below. They start disabled. Filtered URLs,
+missing-file rules and advanced endpoint exceptions remain planned.
+
+These are editable starting suggestions, not automatically deployed rules.
 They cover repeat endpoint traffic, excessive filtered-URL crawling, private-file
 probes and missing static files. Applying a preset is an explicit admin action.
 Presets are bundled and versioned; the addon does not import changing third-party

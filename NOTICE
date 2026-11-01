@@ -1,0 +1,4 @@
+Hestia De-Noise is licensed under GPL-3.0-or-later.
+
+The shared Plugins menu and Hestia session bootstrap are adapted from
+orloxgr/varnish-for-hestia, also licensed under GPL-3.0-or-later.
