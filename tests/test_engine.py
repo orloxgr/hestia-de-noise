@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import engine
-from policy import DEFAULT, MARKER
+from policy import DEFAULT, LEGACY_KEYS, MARKER
 
 
 def fixture_read(path):
@@ -97,11 +97,19 @@ class TransactionTests(unittest.TestCase):
 
 
 class AuthorizationTests(unittest.TestCase):
+    def test_native_ban_failure_is_not_reported_as_a_successful_sync(self):
+        with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
+                patch.object(engine, 'load', return_value=DEFAULT), \
+                patch.object(engine, 'collect', return_value=[]), \
+                patch.object(engine, 'apply'), \
+                patch.object(engine.auto_bans, 'synchronize', return_value={'error': 'native failure'}):
+            with self.assertRaisesRegex(RuntimeError, 'automatic firewall bans failed: native failure'):
+                engine.dispatch({'actor': 'admin', 'action': 'sync'})
+
     def test_old_panel_save_preserves_exceptions_but_new_panel_can_clear_them(self):
         saved = copy.deepcopy(DEFAULT)
         saved['static_exceptions'] = {'alice/example.test': ['/wp-content/dynamic.map']}
-        old = copy.deepcopy(DEFAULT)
-        del old['static_exceptions']
+        old = {key: copy.deepcopy(value) for key, value in DEFAULT.items() if key in LEGACY_KEYS | {'filters', 'static'}}
         old['schema'] = 2
         with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
                 patch.object(engine, 'load', return_value=saved), \
@@ -119,6 +127,7 @@ class AuthorizationTests(unittest.TestCase):
         with patch.object(engine, 'hestia', side_effect=user):
             for request in [{'actor': 'alice', 'owner': 'bob', 'action': 'status'},
                             {'actor': 'alice', 'action': 'save'},
+                            {'actor': 'alice', 'action': 'unban'},
                             {'actor': 'alice', 'action': 'bulk'}]:
                 with self.assertRaises(PermissionError):
                     engine.authorize(request)

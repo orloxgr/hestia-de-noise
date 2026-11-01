@@ -55,7 +55,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $request = [...$statusRequest, 'action' => $_POST['action'] ?? ''];
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
-            $submitted = ['schema' => 3, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
+            $submitted = ['schema' => 4, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+                'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
+                'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
                 'scanners' => isset($_POST['scanners'])];
             foreach (['login', 'xmlrpc'] as $key) {
                 $submitted[$key] = ['enabled' => isset($_POST[$key . '_enabled']),
@@ -66,6 +69,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!is_string($value)) return [];
                 return array_values(array_filter(array_map('trim', preg_split($lines ? '/\r\n|\r|\n/' : '/[\s,]+/', $value)), static fn($x) => $x !== ''));
             };
+            $submitted['bans'] = ['enabled' => isset($_POST['bans_enabled']),
+                'private_files' => isset($_POST['bans_private_files']), 'repositories' => isset($_POST['bans_repositories']),
+                'maxretry' => filter_var($_POST['bans_maxretry'] ?? '', FILTER_VALIDATE_INT),
+                'findtime' => filter_var($_POST['bans_findtime'] ?? '', FILTER_VALIDATE_INT),
+                'duration_days' => filter_var($_POST['bans_duration_days'] ?? '', FILTER_VALIDATE_INT),
+                'ignore_ips' => $list($_POST['bans_ignore_ips'] ?? '', true), 'targets' => $_POST['bans_targets'] ?? []];
             $submitted['static_exceptions'] = [];
             if (!is_array($_POST['static_exceptions'] ?? [])) { $submitted['static_exceptions'] = false; }
             else {
@@ -96,13 +105,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($request['action'] === 'bulk') {
             $request['targets'] = $_POST['targets'] ?? [];
             $request['mode'] = $_POST['bulk_mode'] ?? '';
+        } elseif ($request['action'] === 'unban') {
+            $request['ips'] = isset($_POST['unban_all']) ? 'all' : ($_POST['ips'] ?? []);
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $result = $bridge($request);
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
-            else $message = $request['action'] === 'disable' ? 'De-Noise is off for every domain.' : 'Settings applied.';
+            else $message = $request['action'] === 'disable' ? 'De-Noise is off for every domain. Its firewall bans will be released by synchronization.' :
+                ($request['action'] === 'unban' ? 'Unban requested. Check the active and pending counts.' : 'Settings applied. Firewall changes synchronize within about one minute.');
         }
     }
 } elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {
@@ -113,8 +125,10 @@ if (empty($data['ok'])) $error = $error ?: ($data['error'] ?? 'Could not load De
 // When impersonating a user, render the user's scope even for an admin session.
 if (!$isAdmin) $data['sites'] = array_values(array_filter($data['sites'] ?? [], static fn($site) => $site['owner'] === $owner));
 $policy = $error !== '' && $submitted !== null ? $submitted : ($data['policy'] ?? []);
-$fields = static function (string $action) use ($escape): void {
+$activeTab = is_string($_POST['tab'] ?? null) ? $_POST['tab'] : 'general';
+$fields = static function (string $action) use ($escape, $activeTab): void {
     echo '<input type="hidden" name="token" value="' . $escape($_SESSION['token']) . '">';
     echo '<input type="hidden" name="action" value="' . $escape($action) . '">';
+    echo '<input type="hidden" name="tab" value="' . $escape($activeTab) . '">';
 };
 require $install . '/panel/view.php';

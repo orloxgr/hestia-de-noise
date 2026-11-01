@@ -1,8 +1,9 @@
-# Presets — 0.2.2
+# Presets — 0.3.0
 
 ## Scanner tools
 
-**Add scanner tools** inserts these literal names into the editable blocklist:
+**User-Agents → Add scanner tools** inserts these literal names into the
+Scanner tools box, which has its own enable switch:
 
 ```text
 TLM-Audit-Scanner
@@ -23,7 +24,8 @@ declared names and is not identity verification.
 
 ## Optional bulk / AI crawlers
 
-**Add bulk / AI crawlers** inserts:
+**User-Agents → Add bulk / AI crawlers** inserts these into the separate
+Crawlers / other agents box, with its own enable switch:
 
 ```text
 meta-externalagent
@@ -46,6 +48,12 @@ Applebot, social-preview and user-requested retrieval agents are not in either
 blocklist. Custom entries still apply literally.
 
 ## Paths and request budgets
+
+The optional **IP bans** module has separate switches for secret/config-file
+and repository probes. It defaults to one matching request and permanent duration
+when enabled. It does not ban IPs for ordinary missing static files, User-Agent
+matches or exceeded crawler/login budgets. The counting window, duration,
+trigger domains and never-ban networks are editable in the panel.
 
 | Module | Match | Action in Enforce |
 | --- | --- | --- |

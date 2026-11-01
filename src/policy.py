@@ -1,11 +1,12 @@
 """Validated policy and a deterministic native Nginx compiler."""
 import copy
 import hashlib
+import ipaddress
 import re
 from urllib.parse import quote, unquote
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.2.2'
+VERSION = '0.3.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -14,10 +15,28 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 3, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 4, 'mode': 'observe', 'agents': [], 'scanners': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
            'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
-           'filters': [], 'static': [], 'static_exceptions': {}}
+           'filters': [], 'static': [], 'static_exceptions': {},
+           'tool_agents': [], 'tool_agents_enabled': True, 'agents_enabled': True,
+           'bans': {'enabled': False, 'private_files': True, 'repositories': True,
+                    'maxretry': 1, 'findtime': 300, 'duration_days': 0,
+                    'ignore_ips': [], 'targets': []}}
+LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
+PRIVATE_PATTERNS = [
+    ('private-file', r'(?:^|/)\.env(?:[./]|$)'),
+    ('repository', r'(?:^|/)\.(?:git|svn|hg)(?:/|$)'),
+    ('private-file', r'(?:^|/)wp-config\.php\.(?:bak|backup|old|orig|save|swp|zip|sql)$'),
+    ('private-file', r'(?:^|/)\.htpasswd(?:/|$)'),
+    ('metadata', r'(?:^|/)\.DS_Store(?:/|$)'),
+    ('private-file', r'(?:^|/)\.aws/(?:credentials|config)(?:/|$)'),
+    ('private-file', r'(?:^|/)\.docker/(?:config|secrets)\.json(?:/|$)'),
+    ('private-file', r'(?:^|/)\.kube/config(?:/|$)'),
+    ('private-file', r'(?:^|/)\.terraform/(?:credentials\.tfrc\.json|terraform\.tfstate)(?:/|$)'),
+    ('private-file', r'(?:^|/)proc/(?:self|[0-9]+)/(?:environ|cmdline)(?:/|$)'),
+    ('private-file', r'(?:^|/)etc/(?:passwd|shadow|gshadow)(?:/|$)'),
+    ('private-file', r'(?:^|/)var/run/secrets/kubernetes\.io/serviceaccount(?:/|$)')]
 
 
 def account(value):
@@ -46,18 +65,52 @@ def validate(raw):
     if not isinstance(raw, dict):
         raise ValueError('Unsupported policy format')
     data = copy.deepcopy(raw)
-    if data.get('schema') == 1 and set(data) == set(DEFAULT) - {'filters', 'static', 'static_exceptions'}:
+    if data.get('schema') == 1 and set(data) == LEGACY_KEYS:
         data.update(schema=2, filters=[], static=[])
-    if data.get('schema') == 2 and set(data) == set(DEFAULT) - {'static_exceptions'}:
+    if data.get('schema') == 2 and set(data) == LEGACY_KEYS | {'filters', 'static'}:
         data.update(schema=3, static_exceptions={})
-    if data.get('schema') != 3 or set(data) != set(DEFAULT):
+    if data.get('schema') == 3 and set(data) == LEGACY_KEYS | {'filters', 'static', 'static_exceptions'}:
+        tools = {name.lower() for name in SCANNER_AGENTS}
+        previous = data['agents']
+        if not isinstance(previous, list) or any(not isinstance(entry, str) for entry in previous):
+            raise ValueError('Invalid saved User-Agent list')
+        data.update(schema=4, tool_agents=[entry for entry in previous if entry.strip().lower() in tools],
+                    agents=[entry for entry in previous if entry.strip().lower() not in tools],
+                    tool_agents_enabled=True, agents_enabled=True, bans=copy.deepcopy(DEFAULT['bans']))
+    if data.get('schema') != 4 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
-    if not isinstance(data['agents'], list) or len(data['agents']) > 200:
-        raise ValueError('Use at most 200 User-Agent entries')
+    if any(type(data[key]) is not bool for key in ('tool_agents_enabled', 'agents_enabled')):
+        raise ValueError('Invalid User-Agent list switch')
+    for field in ('agents', 'tool_agents'):
+        data[field] = validate_agents(data[field])
+    ban = data['bans']
+    if (not isinstance(ban, dict) or set(ban) != set(DEFAULT['bans']) or
+            any(type(ban[key]) is not bool for key in ('enabled', 'private_files', 'repositories')) or
+            type(ban['maxretry']) is not int or not 1 <= ban['maxretry'] <= 1000 or
+            type(ban['findtime']) is not int or not 30 <= ban['findtime'] <= 86400 or
+            type(ban['duration_days']) is not int or not 0 <= ban['duration_days'] <= 3650):
+        raise ValueError('Invalid automatic-ban settings: attempts 1–1000, window 30–86400 seconds, duration 0–3650 days')
+    if not isinstance(ban['targets'], list) or len(ban['targets']) > 10000:
+        raise ValueError('Invalid automatic-ban domain selection')
+    ban['targets'] = list(dict.fromkeys(target(name) for name in ban['targets']))
+    if not isinstance(ban['ignore_ips'], list) or len(ban['ignore_ips']) > 1000:
+        raise ValueError('Invalid never-ban IP list')
+    if any(not isinstance(value, str) for value in ban['ignore_ips']):
+        raise ValueError('Never-ban entries must be IP addresses or CIDR networks')
+    try:
+        ban['ignore_ips'] = list(dict.fromkeys(str(ipaddress.ip_network(value, strict=False)) for value in ban['ignore_ips']))
+    except ValueError as error:
+        raise ValueError('Never-ban entries must be IP addresses or CIDR networks') from error
+    return validate_rules(data)
+
+
+def validate_agents(entries):
+    if not isinstance(entries, list) or len(entries) > 200:
+        raise ValueError('Use at most 200 entries per User-Agent list')
     agents = []
-    for entry in data['agents']:
+    for entry in entries:
         # Printable ASCII keeps the literal substring behavior explicit across
         # Nginx/PCRE builds. Quotes, regex and config punctuation are escaped.
         if (not isinstance(entry, str) or not 2 <= len(entry.strip()) <= 160 or
@@ -66,7 +119,10 @@ def validate(raw):
         entry = entry.strip()
         if entry.lower() not in [x.lower() for x in agents]:
             agents.append(entry)
-    data['agents'] = agents
+    return agents
+
+
+def validate_rules(data):
     for key in ('login', 'xmlrpc'):
         rule = data[key]
         if (not isinstance(rule, dict) or set(rule) != {'enabled', 'rate', 'burst'} or
@@ -208,21 +264,22 @@ def global_config(policy, sites):
     # virtual hosts set this changeable variable during their rewrite phase.
     lines = [MARKER, 'map $server_name $hdn_mode { default off; }',
              'map $http_user_agent $hdn_agent {', '    default 0;']
-    lines += ['    ' + literal_regex(entry) + ' 1;' for entry in policy['agents']]
+    entries = (policy['agents'] if policy['agents_enabled'] else []) + (policy['tool_agents'] if policy['tool_agents_enabled'] else [])
+    lines += ['    ' + literal_regex(entry) + ' 1;' for entry in dict.fromkeys(entries)]
     lines += ['}', 'map $uri $hdn_private {', '    default 0;']
     if policy['scanners']:
-        paths = [r'(?:^|/)\.env(?:[./]|$)', r'(?:^|/)\.(?:git|svn|hg)(?:/|$)',
-                 r'(?:^|/)wp-config\.php\.(?:bak|backup|old|orig|save|swp|zip|sql)$',
-                 r'(?:^|/)\.(?:htpasswd|DS_Store)(?:/|$)',
-                 r'(?:^|/)\.aws/(?:credentials|config)(?:/|$)',
-                 r'(?:^|/)\.docker/(?:config|secrets)\.json(?:/|$)',
-                 r'(?:^|/)\.kube/config(?:/|$)',
-                 r'(?:^|/)\.terraform/(?:credentials\.tfrc\.json|terraform\.tfstate)(?:/|$)',
-                 r'(?:^|/)proc/(?:self|[0-9]+)/(?:environ|cmdline)(?:/|$)',
-                 r'(?:^|/)etc/(?:passwd|shadow|gshadow)(?:/|$)',
-                 r'(?:^|/)var/run/secrets/kubernetes\.io/serviceaccount(?:/|$)']
-        lines += ['    ' + pattern(p) + ' 1;' for p in paths]
+        lines += ['    ' + pattern(p) + ' 1;' for _, p in PRIVATE_PATTERNS]
     lines += ['}']
+    lines += ['map $uri $hdn_ban_signal {', '    default "";']
+    for signal, regex in PRIVATE_PATTERNS:
+        if policy['bans']['enabled'] and ((signal == 'private-file' and policy['bans']['private_files']) or
+                                          (signal == 'repository' and policy['bans']['repositories'])):
+            lines += ['    ' + pattern(regex) + ' ' + signal + ';']
+    lines += ['}']
+    lines += scope_map('hdn_ban_site', policy['bans'], sites)
+    lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_ban_signal" $hdn_autoban_log {',
+              '    default 0;', '    ~^enforce:1:(private-file|repository)$ 1;', '}',
+              'log_format hdn_bans "$msec $remote_addr $server_name $hdn_ban_signal";']
     lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
     for site in sites:
         if site.get('supported', True) and not site.get('suspended'):
@@ -259,9 +316,10 @@ def global_config(policy, sites):
     for rule in policy['static']:
         label = 'static-' + rule['id']
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
-    lines += ['}', 'map "$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label" $hdn_match {',
+    lines += ['}', 'map "$hdn_autoban_log:$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label" $hdn_match {',
               '    default "";', '    ' + pattern('^1:') + ' private-file;',
-              '    ' + pattern('^[01]:1:') + ' agent;']
+              '    ' + pattern('^[01]:1:') + ' private-file;',
+              '    ' + pattern('^[01]:[01]:1:') + ' agent;']
     for _, label in block_variables:
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
     for rule in policy['static']:
@@ -302,7 +360,7 @@ def site_config(policy, site, document_root=None):
                   'if ($hdn_static_candidate != "") { set $hdn_static_file "' + document_root.rstrip('/') + '$uri"; }',
                   'if (-f $hdn_static_file) { set $hdn_static_candidate ""; }']
     if mode == 'enforce':
-        lines += ['if ($hdn_block) { return 403; }', 'if ($hdn_static_reject) { return 404; }']
+        lines += ['if ($hdn_autoban_log) { return 403; }', 'if ($hdn_block) { return 403; }', 'if ($hdn_static_reject) { return 404; }']
     for key in ('login', 'xmlrpc'):
         if policy[key]['enabled']:
             burst = policy[key]['burst']
@@ -314,4 +372,6 @@ def site_config(policy, site, document_root=None):
     if any(policy[key]['enabled'] for key in ('login', 'xmlrpc')) or rate_rules:
         lines += ['limit_req_status 429;', 'limit_req_dry_run ' + ('off' if mode == 'enforce' else 'on') + ';']
     lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']
+    if policy['bans']['enabled']:
+        lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_bans if=$hdn_autoban_log;']
     return '\n'.join(lines) + '\n'

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+- Add optional native Hestia IPv4 bans for selected secret/repository probes,
+  defaulting to one request and permanent duration when enabled.
+- Add controls for duration, request count/window, trigger domains, never-ban
+  networks, native ban status and selected/all unban actions.
+- Process logs incrementally and bans in bounded resumable batches through the
+  existing sync job; preserve other firewall chains, ports and Fail2ban policies.
+- Add expiry, native-panel unban reconciliation and owned-ban uninstall cleanup.
+- Organize the panel with Hestia's native tabs and keep one shared settings form
+  across tabs, including validation that opens the affected tab.
+- Split scanner tools and crawler entries into independent editable lists with
+  separate switches, migrating the previous mixed list without losing entries.
+
 ## 0.2.2
 
 - Add per-domain, one-file-per-line exceptions for static-file protection,

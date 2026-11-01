@@ -130,6 +130,29 @@ class NativeNginxTests(unittest.TestCase):
         result = subprocess.run(command, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_tool_and_crawler_switches_are_independent_in_real_nginx(self):
+        for index, (tools, crawlers) in enumerate([(False, True), (True, False), (False, False)]):
+            with socket.socket() as probe:
+                probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
+            policy = copy.deepcopy(DEFAULT); policy['mode'] = 'enforce'
+            policy.update(tool_agents=['ProbeTool'], agents=['BulkCrawler'], tool_agents_enabled=tools, agents_enabled=crawlers)
+            text = 'pid logs/toggles.pid;\nerror_log logs/toggles.log;\nevents {}\nhttp {\n' + global_config(policy, [])
+            text += 'server { listen 127.0.0.1:' + str(port) + '; server_name switches.test;\n'
+            text += site_config(policy, {'key': 'alice/switches.test'}).replace('/var/log/hestia-de-noise/matches.log', (self.directory / 'toggles-matches.log').as_posix())
+            text += 'location / { proxy_pass http://127.0.0.1:' + str(self.origin_port) + '; }\n}\n}\n'
+            name = 'toggles-' + str(index) + '.conf'; (self.directory / name).write_text(text)
+            command = [NGINX, '-p', self.directory.as_posix() + '/', '-c', name]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            try:
+                for agent, blocked in [('ProbeTool', tools), ('BulkCrawler', crawlers)]:
+                    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=3)
+                    connection.request('GET', '/', headers={'Host': 'switches.test', 'User-Agent': agent})
+                    response = connection.getresponse(); status = response.status; response.read(); connection.close()
+                    self.assertEqual(status, 403 if blocked else 200, (agent, tools, crawlers))
+            finally:
+                subprocess.run([*command, '-s', 'quit'], capture_output=True, timeout=5)
+
     def test_private_paths_block_but_well_known_and_ordinary_config_paths_work(self):
         hits = Origin.hits
         for path in ('/.env', '/.env.backup', '/.git/config', '/wp-config.php.old',

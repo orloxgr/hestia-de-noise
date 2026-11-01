@@ -1,0 +1,368 @@
+"""Bounded log consumption and native Hestia bans in the existing sync job."""
+from contextlib import contextmanager
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import stat
+import time
+
+from policy import site_mode
+
+CHAIN = 'DENOISE'
+LOG = Path('/var/log/hestia-de-noise/ban-events.log')
+READ_LIMIT = 2 * 1024 * 1024
+OPERATIONS = 100
+
+
+class Native:
+    def __init__(self, root, run):
+        self.root, self.run = Path(root), run
+
+    def command(self, name, *args):
+        return self.run(str(self.root / 'bin' / name), *args, timeout=10)
+
+    @contextmanager
+    def locked(self):
+        import fcntl
+        fd = os.open('/run/hestia-firewall.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            info = os.fstat(fd)
+            if info.st_uid != 0 or not stat.S_ISREG(info.st_mode):
+                raise ValueError('Untrusted native firewall lock')
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('Hestia firewall is busy; the next sync will retry')
+                    time.sleep(.05)
+            yield
+        finally:
+            os.close(fd)
+
+    def own_ips(self):
+        data = json.loads(self.run('/usr/sbin/ip', '-j', 'address', 'show', timeout=5))
+        addresses = {entry['local'] for interface in data for entry in interface.get('addr_info', [])}
+        for path in (self.root / 'data/ips').iterdir():
+            try:
+                addresses.add(str(ipaddress.ip_address(path.name)))
+            except ValueError:
+                pass
+        return addresses
+
+    def exclusions(self):
+        try:
+            fd = os.open(self.root / 'data/firewall/excludes.conf', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            return []
+        networks = []
+        with os.fdopen(fd, 'r', encoding='ascii', errors='strict') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o002:
+                raise ValueError('Untrusted native Hestia IP exclusions')
+            for line in stream:
+                try:
+                    networks.append(ipaddress.ip_network(line.strip(), strict=False))
+                except ValueError:
+                    continue
+        return networks
+
+    def inspect(self):
+        records = set()
+        # Native files are group-writable by Hestia administrators (0660).
+        # Read fields as data, never source/eval them or invoke a PHP parser
+        # once per ban as some native list commands do.
+        handle = os.open(self.root / 'data/firewall/banlist.conf', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(handle, 'r', encoding='ascii', errors='strict') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o002:
+                raise ValueError('Untrusted native Hestia ban list')
+            for line in stream:
+                if " CHAIN='DENOISE'" in line:
+                    match = re.fullmatch(r"IP='([0-9.]+(?:/[0-9]+)?)' CHAIN='DENOISE' TIME='[0-9:]+' DATE='[0-9-]+'\s*", line)
+                    if not match:
+                        raise ValueError('Malformed native De-Noise ban record')
+                    network = ipaddress.ip_network(match[1], strict=False)
+                    if network.prefixlen != 32:
+                        raise ValueError('De-Noise native bans must be individual IPv4 addresses')
+                    records.add(str(network.network_address))
+        chains = self.run('/sbin/iptables', '-S', 'INPUT', timeout=5)
+        matching = [line for line in chains.splitlines() if line.endswith(' -j fail2ban-' + CHAIN)]
+        if not matching:
+            return False, records, set()
+        if len(matching) != 1 or '-p tcp ' not in matching[0] or '--dports 80,443 ' not in matching[0]:
+            raise ValueError('DENOISE chain has unexpected ports or protocol; refusing to change it')
+        rules = self.run('/sbin/iptables', '-S', 'fail2ban-' + CHAIN, timeout=5)
+        active = set()
+        for line in rules.splitlines():
+            match = re.fullmatch(r'-A fail2ban-DENOISE -s ([0-9.]+)/32 -j DROP', line)
+            if match:
+                active.add(str(ipaddress.ip_address(match[1])))
+            elif line not in ('-N fail2ban-DENOISE', '-A fail2ban-DENOISE -j RETURN'):
+                raise ValueError('DENOISE chain contains unmanaged rules')
+        return True, records, active
+
+    def create(self):
+        self.command('v-add-firewall-chain', CHAIN, '80,443', 'TCP')
+
+    def add(self, address):
+        self.command('v-add-firewall-ban', address, CHAIN)
+
+    def remove(self, address):
+        self.run('/usr/bin/env', 'HESTIA_F2B_CALLER=1', str(self.root / 'bin/v-delete-firewall-ban'), address, CHAIN, timeout=10)
+
+    def drop_chain(self):
+        self.command('v-delete-firewall-chain', CHAIN)
+        exists, records, active = self.inspect()
+        if records or active:
+            raise RuntimeError('Refusing to remove a nonempty De-Noise chain')
+        if exists:
+            # Some Hestia versions remove a multiport jump using --dport,
+            # leaving its empty chain referenced. Clean only the verified
+            # addon-owned 80/443 jump; no other rule or chain is touched.
+            self.run('/sbin/iptables', '-D', 'INPUT', '-p', 'tcp', '-m', 'multiport', '--dports', '80,443', '-j', 'fail2ban-' + CHAIN)
+            self.run('/sbin/iptables', '-X', 'fail2ban-' + CHAIN)
+        if self.inspect()[0]:
+            raise RuntimeError('Hestia did not remove the addon firewall chain')
+
+
+@contextmanager
+def database(state, create=True):
+    path = Path(state) / 'bans.sqlite'
+    if not create and not path.exists():
+        yield None
+        return
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | (os.O_CREAT if create else 0), 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+            raise ValueError('Automatic-ban database must be a root-private regular file')
+    finally:
+        os.close(fd)
+    connection = sqlite3.connect(path, timeout=10)
+    connection.row_factory = sqlite3.Row
+    try:
+        app = connection.execute('PRAGMA application_id').fetchone()[0]
+        if app not in (0, 0x48444E31) or (app == 0 and connection.execute('SELECT name FROM sqlite_master').fetchone()):
+            raise ValueError('Refusing an unmanaged ban database')
+        connection.executescript('''
+            PRAGMA application_id=1212436017;
+            CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS cursors (device INTEGER, inode INTEGER, offset INTEGER NOT NULL, PRIMARY KEY(device,inode));
+            CREATE TABLE IF NOT EXISTS strikes (ip TEXT, domain TEXT, reason TEXT, stamp REAL);
+            CREATE INDEX IF NOT EXISTS strikes_time ON strikes(stamp);
+            CREATE INDEX IF NOT EXISTS strikes_ip ON strikes(ip);
+            CREATE TABLE IF NOT EXISTS bans (ip TEXT PRIMARY KEY, domain TEXT, reason TEXT,
+                created REAL, expires REAL, status TEXT, error TEXT NOT NULL DEFAULT '');
+        ''')
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def get(db, key, default=''):
+    row = db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
+    return row[0] if row else default
+
+
+def put(db, key, value):
+    db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', (key, str(value)))
+
+
+def events(db):
+    remaining = READ_LIMIT
+    for path in (LOG.with_name(LOG.name + '.1'), LOG):
+        if not remaining:
+            break
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            continue
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                raise ValueError('Untrusted automatic-ban event log')
+            old = db.execute('SELECT offset FROM cursors WHERE device=? AND inode=?', (info.st_dev, info.st_ino)).fetchone()
+            offset = old[0] if old and old[0] <= info.st_size else 0
+            stream.seek(offset)
+            body = stream.read(remaining)
+            end = body.rfind(b'\n') + 1
+            remaining -= len(body)
+            if not end:
+                if len(body) == READ_LIMIT:
+                    raise ValueError('Automatic-ban event line exceeds the read bound')
+                continue
+            for line in body[:end].decode('ascii', errors='replace').splitlines():
+                fields = line.split()
+                if len(fields) == 4:
+                    yield fields
+            db.execute('INSERT OR REPLACE INTO cursors VALUES (?,?,?)', (info.st_dev, info.st_ino, offset + end))
+
+
+def report(state, enabled=False):
+    with database(state, create=False) as db:
+        if db is None:
+            return {'enabled': enabled, 'active': 0, 'pending': 0, 'rows': [], 'error': '', 'last_sync': '', 'unsupported_ipv6': 0}
+        counts = dict(db.execute('SELECT status, COUNT(*) FROM bans GROUP BY status').fetchall())
+        return {'enabled': enabled, 'active': counts.get('active', 0),
+                'pending': counts.get('pending', 0) + counts.get('removing', 0),
+                'rows': [dict(row) for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending','removing') ORDER BY created DESC LIMIT 100")],
+                'error': get(db, 'error'), 'last_sync': get(db, 'last_sync'),
+                'unsupported_ipv6': int(get(db, 'ipv6', '0'))}
+
+
+def synchronize(policy, sites, state, native, now=None, remove=False, read_events=True):
+    now = time.time() if now is None else now
+    settings = policy['bans']
+    eligible = {site['domain'] for site in sites if site.get('supported') and not site.get('suspended') and
+                site_mode(policy, site) == 'enforce' and (not settings['targets'] or site['key'] in settings['targets'])}
+    enabled = settings['enabled'] and bool(eligible) and not remove
+    if not enabled and not (Path(state) / 'bans.sqlite').exists():
+        return report(state)
+    with database(state) as db:
+        try:
+            with native.locked():
+                exists, records, active = native.inspect()
+                owned = get(db, 'chain_owned')
+                if (exists or records) and not owned:
+                    raise ValueError('DENOISE firewall chain is not owned by this addon')
+                ignored = [ipaddress.ip_network(value) for value in settings['ignore_ips']]
+                ignored.extend(native.exclusions())
+                self_ips = native.own_ips() if enabled else set()
+
+                def exempt(address):
+                    ip = ipaddress.ip_address(address)
+                    return ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_link_local or address in self_ips or any(ip in network for network in ignored)
+
+                # Reconcile native panel unbans before accepting new events.
+                for row in db.execute("SELECT * FROM bans WHERE status='active'").fetchall():
+                    if row['ip'] not in records and row['ip'] not in active:
+                        db.execute("UPDATE bans SET status='released',created=?,error='' WHERE ip=?", (now, row['ip']))
+                    elif row['ip'] not in records or row['ip'] not in active:
+                        raise ValueError('Native ban record and firewall disagree for ' + row['ip'])
+                duration = settings['duration_days']
+                if get(db, 'duration') != str(duration):
+                    db.execute("UPDATE bans SET expires=CASE WHEN ?=0 THEN 0 ELSE created+? END WHERE status IN ('active','pending')", (duration, duration * 86400))
+                    put(db, 'duration', duration)
+                if enabled:
+                    signals = ({'private-file'} if settings['private_files'] else set()) | ({'repository'} if settings['repositories'] else set())
+                    cutoff = now - settings['findtime']
+                    db.execute('DELETE FROM strikes WHERE stamp<?', (cutoff,))
+                    for stamp, address, domain, reason in (events(db) if read_events else []):
+                        try:
+                            stamp, ip = float(stamp), ipaddress.ip_address(address)
+                        except ValueError:
+                            continue
+                        if not cutoff <= stamp <= now + 5 or domain not in eligible or reason not in signals or exempt(str(ip)):
+                            continue
+                        if ip.version != 4:
+                            put(db, 'ipv6', int(get(db, 'ipv6', '0')) + 1)
+                            continue
+                        address = str(ip)
+                        previous = db.execute('SELECT * FROM bans WHERE ip=?', (address,)).fetchone()
+                        if previous and (previous['status'] in ('active', 'pending', 'removing') or previous['created'] >= stamp):
+                            continue
+                        db.execute('INSERT INTO strikes VALUES (?,?,?,?)', (address, domain, reason, stamp))
+                        count = db.execute('SELECT COUNT(*) FROM strikes WHERE ip=? AND stamp>=?', (address, cutoff)).fetchone()[0]
+                        if count >= settings['maxretry']:
+                            db.execute('INSERT OR REPLACE INTO bans VALUES (?,?,?,?,?,?,?)',
+                                       (address, domain, reason, now, now + duration * 86400 if duration else 0, 'pending', ''))
+                            db.execute('DELETE FROM strikes WHERE ip=?', (address,))
+                else:
+                    for _ in events(db):
+                        pass
+                    db.execute('DELETE FROM strikes')
+                put(db, 'enabled', int(enabled))
+                for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending')").fetchall():
+                    if not enabled or row['domain'] not in eligible or exempt(row['ip']) or (row['expires'] and row['expires'] <= now):
+                        db.execute("UPDATE bans SET status=?,error='' WHERE ip=?", ('removing' if row['ip'] in records or row['ip'] in active else 'released', row['ip']))
+                db.commit()  # Native mutations remain resumable after interruption.
+                pending = db.execute("SELECT * FROM bans WHERE status IN ('pending','removing') ORDER BY status DESC,created LIMIT ?", (OPERATIONS,)).fetchall()
+                if any(row['status'] == 'pending' for row in pending) and not exists:
+                    put(db, 'chain_owned', 'creating'); db.commit()
+                    native.create()
+                    exists, records, active = native.inspect()
+                    if not exists:
+                        raise RuntimeError('Hestia did not create the web-only DENOISE chain')
+                    put(db, 'chain_owned', '1'); db.commit()
+                failures = []
+                deadline = time.monotonic() + 10
+                for row in pending:
+                    if time.monotonic() >= deadline:
+                        break
+                    address = row['ip']
+                    try:
+                        if row['status'] == 'pending':
+                            if address not in records or address not in active:
+                                native.add(address)
+                            _, records, active = native.inspect()
+                            if address not in records or address not in active:
+                                raise RuntimeError('Hestia did not apply the firewall ban')
+                            db.execute("UPDATE bans SET status='active',error='' WHERE ip=?", (address,))
+                        else:
+                            if address in records or address in active:
+                                native.remove(address)
+                            _, records, active = native.inspect()
+                            if address in records or address in active:
+                                raise RuntimeError('Hestia did not remove the firewall ban')
+                            db.execute("UPDATE bans SET status='released',created=?,error='' WHERE ip=?", (now, address))
+                        db.commit()
+                    except Exception as error:
+                        db.execute('UPDATE bans SET error=? WHERE ip=?', (str(error)[-2000:], address)); db.commit()
+                        failures.append(address + ': ' + str(error))
+                        break
+                if remove and owned:
+                    if records or active:
+                        remaining = db.execute("SELECT COUNT(*) FROM bans WHERE status IN ('active','pending','removing')").fetchone()[0]
+                        if not remaining:
+                            raise RuntimeError('Untracked bans remain in the native DENOISE chain; refusing to delete them')
+                    else:
+                        if exists:
+                            native.drop_chain()
+                        put(db, 'chain_owned', '')
+                put(db, 'error', '\n'.join(failures)[-4000:])
+                put(db, 'last_sync', now)
+                db.commit()
+        except Exception as error:
+            put(db, 'error', str(error)[-4000:]); db.commit()
+    return report(state, enabled)
+
+
+def unban(state, native, addresses, now=None):
+    now = time.time() if now is None else now
+    with database(state, create=False) as db:
+        if db is None:
+            return
+        selected = [row[0] for row in db.execute("SELECT ip FROM bans WHERE status IN ('active','pending','removing')")] if addresses == 'all' else addresses
+        if not isinstance(selected, list) or (addresses != 'all' and len(selected) > 10000):
+            raise ValueError('Select valid addon-owned IP bans')
+        if addresses != 'all' and not selected:
+            raise ValueError('Select at least one De-Noise IP to unban')
+        for value in selected:
+            ipaddress.IPv4Address(value)
+            if not db.execute("SELECT ip FROM bans WHERE ip=? AND status IN ('active','pending','removing')", (value,)).fetchone():
+                raise ValueError('This IP is not an active De-Noise ban: ' + value)
+        if selected and not get(db, 'chain_owned'):
+            raise ValueError('De-Noise does not own this firewall chain')
+        for address in selected:
+            db.execute("UPDATE bans SET status='removing',created=? WHERE ip=?", (now, address))
+            db.execute('DELETE FROM strikes WHERE ip=?', (address,))
+        db.commit()
+
+
+def cleanup(policy, sites, state, native, timeout=45):
+    deadline = time.monotonic() + timeout
+    while True:
+        result = synchronize(policy, sites, state, native, remove=True, read_events=False)
+        if result.get('error'):
+            raise RuntimeError('Could not remove addon firewall bans: ' + result['error'])
+        if not result['active'] and not result['pending']:
+            return result
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Some addon bans still await removal; retry cleanup to continue')

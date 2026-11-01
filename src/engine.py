@@ -12,6 +12,7 @@ import time
 from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, FILTER_AGENTS,
                     account, domain, validate, site_mode, global_config, site_config)
 import activity
+import auto_bans
 from presets import RULES
 import storage
 
@@ -260,8 +261,15 @@ def snapshot(policy, sites, owner=None):
         metrics = activity.summary({row['domain'] for row in rows})
     except (OSError, ValueError) as error:
         metrics = {'available': False, 'error': str(error)}
+    ban_status = {}
+    if owner is None:
+        try:
+            ban_status = auto_bans.report(STATE, policy['bans']['enabled'])
+        except (OSError, ValueError) as error:
+            ban_status = {'error': str(error)}
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
+            'bans': ban_status,
             'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
                         'filter_agents': FILTER_AGENTS, 'rules': RULES}}
 
@@ -292,10 +300,18 @@ def dispatch(request):
         incoming = request.get('policy')
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
-        previous_exceptions = policy['static_exceptions']
-        policy = validate({**incoming, 'overrides': policy['overrides']})
+        previous = policy
+        policy = validate({**incoming, 'overrides': previous['overrides']})
         if incoming.get('schema') in (1, 2):
-            policy['static_exceptions'] = previous_exceptions
+            policy['static_exceptions'] = previous['static_exceptions']
+        if incoming.get('schema') in (1, 2, 3):
+            policy['bans'] = previous['bans']
+            policy['tool_agents_enabled'] = previous['tool_agents_enabled']
+            policy['agents_enabled'] = previous['agents_enabled']
+        if policy['bans']['enabled']:
+            for command in ('v-add-firewall-chain', 'v-list-firewall-ban', 'v-add-firewall-ban', 'v-delete-firewall-ban'):
+                if not (HESTIA / 'bin' / command).is_file():
+                    raise ValueError('Automatic bans require native Hestia firewall commands: ' + command)
         apply(policy, sites)
     elif action == 'bulk':
         selection = request.get('targets')
@@ -316,6 +332,14 @@ def dispatch(request):
         apply(policy, sites)
     elif action == 'sync':
         apply(policy, sites)
+        result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+        if result.get('error'):
+            raise RuntimeError('HTTP rules synchronized; automatic firewall bans failed: ' + result['error'])
+    elif action == 'unban':
+        auto_bans.unban(STATE, auto_bans.Native(HESTIA, run), request.get('ips'))
+        result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run), read_events=False)
+        if result.get('error'):
+            raise RuntimeError('Unban is pending; native firewall operation failed: ' + result['error'])
     elif action != 'status':
         raise ValueError('Unsupported operation')
     return snapshot(policy, sites, None if admin and owner == request['actor'] else owner)
@@ -335,12 +359,19 @@ def main():
             if action == ['disable']:
                 policy['mode'] = 'off'; policy['overrides'] = {}
             if action != ['status']:
+                if action == ['remove-rules']:
+                    auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run))
                 result = apply(policy, sites, remove=action == ['remove-rules'])
+                if action != ['remove-rules']:
+                    bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+                    if bans.get('error'):
+                        raise RuntimeError('HTTP rules synchronized; automatic firewall bans failed: ' + bans['error'])
+                    result['bans'] = {key: value for key, value in bans.items() if key != 'rows'}
             else:
                 result = snapshot(policy, sites)
         else:
-            raw = sys.stdin.buffer.read(131073)
-            if len(raw) > 131072:
+            raw = sys.stdin.buffer.read(1048577)
+            if len(raw) > 1048576:
                 raise ValueError('Request too large')
             result = dispatch(json.loads(raw))
     return {'ok': True, **result}

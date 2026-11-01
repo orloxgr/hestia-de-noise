@@ -12,6 +12,7 @@ import sys
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE / 'src'))
 import engine
+import auto_bans
 from policy import DEFAULT, MARKER, VERSION, validate
 import storage
 
@@ -89,7 +90,7 @@ def preflight():
 
 def prepare_logs():
     directory(LOGS)
-    for filename in ('matches.log', 'maintenance.log'):
+    for filename in ('matches.log', 'maintenance.log', 'ban-events.log'):
         with storage.parent(LOGS / filename) as descriptor:
             log = os.open(filename, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
                           0o640, dir_fd=descriptor)
@@ -177,6 +178,9 @@ def uninstall():
         cron_before = storage.owned(CRON)
         storage.replace(CRON, None)
         try:
+            if (engine.STATE / 'bans.sqlite').exists():
+                auto_bans.cleanup(validate(engine.load('policy.json', DEFAULT)), engine.collect(),
+                                  engine.STATE, auto_bans.Native(engine.HESTIA, engine.run))
             engine.apply(validate(engine.load('policy.json', DEFAULT)), engine.collect(), remove=True)
         except Exception:
             storage.replace(CRON, cron_before)

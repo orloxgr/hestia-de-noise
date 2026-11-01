@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from policy import DEFAULT, validate, domain, target, site_mode, global_config, site_config
+from policy import DEFAULT, LEGACY_KEYS, validate, domain, target, site_mode, global_config, site_config
 
 
 class PolicyTests(unittest.TestCase):
@@ -63,8 +63,7 @@ class PolicyTests(unittest.TestCase):
         self.assertIn('set $hdn_mode off;', text)
 
     def test_upgrade_keeps_old_policy_without_adding_restrictions(self):
-        old = copy.deepcopy(DEFAULT)
-        del old['filters'], old['static'], old['static_exceptions']
+        old = {key: copy.deepcopy(value) for key, value in DEFAULT.items() if key in LEGACY_KEYS}
         old.update(schema=1, mode='enforce', agents=['ExistingBot'])
         old['overrides'] = {'alice/one.test': 'off'}
         upgraded = validate(old)
@@ -74,13 +73,18 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(upgraded['filters'], [])
         self.assertEqual(upgraded['static'], [])
         self.assertEqual(upgraded['static_exceptions'], {})
-        old2 = copy.deepcopy(DEFAULT)
-        del old2['static_exceptions']
+        old2 = {key: copy.deepcopy(value) for key, value in DEFAULT.items() if key in LEGACY_KEYS | {'filters', 'static'}}
         old2['schema'] = 2
         old2['static'] = [{'id': 'maps', 'enabled': True, 'path': '/wp-content/', 'extensions': ['map'], 'targets': []}]
         upgraded2 = validate(old2)
         self.assertEqual(upgraded2['static'], old2['static'])
         self.assertEqual(upgraded2['static_exceptions'], {})
+        old3 = {key: copy.deepcopy(value) for key, value in DEFAULT.items() if key in LEGACY_KEYS | {'filters', 'static', 'static_exceptions'}}
+        old3.update(schema=3, agents=['TLM-Audit-Scanner', 'GoogleOther', 'CustomAgent'])
+        upgraded3 = validate(old3)
+        self.assertEqual(upgraded3['tool_agents'], ['TLM-Audit-Scanner'])
+        self.assertEqual(upgraded3['agents'], ['GoogleOther', 'CustomAgent'])
+        self.assertFalse(upgraded3['bans']['enabled'])
 
     def test_static_exceptions_are_exact_paths_with_idempotent_encoding(self):
         policy = copy.deepcopy(DEFAULT)
