@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Add visible one-click presets for WordPress source maps, plugin/theme/core
+  JS/CSS, product listing filters and VLM directory filters.
+- Show paths, extensions or parameter names before insertion; keep the inserted
+  rules editable and apply only after Save & Apply.
+- Preserve matching existing rules and their settings when a preset is clicked
+  again; leave saved policies unchanged during installation/update.
+
 ## 0.2.0
 
 - Separate scanner-tool and optional bulk/AI crawler suggestions, including

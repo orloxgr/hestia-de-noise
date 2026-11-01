@@ -46,6 +46,13 @@ foreach (['filters' => 'Filtered URL crawling', 'static' => 'Missing static file
         <p class="u-mb10"><?= $module === 'filters'
             ? 'Match selected crawler names, a URL path and query parameter names. Ordinary visitors and unmatched URLs keep their current routing.'
             : 'Return 404 for missing files in selected directories. Existing files keep their current routing.' ?></p>
+        <?php foreach ($data['presets']['rules'][$module] ?? [] as $preset): ?>
+        <div class="u-mb10">
+            <button type="button" class="button button-secondary" data-hdn-add="<?= $module ?>" data-hdn-rule-preset="<?= $escape($preset['key']) ?>"><?= $escape($preset['title']) ?></button>
+            <p class="u-mt10"><?= $escape($preset['description']) ?></p>
+        </div>
+        <?php endforeach; ?>
+        <p class="u-mb10" role="status" id="hdn-<?= $module ?>-message"></p>
         <div id="hdn-<?= $module ?>-rows">
         <?php foreach (is_array($policy[$module] ?? null) ? $policy[$module] : [] as $index => $rule) { $renderRule($module, $index, $rule); } ?>
         </div>
@@ -58,3 +65,4 @@ foreach (['filters' => 'Filtered URL crawling', 'static' => 'Missing static file
     : ['id' => '__ID__', 'enabled' => true, 'path' => '/wp-content/', 'extensions' => ['map'], 'targets' => []]); ?>
 </template>
 <?php endforeach; ?>
+<script type="application/json" id="hdn-rule-presets"><?= json_encode($data['presets']['rules'] ?? [], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>

@@ -4,7 +4,7 @@ import hashlib
 import re
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']

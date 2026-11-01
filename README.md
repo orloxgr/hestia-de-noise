@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.2.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.2.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -69,14 +69,26 @@ new agent names or enable filtered-URL/static rules: use the panel buttons and
 
 ## Add a filtered-URL rule
 
-1. Open **Filtered URL crawling → Add rule**.
-2. Enter the listing path, such as `/shop/`, and its query parameter names,
-   such as `min_price`, `max_price`, `orderby` (one per line).
-3. Select the domains. An empty domain selection means all domains.
-4. Keep **Rate limit**, adjust requests/minute and burst, then **Save & Apply**.
+1. Open **Filtered URL crawling**.
+2. Click **Product listing filters** or **VLM directory filters**.
+3. Select the domains. An empty selection means all domains.
+4. Review the prefilled rate and parameter names, then **Save & Apply**.
 
-The suggested crawler list is editable. Ordinary URLs without those parameter
-names and visitors without those crawler names do not match this rule.
+For another URL pattern use **Add rule**. All presets remain editable. Ordinary
+URLs without the selected parameter names and visitors without the selected
+crawler names do not match the rule.
+
+## Enable missing-static-file protection
+
+1. Open **Missing static files**.
+2. Click **WordPress source maps** or **WordPress JS / CSS**. The paths and
+   extensions are shown below each button.
+3. Leave **Enabled** checked and select the domains, or leave the selection
+   empty for all domains.
+4. **Save & Apply** with server/domain mode **Enforce**.
+
+Preset buttons fill the form; they do not save or reload Nginx. Repeated clicks
+keep matching existing rules and their edited rates, switches and domain scope.
 
 ## Disable or uninstall
 
@@ -108,7 +120,9 @@ rate limits use `nodelay`, rejecting excess requests rather than queuing them.
 Each endpoint or filtered-URL rate rule reserves 10 MiB of shared state. Selected
 static rules add an Nginx file-existence check on their domains; use only literal
 document roots and directories where missing files should really be 404, not
-dynamic image generators or protected download routes. Existing
+dynamic image generators or protected download routes. The bundled static presets
+cover source maps and plugin/theme/core JS/CSS; they do not select upload images
+or generated-cache directories. Existing
 templates with conflicting limits or missing native include points are reported
 as unsupported and kept unchanged. Other inherited Nginx rules can still apply.
 

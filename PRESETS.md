@@ -1,4 +1,4 @@
-# Presets — 0.2.0
+# Presets — 0.2.1
 
 ## Scanner tools
 
@@ -63,6 +63,12 @@ public pages are not generally blocked. There is no blanket browser/bot rule.
 
 ## Filtered URL examples
 
+The panel provides **Product listing filters** for `min_price`, `max_price` and
+`orderby`, and **VLM directory filters** for `vlm_listing_tag`,
+`vlm_listing_category` and `vlm_listing_distance`. Both use path `/` to cover
+localized listing routes and an editable 30/minute/crawler/domain limit, burst 5.
+Choose the applicable domains before saving; an empty selection means all.
+
 | Listing type | Path | Parameter names |
 | --- | --- | --- |
 | Product listing | `/shop/` | `min_price`, `max_price`, `orderby`, `filter_color`, `filter_size` |
@@ -80,10 +86,16 @@ independent budgets. Multiple rules can apply; all applicable limits must pass.
 
 ## Missing static files
 
-The add-rule form suggests `/wp-content/` with extension `map`. Add directories
-and extensions explicitly. No directory is selected automatically. Do not select
-an on-demand generator directory where a missing file is normally produced by
-the application. Observe records candidates and allows them; Off disables them.
+| Panel preset | Directories | Extensions |
+| --- | --- | --- |
+| WordPress source maps | `/wp-content/` | `map` |
+| WordPress JS / CSS | `/wp-content/plugins/`, `/wp-content/themes/`, `/wp-includes/` | `js css map` |
+
+The JS/CSS button inserts three editable rules. **Add rule** creates a custom
+rule, initially `/wp-content/` with extension `map`. Nothing is saved until
+**Save & Apply**. Repeated preset clicks preserve matching existing rules,
+including their switches and domain selection. Observe records candidates and
+allows them; Off disables them.
 
 All rules are bundled and editable. There is no automatic external deny-list
 import or application/plugin detection.

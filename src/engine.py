@@ -12,6 +12,7 @@ import time
 from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, FILTER_AGENTS,
                     account, domain, validate, site_mode, global_config, site_config)
 import activity
+from presets import RULES
 import storage
 
 HESTIA = Path('/usr/local/hestia')
@@ -260,7 +261,8 @@ def snapshot(policy, sites, owner=None):
         metrics = {'available': False, 'error': str(error)}
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
-            'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'filter_agents': FILTER_AGENTS}}
+            'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
+                        'filter_agents': FILTER_AGENTS, 'rules': RULES}}
 
 
 def authorize(request):

@@ -74,6 +74,15 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(upgraded['filters'], [])
         self.assertEqual(upgraded['static'], [])
 
+    def test_bundled_rule_presets_are_valid_together_and_do_not_modify_defaults(self):
+        from presets import RULES
+        candidate = copy.deepcopy(DEFAULT)
+        for module, presets in RULES.items():
+            candidate[module] = [copy.deepcopy(rule) for preset in presets for rule in preset['rules']]
+        validate(candidate)
+        self.assertEqual(DEFAULT['filters'], [])
+        self.assertEqual(DEFAULT['static'], [])
+
     def test_rule_config_injection_and_unsafe_static_root_are_rejected(self):
         policy = copy.deepcopy(DEFAULT)
         policy['filters'] = [{'id': 'facets', 'enabled': True, 'path': '/shop/',
