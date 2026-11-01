@@ -1,5 +1,6 @@
 """No-follow file access and durable replacement of addon-owned files."""
 from contextlib import contextmanager
+import errno
 import json
 import os
 from pathlib import Path
@@ -42,6 +43,32 @@ def read(path):
             if len(data) > 2 * 1024 * 1024:
                 raise ValueError('Managed file is unexpectedly large: ' + str(path))
             return data
+
+
+def read_hestia_include(path):
+    """Read native snippets, including Hestia's specific SSL ACME link."""
+    path = Path(path)
+    try:
+        return read(path)
+    except OSError as error:
+        if error.errno != errno.ELOOP:
+            raise
+        if path.name != 'nginx.ssl.conf_letsencrypt':
+            raise ValueError('Unsupported symbolic include: ' + str(path)) from error
+    expected = path.with_name('nginx.conf_letsencrypt')
+    with parent(path) as fd:
+        info = os.stat(path.name, dir_fd=fd, follow_symlinks=False)
+        if not stat.S_ISLNK(info.st_mode) or info.st_uid != 0:
+            raise ValueError('The native ACME include link must belong to root: ' + str(path))
+        link = os.readlink(path.name, dir_fd=fd)
+        if link not in (expected.name, './' + expected.name, str(expected)):
+            raise ValueError('Unexpected target for the native ACME include: ' + str(path))
+    # Inspect the HTTP counterpart, never follow the link itself. The normal
+    # no-follow reader validates its ancestors, type and root-only ownership.
+    content = read(expected)
+    if content is None:
+        raise ValueError('The native ACME include target is missing: ' + str(expected))
+    return content
 
 
 def replace(path, data, mode=0o644):

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Recognize Hestia's root-owned SSL ACME include symlink to its HTTP counterpart.
+- Inspect the target read-only for conflicting rules; retain strict no-follow
+  handling for addon-owned files and unrelated symlinks.
+
 ## 0.1.0
 
 - First installable preview for Ubuntu and Hestia's Nginx proxy.

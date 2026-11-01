@@ -79,7 +79,7 @@ def inspect_site(site):
             for sibling in base.parent.glob(base.name + '_*'):
                 if sibling.name == destination.name:
                     continue
-                fragment = storage.read(sibling)
+                fragment = storage.read_hestia_include(sibling)
                 if fragment and re.search(rb'^\s*limit_req(?:_dry_run|_status)?\s', fragment, re.M):
                     site['reason'] = 'Another domain include defines request limits; kept unchanged'
                     return site
@@ -248,7 +248,7 @@ def snapshot(policy, sites, owner=None):
                                                    'suspended', 'supported', 'reason')},
                      'mode': site_mode(policy, site),
                      'override': policy['overrides'].get(site['key'], 'inherit')})
-    return {'ok': True, 'version': '0.1.0', 'policy': policy if owner is None else {'mode': policy['mode']},
+    return {'ok': True, 'version': '0.1.1', 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows}
 
 
