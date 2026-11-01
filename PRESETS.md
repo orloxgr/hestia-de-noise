@@ -1,65 +1,89 @@
-# Preset catalog
+# Presets — 0.2.0
 
-Version 0.1.0 includes the initial agent suggestions, POST login/XML-RPC rate
-limits and the private-file preset below. They start disabled. Filtered URLs,
-missing-file rules and advanced endpoint exceptions remain planned.
+## Scanner tools
 
-These are editable starting suggestions, not automatically deployed rules.
-They cover repeat endpoint traffic, excessive filtered-URL crawling, private-file
-probes and missing static files. Applying a preset is an explicit admin action.
-Presets are bundled and versioned; the addon does not import changing third-party
-deny lists or enable new restrictions automatically during an update.
+**Add scanner tools** inserts these literal names into the editable blocklist:
 
-## Endpoint suggestions
+```text
+TLM-Audit-Scanner
+sqlmap
+Nikto
+Nuclei
+zgrab
+masscan
+ZmEu
+DirBuster
+gobuster
+ffuf
+WPScan
+```
 
-| Preset | Path and method | Suggested initial setting |
+These are scanning tools; authorized scans can use them too. The list matches
+declared names and is not identity verification.
+
+## Optional bulk / AI crawlers
+
+**Add bulk / AI crawlers** inserts:
+
+```text
+meta-externalagent
+GoogleOther
+MJ12bot
+Bytespider
+ClaudeBot
+Amazonbot
+Reflectionbot
+GPTBot
+AhrefsBot
+SemrushBot
+DotBot
+BLEXBot
+```
+
+These are collection, training or SEO-analysis crawlers, not inherently malicious
+services. Use the group only when that traffic is unwanted. Googlebot, Bingbot,
+Applebot, social-preview and user-requested retrieval agents are not in either
+blocklist. Custom entries still apply literally.
+
+## Paths and request budgets
+
+| Module | Match | Action in Enforce |
 | --- | --- | --- |
-| WordPress login forms | POST `/wp-login.php`, including normalized slash variants | 5 requests/minute/client/site, burst 3; editable |
-| WordPress XML-RPC | POST `/xmlrpc.php`, including normalized slash variants | 10 requests/minute/client/site, burst 3; editable; optional block when unused |
-| WordPress AJAX | `/wp-admin/admin-ajax.php` | Observe only; no general rate limit |
-| WordPress REST | `/wp-json/` | Observe only; restrict only explicitly selected routes |
-| Private environment files | Selected `.env` and `.env.*` file paths | Reject when this preset is enabled |
-| Source-control metadata | `/.git` and `/.git/` descendants | Reject when this preset is enabled |
-| WordPress configuration backups | Selected `wp-config.php.bak`, `.backup` and `.old` paths | Reject when this preset is enabled |
-| Filtered listing pages | Admin-selected listing paths and query parameter names | Observe initially; offer an explicit crawler restriction or rate limit |
-| Missing generated static files | An admin-selected static directory, optionally a generated-image cache directory | Direct 404 only after explicit selection; retain dynamic-generator exceptions |
+| WordPress login | POST `/wp-login.php`, including normalized trailing slash | 5/minute/client/domain, burst 3 by default; editable |
+| XML-RPC | POST `/xmlrpc.php`, including normalized trailing slash | 10/minute/client/domain, burst 3 by default; editable |
+| Private files | `.env`, `.git`, `.svn`, `.hg`, selected `wp-config.php` backup extensions, `.htpasswd`, `.DS_Store` | 403 |
+| Credentials | Selected `.aws`, `.docker`, `.kube`, `.terraform`, `/var/run/secrets/kubernetes.io/serviceaccount/` paths | 403 |
+| Operating-system probes | `/proc/self/environ`, numeric-process equivalents, `cmdline`, `/etc/passwd`, `/etc/shadow`, `/etc/gshadow` | 403 |
+| Filtered URL crawling | Selected path + any selected parameter name + selected crawler name + domain scope | Editable limit per crawler/domain across IPs, or explicit 403 |
+| Missing static files | Selected directory + extension, GET/HEAD, file does not exist | 404; existing files retain their routing |
 
-Login and XML-RPC rates are starting suggestions, not universal safe capacities.
-Show the rate and scope before applying them. Existing integrations can receive
-specific exceptions. Login protection covers POST-body actions too, rather than
-depending only on the query-string action. Do not disable password recovery,
-customer login, XML-RPC integrations, AJAX or REST silently.
+Private paths are matched against Nginx's normalized URI, independently of the
+declared User-Agent. Ordinary `/api`, `/config`, `/.well-known`, AJAX, REST and
+public pages are not generally blocked. There is no blanket browser/bot rule.
 
-Parameter names for filtered listings are site-specific. Suggestions can be
-derived from bounded local traffic summaries, but no site-specific parameter or
-rule is inserted into a global preset automatically. Preserve indexable landing
-pages and working visitor filters. The private-file preset must not match broad
-prefixes such as `/api/` or `/config` and must preserve `/.well-known/` behavior.
+## Filtered URL examples
 
-## User-Agent suggestions
-
-| Group | Entries | Panel behavior |
+| Listing type | Path | Parameter names |
 | --- | --- | --- |
-| Initial candidates | `meta-externalagent`, `GoogleOther`, `MJ12bot` | Offer one-click insertion into the editable blocklist |
-| Additional candidates for review | `Bytespider`, `ClaudeBot`, `Reflectionbot`, `ElevenlabsCrawler`, `Amazonbot` | Show separately; operator decides whether the associated service is wanted |
-| Search and user-requested retrieval | Googlebot, Bingbot, Applebot and other search/retrieval agents | No automatic block or challenge |
-| Sharing and previews | `facebookexternalhit`, `meta-externalfetcher`, `Twitterbot`, `LinkedInBot`, Slack, WhatsApp, Telegram and Discord fetchers | No automatic block or challenge |
+| Product listing | `/shop/` | `min_price`, `max_price`, `orderby`, `filter_color`, `filter_size` |
+| Directory listing | `/directory/` | `listing_tag`, `listing_category`, `listing_distance` |
+| Localized listings using the same parameters | `/` on selected domains | The exact parameter names used by that application |
 
-The group labels are recommendations, not identity verification. Do not use
-browser strings such as `Chrome`, `Mozilla` or an old browser-version token as a
-general deny rule. Scanners can claim browser or search-bot names. Endpoint and
-private-file rules work independently of those claims.
+The add-rule form starts at 30 requests/minute/crawler/domain, burst 5, with
+Applebot, Amazonbot, Reflectionbot, Googlebot and Bingbot as editable candidates.
+This limits only the configured filter combinations; ordinary indexable pages
+remain outside that rule. No query values or URLs are rewritten, and no
+`robots.txt`, sitemap or canonical setting is changed.
 
-Keep `GoogleOther` distinct from Googlebot, `ClaudeBot` from search-oriented
-Claude agents, and bulk collection from user-requested retrieval. Operators may
-still enter their own literal entries; the addon does not secretly ignore them.
+Aliases use the canonical domain's budget. Different crawlers and domains have
+independent budgets. Multiple rules can apply; all applicable limits must pass.
 
-## Operator workflow
+## Missing static files
 
-1. Open a module and choose a preset.
-2. Review its explicit scope, action and suggested rate or entries.
-3. Edit or remove entries and choose applicable domains/exceptions.
-4. Save & Apply in Observe or Enforce mode.
+The add-rule form suggests `/wp-content/` with extension `map`. Add directories
+and extensions explicitly. No directory is selected automatically. Do not select
+an on-demand generator directory where a missing file is normally produced by
+the application. Observe records candidates and allows them; Off disables them.
 
-There is no mandatory observation period, automatic application inspection,
-WordPress installation prerequisite or hidden scanner-approval step.
+All rules are bundled and editable. There is no automatic external deny-list
+import or application/plugin detection.

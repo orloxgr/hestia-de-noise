@@ -55,12 +55,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $request = [...$statusRequest, 'action' => $_POST['action'] ?? ''];
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
-            $submitted = ['schema' => 1, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 2, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'scanners' => isset($_POST['scanners'])];
             foreach (['login', 'xmlrpc'] as $key) {
                 $submitted[$key] = ['enabled' => isset($_POST[$key . '_enabled']),
                     'rate' => filter_var($_POST[$key . '_rate'] ?? '', FILTER_VALIDATE_INT),
                     'burst' => filter_var($_POST[$key . '_burst'] ?? '', FILTER_VALIDATE_INT)];
+            }
+            $list = static function ($value, bool $lines = false): array {
+                if (!is_string($value)) return [];
+                return array_values(array_filter(array_map('trim', preg_split($lines ? '/\r\n|\r|\n/' : '/[\s,]+/', $value)), static fn($x) => $x !== ''));
+            };
+            foreach (['filters', 'static'] as $module) {
+                $submitted[$module] = [];
+                if (!is_array($_POST[$module] ?? [])) { $submitted[$module] = false; continue; }
+                foreach ($_POST[$module] ?? [] as $row) {
+                    $row = is_array($row) ? $row : [];
+                    $rule = ['id' => $row['id'] ?? '', 'enabled' => isset($row['enabled']),
+                        'path' => $row['path'] ?? '', 'targets' => $row['targets'] ?? []];
+                    if ($module === 'filters') {
+                        $rule += ['parameters' => $list($row['parameters'] ?? ''),
+                            'agents' => $list($row['agents'] ?? '', true), 'action' => $row['rule_action'] ?? '',
+                            'rate' => filter_var($row['rate'] ?? '', FILTER_VALIDATE_INT),
+                            'burst' => filter_var($row['burst'] ?? '', FILTER_VALIDATE_INT)];
+                    } else { $rule['extensions'] = $list(strtolower((string)($row['extensions'] ?? ''))); }
+                    $submitted[$module][] = $rule;
+                }
             }
             $request['policy'] = $submitted;
         } elseif ($request['action'] === 'bulk') {

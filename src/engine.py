@@ -9,7 +9,9 @@ import subprocess
 import sys
 import time
 
-from policy import DEFAULT, account, domain, validate, site_mode, global_config, site_config
+from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, FILTER_AGENTS,
+                    account, domain, validate, site_mode, global_config, site_config)
+import activity
 import storage
 
 HESTIA = Path('/usr/local/hestia')
@@ -51,6 +53,7 @@ def managed_path(value):
 def inspect_site(site):
     site = copy.deepcopy(site)
     site['paths'] = []
+    site['roots'] = {}
     site['supported'] = False
     site['reason'] = ''
     if not site['template']:
@@ -66,6 +69,9 @@ def inspect_site(site):
                     return site
                 continue
             text = raw.decode('utf-8')
+            roots = set(re.findall(r'^\s*root\s+(/[A-Za-z0-9_./-]+)\s*;', text, re.M))
+            if len(roots) == 1:
+                site['roots'][str(destination)] = roots.pop()
             include = 'include ' + str(base) + '_*;'
             quoted = 'include "' + str(base) + '_*";'
             if include not in text and quoted not in text:
@@ -200,7 +206,7 @@ def apply(policy, sites, remove=False):
         for site in sites:
             if site['supported']:
                 for path in site['paths']:
-                    desired[path] = site_config(policy, site)
+                    desired[path] = site_config(policy, site, site.get('roots', {}).get(path))
     manifest = load('manifest.json', [])
     old_paths = {str(managed_path(name)) for name in manifest}
     before, changes = {}, {}
@@ -248,8 +254,13 @@ def snapshot(policy, sites, owner=None):
                                                    'suspended', 'supported', 'reason')},
                      'mode': site_mode(policy, site),
                      'override': policy['overrides'].get(site['key'], 'inherit')})
-    return {'ok': True, 'version': '0.1.1', 'policy': policy if owner is None else {'mode': policy['mode']},
-            'sites': rows}
+    try:
+        metrics = activity.summary({row['domain'] for row in rows})
+    except (OSError, ValueError) as error:
+        metrics = {'available': False, 'error': str(error)}
+    return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
+            'sites': rows, 'activity': metrics,
+            'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'filter_agents': FILTER_AGENTS}}
 
 
 def authorize(request):
@@ -301,7 +312,7 @@ def dispatch(request):
         apply(policy, sites)
     elif action != 'status':
         raise ValueError('Unsupported operation')
-    return snapshot(policy, sites, None if admin else owner)
+    return snapshot(policy, sites, None if admin and owner == request['actor'] else owner)
 
 
 def main():

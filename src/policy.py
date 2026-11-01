@@ -1,13 +1,22 @@
 """Validated policy and a deterministic native Nginx compiler."""
 import copy
+import hashlib
 import re
 
 MARKER = '# Managed by hestia-de-noise'
+VERSION = '0.2.0'
 MODES = ('off', 'observe', 'enforce')
-PRESET_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot']
-DEFAULT = {'schema': 1, 'mode': 'observe', 'agents': [], 'scanners': False,
+SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
+                  'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
+CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
+                  'ClaudeBot', 'Amazonbot', 'Reflectionbot', 'GPTBot',
+                  'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot']
+PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
+FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
+DEFAULT = {'schema': 2, 'mode': 'observe', 'agents': [], 'scanners': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
-           'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {}}
+           'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
+           'filters': [], 'static': []}
 
 
 def account(value):
@@ -33,9 +42,13 @@ def target(value):
 
 
 def validate(raw):
-    if not isinstance(raw, dict) or raw.get('schema') != 1 or set(raw) != set(DEFAULT):
+    if not isinstance(raw, dict):
         raise ValueError('Unsupported policy format')
     data = copy.deepcopy(raw)
+    if data.get('schema') == 1 and set(data) == set(DEFAULT) - {'filters', 'static'}:
+        data.update(schema=2, filters=[], static=[])
+    if data.get('schema') != 2 or set(data) != set(DEFAULT):
+        raise ValueError('Unsupported policy format')
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
     if not isinstance(data['agents'], list) or len(data['agents']) > 200:
@@ -64,6 +77,53 @@ def validate(raw):
         target(key)
         if mode not in MODES:
             raise ValueError('Invalid domain mode')
+    ids = set()
+    for module in ('filters', 'static'):
+        if not isinstance(data[module], list) or len(data[module]) > 20:
+            raise ValueError('Use at most 20 rules per module')
+        for rule in data[module]:
+            fields = {'id', 'enabled', 'path', 'targets'} | (
+                {'parameters', 'agents', 'action', 'rate', 'burst'} if module == 'filters' else {'extensions'})
+            if not isinstance(rule, dict) or set(rule) != fields:
+                raise ValueError('Invalid ' + module + ' rule fields')
+            ident = rule['id']
+            if not isinstance(ident, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,31}', ident) or ident in ids:
+                raise ValueError('Rule IDs must be unique lowercase names, up to 32 characters')
+            ids.add(ident)
+            if type(rule['enabled']) is not bool:
+                raise ValueError('Invalid rule switch')
+            path = rule['path']
+            if (not isinstance(path, str) or not re.fullmatch(r'/[A-Za-z0-9_./~-]*', path) or
+                    '..' in path.split('/') or '//' in path or len(path) > 250):
+                raise ValueError('Enter a literal URL path, without query, wildcard or traversal')
+            if module == 'static' and (path == '/' or not path.endswith('/')):
+                raise ValueError('Static directories must end in / and cannot be the site root')
+            if not isinstance(rule['targets'], list) or len(rule['targets']) > 10000:
+                raise ValueError('Invalid rule domain selection')
+            rule['targets'] = list(dict.fromkeys(target(x) for x in rule['targets']))
+            if module == 'filters':
+                if rule['action'] not in ('limit', 'block'):
+                    raise ValueError('Choose limit or block for filtered URLs')
+                if (type(rule['rate']) is not int or not 1 <= rule['rate'] <= 600 or
+                        type(rule['burst']) is not int or not 0 <= rule['burst'] <= 100):
+                    raise ValueError('Rates must be 1–600 per minute; burst must be 0–100')
+                if not isinstance(rule['parameters'], list) or not 1 <= len(rule['parameters']) <= 20:
+                    raise ValueError('Enter 1–20 filter parameter names')
+                if any(not isinstance(x, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,63}', x)
+                       for x in rule['parameters']):
+                    raise ValueError('Invalid filter parameter name')
+                rule['parameters'] = list(dict.fromkeys(x.lower() for x in rule['parameters']))
+                if (not isinstance(rule['agents'], list) or not 1 <= len(rule['agents']) <= 40 or
+                        any(not isinstance(x, str) or not 2 <= len(x) <= 100 or
+                            any(ord(c) < 32 or ord(c) > 126 for c in x) for x in rule['agents'])):
+                    raise ValueError('Enter 1–40 literal crawler names for a filter rule')
+                rule['agents'] = list(dict.fromkeys(x.lower() for x in rule['agents']))
+            else:
+                if (not isinstance(rule['extensions'], list) or not 1 <= len(rule['extensions']) <= 20 or
+                        any(not isinstance(x, str) or not re.fullmatch(r'[a-z0-9]{1,10}', x)
+                            for x in rule['extensions'])):
+                    raise ValueError('Enter 1–20 lowercase static file extensions, without dots')
+                rule['extensions'] = list(dict.fromkeys(rule['extensions']))
     return data
 
 
@@ -73,6 +133,31 @@ def literal_regex(value):
     # can reinterpret an administrator's literal text. Nginx consumes one of
     # the two backslashes before PCRE receives each \xHH escape.
     return '"~*' + ''.join(r'\\x' + format(ord(c), '02x') for c in value) + '"'
+
+
+def pattern(value):
+    """Quote only compiler-created PCRE expressions, never administrator regex."""
+    return '"~*' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def applies(rule, site):
+    return rule['enabled'] and (not rule['targets'] or site['key'] in rule['targets'])
+
+
+def path_pattern(value):
+    return '^' if value == '/' else '^' + re.escape(value.rstrip('/')) + '(?:/|$)'
+
+
+def parameter_pattern(value):
+    # Also recognize percent-encoded ASCII parameter names, not just literal ones.
+    return ''.join('(?:' + re.escape(c) + '|%' + format(ord(c), '02x') + ')' for c in value)
+
+
+def scope_map(variable, rule, sites):
+    names = sorted({s.get('domain', s['key'].split('/', 1)[1]) for s in sites
+                    if applies(rule, s) and s.get('supported', True) and not s.get('suspended')})
+    return ['map $server_name $' + variable + ' {', '    default 0;'] + [
+        '    ' + domain(name) + ' 1;' for name in names] + ['}']
 
 
 def site_mode(policy, site):
@@ -88,12 +173,62 @@ def global_config(policy, sites):
     lines += ['    ' + literal_regex(entry) + ' 1;' for entry in policy['agents']]
     lines += ['}', 'map $uri $hdn_private {', '    default 0;']
     if policy['scanners']:
-        lines += [r'    ~*^/\.env(?:[./]|$) 1;', r'    ~*^/\.git(?:/|$) 1;',
-                  r'    ~*^/wp-config\.php\.(?:bak|backup|old)$ 1;']
-    lines += ['}', 'map "$hdn_agent:$hdn_private" $hdn_match {', '    default "";',
-              '    "1:0" agent;', '    "0:1" private-file;', '    "1:1" agent;', '}',
+        paths = [r'(?:^|/)\.env(?:[./]|$)', r'(?:^|/)\.(?:git|svn|hg)(?:/|$)',
+                 r'(?:^|/)wp-config\.php\.(?:bak|backup|old|orig|save|swp|zip|sql)$',
+                 r'(?:^|/)\.(?:htpasswd|DS_Store)(?:/|$)',
+                 r'(?:^|/)\.aws/(?:credentials|config)(?:/|$)',
+                 r'(?:^|/)\.docker/(?:config|secrets)\.json(?:/|$)',
+                 r'(?:^|/)\.kube/config(?:/|$)',
+                 r'(?:^|/)\.terraform/(?:credentials\.tfrc\.json|terraform\.tfstate)(?:/|$)',
+                 r'(?:^|/)proc/(?:self|[0-9]+)/(?:environ|cmdline)(?:/|$)',
+                 r'(?:^|/)etc/(?:passwd|shadow|gshadow)(?:/|$)',
+                 r'(?:^|/)var/run/secrets/kubernetes\.io/serviceaccount(?:/|$)']
+        lines += ['    ' + pattern(p) + ' 1;' for p in paths]
+    lines += ['}']
+    block_variables = []
+    for index, rule in enumerate(policy['filters']):
+        tag = 'hdn_f' + str(index)
+        lines += scope_map(tag + '_site', rule, sites)
+        lines += ['map $uri $' + tag + '_path {', '    default 0;',
+                  '    ' + pattern(path_pattern(rule['path'])) + ' 1;', '}']
+        args = '(?:^|&)(?:' + '|'.join(parameter_pattern(x) for x in rule['parameters']) + ')(?:=|&|$)'
+        lines += ['map $args $' + tag + '_arg {', '    default 0;', '    ' + pattern(args) + ' 1;', '}']
+        lines += ['map $http_user_agent $' + tag + '_agent {', '    default "";']
+        lines += ['    ' + literal_regex(agent) + ' a' + hashlib.sha256(agent.encode()).hexdigest()[:12] + ';' for agent in rule['agents']]
+        lines += ['}', 'map "$hdn_mode:$' + tag + '_site:$' + tag + '_path:$' + tag + '_arg:$' + tag + '_agent" $' + tag + '_key {',
+                  '    default "";', '    ' + pattern('^(observe|enforce):1:1:1:a[0-9a-f]+$') + ' "$server_name:' + rule['id'] + ':$' + tag + '_agent";', '}']
+        if rule['action'] == 'limit':
+            lines += ['limit_req_zone $' + tag + '_key zone=' + tag + ':10m rate=' + str(rule['rate']) + 'r/m;']
+        block_variables.append((tag + '_key', 'filter-' + rule['action'] + '-' + rule['id']))
+    for index, (variable, label) in enumerate(block_variables):
+        lines += ['map $' + variable + ' $hdn_b' + str(index) + ' {', '    default ' + label + ';', '    "" "";', '}']
+    static = []
+    for index, rule in enumerate(policy['static']):
+        tag = 'hdn_s' + str(index)
+        lines += scope_map(tag + '_site', rule, sites)
+        regex = '^' + re.escape(rule['path']) + '.*\\.(?:' + '|'.join(rule['extensions']) + ')$'
+        lines += ['map "$hdn_mode:$' + tag + '_site:$request_method:$uri" $' + tag + '_candidate {', '    default "";',
+                  '    ' + pattern('^(observe|enforce):1:(GET|HEAD):' + regex[1:]) + ' static-' + rule['id'] + ';', '}']
+        static.append('$' + tag + '_candidate')
+    lines += ['map "' + ':'.join(static) + '" $hdn_static_candidate {', '    default "";']
+    for rule in policy['static']:
+        label = 'static-' + rule['id']
+        lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
+    lines += ['}', 'map "$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label" $hdn_match {',
+              '    default "";', '    ' + pattern('^1:') + ' private-file;',
+              '    ' + pattern('^[01]:1:') + ' agent;']
+    for _, label in block_variables:
+        lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
+    for rule in policy['static']:
+        label = 'static-' + rule['id']
+        lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
+    lines += ['    ' + pattern('(?:^|:)login(?:$|:)') + ' login;',
+              '    ' + pattern('(?:^|:)xmlrpc(?:$|:)') + ' xmlrpc;']
+    lines += ['}', 'map $hdn_match $hdn_block {', '    default 0;', '    private-file 1;',
+              '    agent 1;', '    ~^filter-block- 1;', '}',
+              'map "$hdn_mode:$hdn_static_candidate" $hdn_static_reject {', '    default 0;', '    ~^enforce:static- 1;', '}',
               # Separate observation log: no IP, URI, query, header or agent.
-              'log_format hdn "$time_iso8601 $server_name $hdn_match $limit_req_status $status";',
+              'log_format hdn "$time_iso8601 $server_name $hdn_match $limit_req_status $status $hdn_mode";',
               'map "$hdn_mode:$hdn_match:$limit_req_status" $hdn_log {',
               '    default 0;', '    ~^(observe|enforce):[^:]+: 1;',
               '    ~^(observe|enforce):.*:(REJECTED|REJECTED_DRY_RUN|DELAYED_DRY_RUN)$ 1;', '}',
@@ -105,21 +240,33 @@ def global_config(policy, sites):
         lines.append('    ~^(observe|enforce):POST:/xmlrpc\\.php/?$ "$server_name:$binary_remote_addr";')
     lines += ['}']
     for key in ('login', 'xmlrpc'):
+        lines += ['map $hdn_' + key + '_key $hdn_' + key + '_label {',
+                  '    default ' + key + ';', '    "" "";', '}']
         if policy[key]['enabled']:
             lines.append('limit_req_zone $hdn_' + key + '_key zone=hdn_' + key + ':10m rate=' + str(policy[key]['rate']) + 'r/m;')
     return '\n'.join(lines) + '\n'
 
 
-def site_config(policy, site):
+def site_config(policy, site, document_root=None):
     mode = site_mode(policy, site)
     lines = [MARKER, 'set $hdn_mode ' + mode + ';']
+    if mode != 'off' and any(applies(rule, site) for rule in policy['static']):
+        if not document_root or not re.fullmatch(r'/[A-Za-z0-9_./-]+', document_root) or '..' in document_root.split('/'):
+            raise ValueError('Static-file rules need one literal document root in the existing template: ' + site['key'])
+        lines += ['set $hdn_static_file "";',
+                  'if ($hdn_static_candidate != "") { set $hdn_static_file "' + document_root.rstrip('/') + '$uri"; }',
+                  'if (-f $hdn_static_file) { set $hdn_static_candidate ""; }']
     if mode == 'enforce':
-        lines.append('if ($hdn_match != "") { return 403; }')
+        lines += ['if ($hdn_block) { return 403; }', 'if ($hdn_static_reject) { return 404; }']
     for key in ('login', 'xmlrpc'):
         if policy[key]['enabled']:
             burst = policy[key]['burst']
             lines.append('limit_req zone=hdn_' + key + ((' burst=' + str(burst) + ' nodelay') if burst else '') + ';')
-    if any(policy[key]['enabled'] for key in ('login', 'xmlrpc')):
+    rate_rules = [rule for rule in policy['filters'] if rule['action'] == 'limit' and applies(rule, site)]
+    for index, rule in enumerate(policy['filters']):
+        if rule['action'] == 'limit' and applies(rule, site):
+            lines.append('limit_req zone=hdn_f' + str(index) + ((' burst=' + str(rule['burst']) + ' nodelay') if rule['burst'] else '') + ';')
+    if any(policy[key]['enabled'] for key in ('login', 'xmlrpc')) or rate_rules:
         lines += ['limit_req_status 429;', 'limit_req_dry_run ' + ('off' if mode == 'enforce' else 'on') + ';']
     lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']
     return '\n'.join(lines) + '\n'

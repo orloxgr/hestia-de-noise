@@ -30,8 +30,10 @@ $panel = top_panel($headerOwner, $TAB);
             <p class="u-mb10">One literal substring per line. Case-insensitive.</p>
             <label class="form-label" for="agents">Blocklist</label>
             <textarea class="form-control u-mb10" rows="7" id="agents" name="agents" maxlength="32500" spellcheck="false"><?= $escape(implode("\n", $policy['agents'] ?? [])) ?></textarea>
-            <button type="button" class="button button-secondary" id="hdn-preset">Add suggested agents</button>
-            <p class="u-mt10">meta-externalagent · GoogleOther · MJ12bot</p>
+            <button type="button" class="button button-secondary" data-hdn-preset="scanners">Add scanner tools</button>
+            <button type="button" class="button button-secondary" data-hdn-preset="crawlers">Add bulk / AI crawlers</button>
+            <p class="u-mt10">Scanner tools: <?= $escape(implode(' · ', $data['presets']['scanners'] ?? [])) ?></p>
+            <p class="u-mt10">Bulk / AI crawlers: <?= $escape(implode(' · ', $data['presets']['crawlers'] ?? [])) ?></p>
         </div>
     </details>
     <details class="box-collapse u-mb20">
@@ -49,7 +51,8 @@ $panel = top_panel($headerOwner, $TAB);
         </div>
     </details>
     <div class="u-mb20"><label class="form-label"><input type="checkbox" name="scanners" <?= !empty($policy['scanners']) ? 'checked' : '' ?>> Private-file preset</label>
-        <p>/.env and /.env.* · /.git/ · /wp-config.php.bak, .backup, .old</p></div>
+        <p>Environment files, source-control metadata, configuration backups, Docker/AWS/Kubernetes credentials and operating-system secret paths.</p></div>
+    <?php require $install . '/panel/rules.php'; ?>
     <button class="button" type="submit"><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button>
 </form>
 <?php endif; ?>
@@ -79,21 +82,34 @@ $panel = top_panel($headerOwner, $TAB);
 <?php endforeach; ?>
 <?php if ($isAdmin): ?></form><?php endif; ?>
 <?php if (empty($data['sites'])): ?><p>No domains to display.</p><?php endif; ?>
+<h2 class="u-mt20 u-mb20">Activity</h2>
+<?php $activity = $data['activity'] ?? []; ?>
+<p class="u-mb10">Matched requests · last 15 minutes · <?= $escape($activity['total'] ?? 0) ?> in the bounded log sample</p>
+<?php if (!empty($activity['available'])): ?>
+<table class="table"><thead><tr><th>Domain</th><th>Rule</th><th>Outcome</th><th>Requests</th></tr></thead><tbody>
+<?php foreach ($activity['rows'] ?? [] as $row): ?><tr>
+<td><?= $escape($row['domain']) ?></td><td><?= $escape($row['rule']) ?></td>
+<td><?= $escape($row['outcome']) ?></td><td><?= $escape($row['count']) ?></td></tr><?php endforeach; ?>
+</tbody></table>
+<?php if (empty($activity['rows'])): ?><p>No matching requests in this sample.</p><?php endif; ?>
+<?php else: ?><p>Activity is unavailable.<?= $isAdmin && !empty($activity['error']) ? ' ' . $escape($activity['error']) : '' ?></p><?php endif; ?>
 <p class="u-mt20"><small>Version <?= $escape($meta['version']) ?></small></p>
 </div></div>
 <script>
-document.getElementById('hdn-preset')?.addEventListener('click', () => {
+document.querySelectorAll('[data-hdn-preset]').forEach(button => button.addEventListener('click', () => {
     const field = document.getElementById('agents');
     const lines = field.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    ['meta-externalagent', 'GoogleOther', 'MJ12bot'].forEach(agent => {
+    const presets = <?= json_encode($data['presets'] ?? [], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    (presets[button.dataset.hdnPreset] || []).forEach(agent => {
         if (!lines.some(line => line.toLowerCase() === agent.toLowerCase())) lines.push(agent);
     });
     field.value = lines.join('\n');
-});
+}));
 document.getElementById('hdn-select')?.addEventListener('click', () => {
     const boxes = [...document.querySelectorAll('.hdn-target')];
     const next = boxes.some(box => !box.checked);
     boxes.forEach(box => { box.checked = next; });
 });
 </script>
+<?php if ($isAdmin): ?><script><?php readfile($install . '/panel/rules.js'); ?></script><?php endif; ?>
 <?php require $root . '/web/templates/footer.php'; ?>

@@ -19,7 +19,9 @@ NGINX = os.environ.get('HDN_TEST_NGINX')
 
 
 class Origin(BaseHTTPRequestHandler):
+    hits = 0
     def do_GET(self):
+        type(self).hits += 1
         self.send_response(200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'OK')
     do_POST = do_GET
 
@@ -33,6 +35,7 @@ class NativeNginxTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(prefix='hdn-test-')
         cls.directory = Path(cls.temp.name)
+        cls.directory.chmod(0o755)
         (cls.directory / 'logs').mkdir()
         (cls.directory / 'temp').mkdir()
         cls.origin = ThreadingHTTPServer(('127.0.0.1', 0), Origin)
@@ -48,12 +51,25 @@ class NativeNginxTests(unittest.TestCase):
         policy['login'] = {'enabled': True, 'rate': 1, 'burst': 1}
         policy['xmlrpc'] = {'enabled': True, 'rate': 10, 'burst': 3}
         policy['overrides'] = {'alice/observe.test': 'observe', 'alice/off.test': 'off'}
+        policy['filters'] = [
+            {'id': 'facets', 'enabled': True, 'path': '/shop/', 'targets': [],
+             'parameters': ['min_price', 'orderby'], 'agents': ['Applebot', 'Amazonbot'],
+             'action': 'limit', 'rate': 1, 'burst': 0},
+            {'id': 'filtered_block', 'enabled': True, 'path': '/',
+             'targets': ['alice/enforce.test', 'alice/observe.test', 'alice/off.test'],
+             'parameters': ['listing_tag'], 'agents': ['Reflectionbot'],
+             'action': 'block', 'rate': 30, 'burst': 3}]
+        policy['static'] = [{'id': 'maps', 'enabled': True, 'path': '/wp-content/',
+                             'extensions': ['map'], 'targets': []}]
+        (cls.directory / 'wp-content').mkdir()
+        (cls.directory / 'wp-content/existing.map').write_text('existing')
+        sites = [{'key': 'alice/' + host} for host in ('enforce.test', 'other.test', 'observe.test', 'off.test')]
         text = 'worker_processes 1;\npid logs/nginx.pid;\nerror_log logs/error.log notice;\nevents { worker_connections 64; }\nhttp {\n'
-        text += global_config(policy, [])
-        for host in ('enforce.test', 'observe.test', 'off.test'):
-            site = {'key': 'alice/' + host}
+        text += global_config(policy, sites)
+        for site in sites:
+            host = site['key'].split('/')[1]
             text += 'server { listen 127.0.0.1:' + str(cls.port) + '; server_name ' + host + ' www.' + host + ';\n'
-            text += site_config(policy, site).replace('/var/log/hestia-de-noise/matches.log',
+            text += site_config(policy, site, cls.directory.as_posix()).replace('/var/log/hestia-de-noise/matches.log',
                                                      (cls.directory / 'matches.log').as_posix())
             text += 'location / { proxy_pass http://127.0.0.1:' + str(cls.origin_port) + '; }\n}\n'
         text += '}\n'
@@ -85,8 +101,9 @@ class NativeNginxTests(unittest.TestCase):
         cls.origin.shutdown(); cls.origin.server_close(); cls.thread.join(timeout=2)
         cls.temp.cleanup()
 
-    def request(self, path='/', agent='Mozilla/5.0', host='enforce.test', method='GET'):
-        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3)
+    def request(self, path='/', agent='Mozilla/5.0', host='enforce.test', method='GET', source=None):
+        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=3,
+                                                source_address=(source, 0) if source else None)
         connection.request(method, path, headers={'Host': host, 'User-Agent': agent})
         response = connection.getresponse()
         status = response.status; response.read(); connection.close()
@@ -108,10 +125,42 @@ class NativeNginxTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_private_paths_block_but_well_known_and_ordinary_config_paths_work(self):
-        for path in ('/.env', '/.env.backup', '/.git/config', '/wp-config.php.old'):
-            self.assertEqual(self.request(path), 403, path)
+        hits = Origin.hits
+        for path in ('/.env', '/.env.backup', '/.git/config', '/wp-config.php.old',
+                     '/nested/.aws/credentials', '/.docker/config.json', '/.kube/config',
+                     '/var/run/secrets/kubernetes.io/serviceaccount/token',
+                     '/api/w/default/jobs/get_log_file/../../../../proc/self/environ', '/%2eenv', '/etc/shadow'):
+            self.assertEqual(self.request(path, agent='Googlebot'), 403, path)
+        self.assertEqual(Origin.hits, hits)
         for path in ('/.well-known/acme-challenge/test', '/config', '/api', '/.environment'):
             self.assertEqual(self.request(path), 200, path)
+
+    def test_filtered_crawlers_share_budget_across_ips_versions_and_aliases(self):
+        self.assertEqual(self.request('/shop/?min_price=10', agent='Applebot/1'), 200)
+        self.assertEqual(self.request('/shop/?min_price=20', agent='Applebot/2', host='www.enforce.test', source='127.0.0.2'), 429)
+        self.assertEqual(self.request('/shop/?%6din_price=30', agent='Applebot'), 429)
+        self.assertEqual(self.request('/shop/?min_price=20', agent='Amazonbot'), 200)
+        self.assertEqual(self.request('/shop/?min_price=20', agent='Applebot', host='other.test'), 200)
+        for path in ('/shop/', '/shop/?other=1', '/shopping/?min_price=1', '/news/?min_price=1'):
+            self.assertEqual(self.request(path, agent='Applebot'), 200, path)
+        self.assertEqual(self.request('/shop/?min_price=10', agent='Mozilla/5.0'), 200)
+        for host in ('observe.test', 'off.test'):
+            for _ in range(3):
+                self.assertEqual(self.request('/shop/?min_price=10', agent='Applebot', host=host), 200)
+
+    def test_filter_block_scope_and_static_existing_files_preserve_routing(self):
+        self.assertEqual(self.request('/?listing_tag=x', agent='Reflectionbot'), 403)
+        for host in ('other.test', 'observe.test', 'off.test'):
+            self.assertEqual(self.request('/?listing_tag=x', agent='Reflectionbot', host=host), 200)
+        hits = Origin.hits
+        self.assertEqual(self.request('/wp-content/missing.map'), 404)
+        self.assertEqual(Origin.hits, hits)
+        for path in ('/wp-content/existing.map', '/wp-content/missing.js', '/other/missing.map'):
+            self.assertEqual(self.request(path), 200, path)
+        self.assertEqual(Origin.hits, hits + 3)
+        for host in ('observe.test', 'off.test'):
+            self.assertEqual(self.request('/wp-content/missing.map', host=host), 200)
+        self.assertEqual(self.request('/wp-content/missing.map', method='POST'), 200)
 
     def test_rates_apply_to_post_only_and_aliases_share_the_budget(self):
         self.assertEqual(self.request('/wp-login.php?action=lostpassword', method='POST'), 200)

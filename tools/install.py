@@ -12,7 +12,7 @@ import sys
 SOURCE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE / 'src'))
 import engine
-from policy import DEFAULT, MARKER, validate
+from policy import DEFAULT, MARKER, VERSION, validate
 import storage
 
 BASE = Path('/opt/hestia-de-noise')
@@ -162,7 +162,7 @@ def install():
             else:
                 (BASE / 'current').unlink(missing_ok=True)
             raise
-        print(json.dumps({'ok': True, 'version': '0.1.1', 'mode': policy['mode'],
+        print(json.dumps({'ok': True, 'version': VERSION, 'mode': policy['mode'],
                           'panel': '/plugins/de-noise/', **result,
                           'unsupported': [{'owner': s['owner'], 'domain': s['domain'], 'reason': s['reason']}
                                           for s in sites if not s['supported']]}))

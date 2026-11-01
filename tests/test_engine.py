@@ -115,6 +115,18 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual([s['owner'] for s in data['sites']], ['alice'])
         self.assertNotIn('agents', data['policy'])
 
+    def test_admin_viewing_an_owner_gets_the_owner_activity_scope(self):
+        sites = [{'key': owner + '/' + owner + '.test', 'owner': owner, 'domain': owner + '.test',
+                  'template': 'default', 'aliases': '', 'suspended': False,
+                  'supported': True, 'reason': ''} for owner in ('alice', 'bob')]
+        with patch.object(engine, 'authorize', return_value=(True, 'alice')), \
+                patch.object(engine, 'load', return_value=DEFAULT), \
+                patch.object(engine, 'collect', return_value=sites), \
+                patch.object(engine.activity, 'summary', return_value={}) as summary:
+            data = engine.dispatch({'actor': 'admin', 'owner': 'alice', 'action': 'status'})
+            self.assertEqual([s['owner'] for s in data['sites']], ['alice'])
+            summary.assert_called_once_with({'alice.test'})
+
 
 if __name__ == '__main__':
     unittest.main()

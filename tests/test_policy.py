@@ -62,6 +62,34 @@ class PolicyTests(unittest.TestCase):
         self.assertNotIn('return 403', text)
         self.assertIn('set $hdn_mode off;', text)
 
+    def test_upgrade_keeps_old_policy_without_adding_restrictions(self):
+        old = copy.deepcopy(DEFAULT)
+        del old['filters'], old['static']
+        old.update(schema=1, mode='enforce', agents=['ExistingBot'])
+        old['overrides'] = {'alice/one.test': 'off'}
+        upgraded = validate(old)
+        self.assertEqual(upgraded['agents'], old['agents'])
+        self.assertEqual(upgraded['overrides'], old['overrides'])
+        self.assertEqual(upgraded['mode'], 'enforce')
+        self.assertEqual(upgraded['filters'], [])
+        self.assertEqual(upgraded['static'], [])
+
+    def test_rule_config_injection_and_unsafe_static_root_are_rejected(self):
+        policy = copy.deepcopy(DEFAULT)
+        policy['filters'] = [{'id': 'facets', 'enabled': True, 'path': '/shop/',
+                              'parameters': ['orderby'], 'agents': ['Applebot'],
+                              'action': 'limit', 'rate': 30, 'burst': 5, 'targets': []}]
+        self.assertEqual(validate(policy)['filters'][0]['agents'], ['applebot'])
+        for key, value in [('id', 'x;return'), ('path', '/x/../y/'),
+                           ('parameters', ['a;return']), ('targets', ['alice/../x']), ('rate', True)]:
+            invalid = copy.deepcopy(policy)
+            invalid['filters'][0][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate(invalid)
+        policy['static'] = [{'id': 'maps', 'enabled': True, 'path': '/wp-content/', 'extensions': ['map'], 'targets': []}]
+        with self.assertRaisesRegex(ValueError, 'document root'):
+            site_config(policy, {'key': 'alice/one.test'})
+
 
 if __name__ == '__main__':
     unittest.main()
