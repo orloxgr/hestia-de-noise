@@ -6,6 +6,7 @@ import time
 from itertools import chain
 import not_found
 import ban_evidence
+import ban_history
 
 import auto_bans
 from policy import site_mode
@@ -57,23 +58,51 @@ def applied(state):
     return json.loads(raw) if raw is not None else {}
 
 
-def report(policy, sites, state, owner=None, now=None):
+def report(policy, sites, state, owner=None, now=None, page=1, view='active'):
+    ban_history.selection(page, view)
+    now = time.time() if now is None else now
     known = {site['key'] for site in sites if owner is None or site['owner'] == owner}
-    pending = desired(policy, sites, state, now); actual = applied(state); result = []
-    for key in sorted(known):
-        before, after = actual.get(key, {}), pending.get(key, {})
-        for address in sorted(set(before) | set(after)):
-            data = after.get(address, before.get(address))
-            result.append({'site': key, 'domain': key.split('/', 1)[1], 'ip': address, **data,
-                           'status': 'active' if address in before and address in after else
-                                     'pending' if address in after else 'removing'})
-    visible = sorted(result, key=lambda row: row['created'], reverse=True)[:100]
     with auto_bans.database(state, create=False) as db:
-        for row in visible:
-            row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'], site=row['site']) if db else None
-    return {'active': sum(row['status'] == 'active' for row in result),
-            'pending': sum(row['status'] != 'active' for row in result),
-            'rows': visible}
+        if db is None:
+            return {'active': 0, 'pending': 0, 'rows': [], 'pagination': ban_history.pagination(0, page, view)}
+        tables(db)
+        # Configuration still needs all applied rules. Display rows/evidence are
+        # selected in SQL with LIMIT; no Python list of every current ban.
+        db.execute('CREATE TEMP TABLE hdn_applied (site TEXT,ip TEXT,reason TEXT,created REAL,expires REAL,PRIMARY KEY(site,ip))')
+        for key, entries in applied(state).items():
+            if key in known:
+                db.executemany('INSERT INTO hdn_applied VALUES (?,?,?,?,?)',
+                    ((key, ip, data['reason'], data['created'], data['expires']) for ip, data in entries.items()))
+        db.execute('CREATE TEMP TABLE hdn_allowed (site TEXT PRIMARY KEY,missing_files INTEGER,suspicious_queries INTEGER,any_404 INTEGER)')
+        eligible_keys = eligible(policy, sites)
+        db.executemany('INSERT INTO hdn_allowed VALUES (?,?,?,?)',
+            ((key, *(policy['domain_bans']['sites'][key].get(flag, False) for flag in ('missing_files','suspicious_queries','any_404')))
+             for key in known if key in eligible_keys))
+        cte = '''WITH wanted AS (
+            SELECT b.* FROM domain_bans b JOIN hdn_allowed p ON p.site=b.site
+            WHERE (b.expires=0 OR b.expires>?) AND
+              ((b.reason='domain-file' AND p.missing_files) OR
+               (b.reason='domain-query' AND p.suspicious_queries) OR (b.reason='domain-404' AND p.any_404))
+        ), current AS (
+            SELECT w.*,CASE WHEN EXISTS(SELECT 1 FROM hdn_applied a WHERE a.site=w.site AND a.ip=w.ip)
+                THEN 'active' ELSE 'pending' END AS status FROM wanted w
+            UNION ALL SELECT a.*,'removing' AS status FROM hdn_applied a
+                WHERE NOT EXISTS(SELECT 1 FROM wanted w WHERE w.site=a.site AND w.ip=a.ip)
+        ) '''
+        counts = dict(db.execute(cte + 'SELECT status,COUNT(*) FROM current GROUP BY status', (now,)).fetchall())
+        if view == 'history':
+            visible, meta = ban_history.page(db, 'domain', owner=owner, number=page)
+        else:
+            meta = ban_history.pagination(sum(counts.values()), page)
+            visible = [dict(row) for row in db.execute(cte + 'SELECT * FROM current ORDER BY created DESC,site,ip LIMIT ? OFFSET ?',
+                       (now, ban_history.PAGE_SIZE, (meta['page'] - 1) * ban_history.PAGE_SIZE))]
+            for row in visible:
+                row['domain'] = row['site'].split('/', 1)[1]
+                row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'], site=row['site'])
+                if row['diagnostics'] is None and row['status'] == 'removing':
+                    row['diagnostics'] = ban_history.pending_evidence(db, row['ip'], row['site'], row['created'])
+    return {'active': counts.get('active', 0), 'pending': counts.get('pending', 0) + counts.get('removing', 0),
+            'rows': visible, 'pagination': meta}
 
 
 def synchronize(policy, sites, state, native, now=None):
@@ -86,6 +115,7 @@ def synchronize(policy, sites, state, native, now=None):
     settings = policy['bans']; preferences = policy['domain_bans']['sites']
     with auto_bans.database(state) as db:
         tables(db)
+        ban_history.finish_domains(db, applied(state), now)
         shared_rules = {name: settings[name] for name in CATEGORIES.values()}
         for key in known:
             signature = json.dumps([preferences[key], shared_rules], sort_keys=True)
@@ -102,6 +132,7 @@ def synchronize(policy, sites, state, native, now=None):
             category = CATEGORIES[row['reason']]
             if (row['site'] not in known or not preferences.get(row['site'], {}).get(category)
                     or (row['expires'] and row['expires'] <= now)):
+                ban_history.stage(db, row, site=row['site'])
                 db.execute('DELETE FROM domain_bans WHERE site=? AND ip=?', (row['site'], row['ip']))
         ignored = [ipaddress.ip_network(value) for value in settings['ignore_ips']]
         ignored.extend(native.exclusions() if known else [])
@@ -111,8 +142,9 @@ def synchronize(policy, sites, state, native, now=None):
             return (ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_link_local
                     or str(ip) in own or any(ip in network for network in ignored))
 
-        for row in db.execute('SELECT site,ip FROM domain_bans').fetchall():
+        for row in db.execute('SELECT * FROM domain_bans').fetchall():
             if exempt(ipaddress.ip_address(row['ip'])):
+                ban_history.stage(db, row, site=row['site'])
                 db.execute('DELETE FROM domain_bans WHERE site=? AND ip=?', (row['site'], row['ip']))
         valid = {'domain-file': {token('f', value) for value in settings['missing_files']['paths']},
                  'domain-query': {token('q', value) for value in settings['suspicious_queries']['targets']},
@@ -149,6 +181,7 @@ def synchronize(policy, sites, state, native, now=None):
                 ban_evidence.store(db, address, now, evidence, site=key)
                 db.execute('DELETE FROM domain_strikes WHERE site=? AND ip=?', (key, address))
         ban_evidence.prune(db, domain=True)
+        ban_history.maintain(state, db, now)
         # Store independent lifetimes for this scope, preserving creation time.
         for reason, category in CATEGORIES.items():
             duration = settings[category]['duration_days']

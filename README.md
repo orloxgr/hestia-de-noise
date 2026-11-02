@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.7.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.8.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -127,6 +127,22 @@ Addon evidence stores URL paths only: no query strings, cookies, authorization
 headers or request bodies. Native access-log queries are stripped before storage.
 Paths are capped at 1,024 characters, and the existing bounded maintenance/log
 rotation is reused. No additional service, polling or per-request script is added.
+
+Version 0.8.0 adds **Active bans / History** and **Previous / Next** navigation
+to IP bans and Domain bans, with 50 records selected per page in SQLite.
+WordPress login IPs are also shown 50 per page, from the existing on-demand
+Fail2ban status command; its history and escalation remain separate.
+Completed bans keep their reason and available request evidence for **30 days**.
+The administrator can change **History retention (days)** in IP bans. Existing
+maintenance performs retention cleanup once a day; saving retention applies it
+immediately. **Empty history** clears only completed records in the selected
+global/domain scope. Domain owners can view and clear only their own domain
+history. Active/permanent bans, pending removals, strike counters, log cursors and
+the separate Fail2ban repeat-offender database are preserved. Legacy completed
+rows use their last recorded timestamp when an original start time is unavailable.
+No Hestia core files or native firewall rule formats are changed.
+The native Hestia ban command has no reason/comment argument; the reason is
+shown in De-Noise rather than inserted into native firewall records.
 
 ## WordPress login protection
 
@@ -351,14 +367,18 @@ Logs are in `/var/log/hestia-de-noise/`: `matches.log` stores timestamp, domain,
 rule, rate-limit outcome, status and mode only; `maintenance.log` stores job results.
 No request URL, query value, IP, cookie or credential is added to the match log.
 When automatic bans are enabled, `ban-events.log` separately stores timestamp,
-client IP, domain, a fixed reason and a non-secret rule digest, with no raw URL or query. A root-private
+client IP, domain, a fixed reason, a non-secret rule digest, path and method,
+without query strings, headers, cookies or request bodies. A root-private
 `/var/lib/hestia-de-noise/bans.sqlite` stores counters, rotation cursors, expiry
-and native/domain ban state, with independent log cursors. General 404 counting
+and native/domain ban state and completed history, with independent log cursors.
+The state directory is root-owned `0700`; the SQLite database and separate
+`history-settings.json` are root-owned `0600`. Logs are root-owned `0640`.
+General 404 counting
 also reads the existing Hestia combined logs in `/var/log/apache2/domains/`,
 incrementally, at most 2 MiB per scope per sync and 256 KiB per file. Domains
 rotate through the read budget. Native static responses and Apache origin
 responses use that shared native log; local Nginx 404s inheriting server logging
-use a metadata-only ban event instead. No raw access-log URL/query is copied
+use a query-free ban event instead. Only the method and stripped path are copied
 into addon storage. This targets the standard Hestia Apache2 combined-log layout.
 A root-private
 `domain-ban-applied.json` records the last successfully applied domain rules and

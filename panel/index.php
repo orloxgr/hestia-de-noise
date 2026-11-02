@@ -43,13 +43,23 @@ $bridge = static function (array $request) use ($root): array {
     $result = json_decode($output, true);
     return is_array($result) ? $result : ['ok' => false, 'error' => "De-Noise failed (exit $code): " . $error];
 };
-$statusRequest = ['actor' => $actor, 'owner' => $owner, 'action' => 'status'];
+$listing = [];
+foreach (['bans', 'domain'] as $scope) {
+    $pageValue = $_POST[$scope . '_page'] ?? $_GET[$scope . '_page'] ?? 1;
+    $viewValue = $_POST[$scope . '_view'] ?? $_GET[$scope . '_view'] ?? 'active';
+    $listing[$scope . '_page'] = filter_var($pageValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000000]]) ?: 1;
+    $listing[$scope . '_view'] = in_array($viewValue, ['active', 'history'], true) ? $viewValue : 'active';
+}
+$statusRequest = ['actor' => $actor, 'owner' => $owner, 'action' => 'status', 'listing' => $listing];
+$listing['wordpress_page'] = filter_var($_POST['wordpress_target_page'] ?? $_POST['wordpress_page'] ?? $_GET['wordpress_page'] ?? 1,
+    FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000000]]) ?: 1;
+$statusRequest['listing'] = $listing;
 $error = '';
 $message = '';
 $submitted = null;
 $wordpressResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ((!$isAdmin && ($_POST['action'] ?? '') !== 'domain_bans_save') || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
+    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['domain_bans_save', 'history_clear'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
         $error = 'Write access and a valid request token are required.';
     } else {
@@ -130,6 +140,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
+        } elseif ($request['action'] === 'history_clear') {
+            $request['scope'] = $_POST['history_scope'] ?? '';
+        } elseif ($request['action'] === 'history_settings_save') {
+            $request['days'] = filter_var($_POST['history_days'] ?? '', FILTER_VALIDATE_INT);
         } elseif ($request['action'] === 'wordpress_save') {
             $integer = static fn($key) => filter_var($_POST[$key] ?? '', FILTER_VALIDATE_INT);
             $third = $integer('wordpress_third_days');
@@ -163,12 +177,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $result = $bridge($request);
             if (isset($result['wordpress'])) $wordpressResult = $result['wordpress'];
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
+            elseif ($request['action'] === 'history_clear') $message = 'Completed ban history cleared. Active bans and strike counters are unchanged.';
+            elseif ($request['action'] === 'history_settings_save') $message = 'History retention saved.';
             elseif (str_starts_with($request['action'], 'wordpress_')) $message = match ($request['action']) {
                 'wordpress_save' => 'WordPress login protection applied through Fail2ban.',
                 'wordpress_unban' => 'Selected WordPress IP bans removed.',
@@ -190,10 +206,12 @@ if (empty($data['ok'])) $error = $error ?: ($data['error'] ?? 'Could not load De
 // When impersonating a user, render the user's scope even for an admin session.
 if (!$isAdmin) $data['sites'] = array_values(array_filter($data['sites'] ?? [], static fn($site) => $site['owner'] === $owner));
 $policy = $error !== '' && $submitted !== null ? $submitted : ($data['policy'] ?? []);
-$activeTab = is_string($_POST['tab'] ?? null) ? $_POST['tab'] : 'general';
-$fields = static function (string $action) use ($escape, $activeTab): void {
+$selectedTab = $_POST['tab'] ?? $_GET['tab'] ?? 'general';
+$activeTab = is_string($selectedTab) ? $selectedTab : 'general';
+$fields = static function (string $action) use ($escape, $activeTab, $listing): void {
     echo '<input type="hidden" name="token" value="' . $escape($_SESSION['token']) . '">';
     echo '<input type="hidden" name="action" value="' . $escape($action) . '">';
     echo '<input type="hidden" name="tab" value="' . $escape($activeTab) . '">';
+    foreach ($listing as $key => $value) echo '<input type="hidden" name="' . $escape($key) . '" value="' . $escape($value) . '">';
 };
 require $install . '/panel/view.php';

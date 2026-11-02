@@ -68,19 +68,27 @@
 <textarea form="hdn-settings" class="form-control u-mb20" id="bans-ignore" name="bans_ignore_ips" rows="4" spellcheck="false"><?= $escape(implode("\n", $ban['ignore_ips'] ?? [])) ?></textarea>
 <p class="u-mb20">Never-ban entries bypass automatic IP bans only. Unselected 404s count only when general 404 bans are enabled. Crawler limits and User-Agent blocks do not count as 404s. Observe/Off domains do not trigger bans. Native IPv6 firewall bans are unavailable in this backend.</p>
 <h3 class="u-mb10">Ban status</h3>
+<form method="post" class="u-mb20"><?php $fields('history_settings_save'); ?>
+<label class="form-label" for="history-days">History retention (days)</label>
+<input class="form-control u-mb10" id="history-days" name="history_days" type="number" min="1" max="3650" required value="<?= $escape($data['history']['days'] ?? 30) ?>" title="Completed ban history is automatically removed after this many days during existing maintenance. Active bans and their evidence remain available.">
+<button class="button button-secondary" type="submit" title="Save retention and remove completed history older than this limit.">Save history retention</button>
+</form>
 <?php if (!empty($banState['error'])): ?><div class="alert alert-danger u-mb20" role="alert"><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($banState['error']) ?></pre></div><?php endif; ?>
 <p class="u-mb10">Active: <?= $escape($banState['active'] ?? 0) ?> · Pending: <?= $escape($banState['pending'] ?? 0) ?> · Last sync: <?= !empty($banState['last_sync']) ? $escape(gmdate('Y-m-d H:i:s', (int)$banState['last_sync']) . ' UTC') : 'Not synchronized yet' ?></p>
 <?php if (!empty($banState['unsupported_ipv6'])): ?><p class="u-mb10">IPv6 probes without a native firewall ban: <?= $escape($banState['unsupported_ipv6']) ?></p><?php endif; ?>
-<form method="post"><?php $fields('unban'); ?>
+<?php $listState = $banState; $listPrefix = 'bans'; $listTab = 'bans'; require $install . '/panel/ban-pagination.php'; ?>
+<?php if (!$historyView): ?><form method="post"><?php $fields('unban'); ?>
 <div class="u-mb10"><button class="button button-secondary" type="submit">Unban selected</button>
 <button class="button button-secondary" type="submit" name="unban_all" value="1">Unban all De-Noise IPs</button>
 <a class="button button-secondary" href="/list/firewall/banlist/">Hestia IP bans</a></div>
-<div class="hdn-scoped-table-wrap"><table class="table"><thead><tr><th>Select</th><th>IP</th><th>Source domain</th><th>Reason</th><th>Expiry</th><th>Status</th></tr></thead><tbody>
+<?php endif; ?>
+<div class="hdn-scoped-table-wrap"><table class="table"><thead><tr><?php if (!$historyView): ?><th>Select</th><?php endif; ?><th>IP</th><th>Source domain</th><th>Reason</th><th>Recorded (UTC)</th><th>Expiry</th><th><?= $historyView ? 'Ended (UTC)' : 'Status' ?></th></tr></thead><tbody>
 <?php foreach ($banState['rows'] ?? [] as $row): ?><tr>
-<td><input type="checkbox" name="ips[]" value="<?= $escape($row['ip']) ?>" aria-label="Unban <?= $escape($row['ip']) ?>"></td>
+<?php if (!$historyView): ?><td><input type="checkbox" name="ips[]" value="<?= $escape($row['ip']) ?>" aria-label="Unban <?= $escape($row['ip']) ?>"></td><?php endif; ?>
 <td><?= $escape($row['ip']) ?></td><td><?= $escape($row['domain']) ?></td><td><?= $escape($row['reason']) ?><?php require $install . '/panel/ban-details.php'; ?></td>
+<td><?= $escape(gmdate('Y-m-d H:i:s', (int)$row['created'])) ?></td>
 <td><?= $row['expires'] ? $escape(gmdate('Y-m-d H:i:s', (int)$row['expires']) . ' UTC') : 'Permanent' ?></td>
-<td><?= $escape($row['status']) ?><?php if ($row['error']): ?><br><?= $escape($row['error']) ?><?php endif; ?></td></tr><?php endforeach; ?>
+<td><?= $historyView ? $escape(gmdate('Y-m-d H:i:s', (int)$row['ended'])) : $escape($row['status']) ?><?php if ($row['error']): ?><br><?= $escape($row['error']) ?><?php endif; ?></td></tr><?php endforeach; ?>
 </tbody></table></div>
-<?php if (empty($banState['rows'])): ?><p>No active or pending De-Noise bans.</p><?php endif; ?>
-</form>
+<?php if (empty($banState['rows'])): ?><p><?= $historyView ? 'No completed ban history.' : 'No active or pending De-Noise bans.' ?></p><?php endif; ?>
+<?php if (!$historyView): ?></form><?php endif; ?>

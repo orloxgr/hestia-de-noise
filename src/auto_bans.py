@@ -11,6 +11,7 @@ import time
 from itertools import chain
 import not_found
 import ban_evidence
+import ban_history
 
 from policy import site_mode
 from probe_rules import reason_settings, token
@@ -167,6 +168,7 @@ def database(state, create=True):
         if 'token' not in {row[1] for row in connection.execute('PRAGMA table_info(strikes)')}:
             connection.execute("ALTER TABLE strikes ADD COLUMN token TEXT NOT NULL DEFAULT ''")
         ban_evidence.tables(connection)
+        ban_history.tables(connection)
         yield connection
         connection.commit()
     finally:
@@ -214,19 +216,29 @@ def events(db, cursor_table='cursors'):
             db.execute('INSERT OR REPLACE INTO ' + cursor_table + ' VALUES (?,?,?)', (info.st_dev, info.st_ino, offset + end))
 
 
-def report(state, enabled=False):
+def report(state, enabled=False, page=1, view='active'):
+    ban_history.selection(page, view)
     with database(state, create=False) as db:
         if db is None:
-            return {'enabled': enabled, 'active': 0, 'pending': 0, 'rows': [], 'error': '', 'last_sync': '', 'unsupported_ipv6': 0}
+            return {'enabled': enabled, 'active': 0, 'pending': 0, 'rows': [], 'error': '', 'last_sync': '', 'unsupported_ipv6': 0,
+                    'pagination': ban_history.pagination(0, page, view)}
         counts = dict(db.execute('SELECT status, COUNT(*) FROM bans GROUP BY status').fetchall())
-        rows = [dict(row) for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending','removing') ORDER BY created DESC LIMIT 100")]
-        for row in rows:
-            row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'])
+        if view == 'history':
+            rows, meta = ban_history.page(db, 'global', number=page)
+        else:
+            total = sum(counts.get(key, 0) for key in ('active', 'pending', 'removing'))
+            meta = ban_history.pagination(total, page)
+            rows = [dict(row) for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending','removing') ORDER BY created DESC,ip LIMIT ? OFFSET ?",
+                    (ban_history.PAGE_SIZE, (meta['page'] - 1) * ban_history.PAGE_SIZE))]
+            for row in rows:
+                row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'])
+                if row['diagnostics'] is None and row['status'] == 'removing':
+                    row['diagnostics'] = ban_history.pending_evidence(db, row['ip'])
         return {'enabled': enabled, 'active': counts.get('active', 0),
                 'pending': counts.get('pending', 0) + counts.get('removing', 0),
                 'rows': rows,
                 'error': get(db, 'error'), 'last_sync': get(db, 'last_sync'),
-                'unsupported_ipv6': int(get(db, 'ipv6', '0'))}
+                'unsupported_ipv6': int(get(db, 'ipv6', '0')), 'pagination': meta}
 
 
 def synchronize(policy, sites, state, native, now=None, remove=False, read_events=True):
@@ -267,6 +279,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                 # Reconcile native panel unbans before accepting new events.
                 for row in db.execute("SELECT * FROM bans WHERE status='active'").fetchall():
                     if row['ip'] not in records and row['ip'] not in active:
+                        ban_history.release(db, row, now)
                         db.execute("UPDATE bans SET status='released',created=?,error='' WHERE ip=?", (now, row['ip']))
                     elif row['ip'] not in records or row['ip'] not in active:
                         raise ValueError('Native ban record and firewall disagree for ' + row['ip'])
@@ -333,6 +346,8 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                 put(db, 'enabled', int(enabled))
                 for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending')").fetchall():
                     if not enabled or row['reason'] not in rules or row['domain'] not in eligible or exempt(row['ip']) or (row['expires'] and row['expires'] <= now):
+                        if row['ip'] not in records and row['ip'] not in active:
+                            ban_history.release(db, row, now)
                         db.execute("UPDATE bans SET status=?,error='' WHERE ip=?", ('removing' if row['ip'] in records or row['ip'] in active else 'released', row['ip']))
                 db.commit()  # Native mutations remain resumable after interruption.
                 pending = db.execute("SELECT * FROM bans WHERE status IN ('pending','removing') ORDER BY status DESC,created LIMIT ?", (OPERATIONS,)).fetchall()
@@ -363,6 +378,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                             _, records, active = native.inspect()
                             if address in records or address in active:
                                 raise RuntimeError('Hestia did not remove the firewall ban')
+                            ban_history.release(db, row, now)
                             db.execute("UPDATE bans SET status='released',created=?,error='' WHERE ip=?", (now, address))
                         db.commit()
                     except Exception as error:
@@ -380,6 +396,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         put(db, 'chain_owned', '')
                 put(db, 'error', '\n'.join(failures)[-4000:])
                 put(db, 'last_sync', now)
+                ban_history.maintain(state, db, now)
                 db.commit()
         except Exception as error:
             put(db, 'error', str(error)[-4000:]); db.commit()
@@ -403,6 +420,7 @@ def unban(state, native, addresses, now=None):
         if selected and not get(db, 'chain_owned'):
             raise ValueError('De-Noise does not own this firewall chain')
         for address in selected:
+            ban_history.stage(db, db.execute('SELECT * FROM bans WHERE ip=?', (address,)).fetchone())
             db.execute("UPDATE bans SET status='removing',created=? WHERE ip=?", (now, address))
             db.execute('DELETE FROM strikes WHERE ip=?', (address,))
         db.commit()

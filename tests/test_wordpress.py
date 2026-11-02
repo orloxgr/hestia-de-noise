@@ -132,6 +132,16 @@ action = hestia-wordpress[name=WORDPRESS,port="80,443",protocol=tcp,blocktype=DR
         self.assertEqual(data['ips'], ['192.0.2.5', '2001:db8::5'])
         self.assertTrue(all(c.args[0] == wordpress.CLIENT for c in self.run.call_args_list))
 
+    def test_ip_pagination_keeps_total_and_does_not_poll_when_not_requested(self):
+        self.run.side_effect = ['Jail list: wordpress-login', ' '.join(f'198.51.100.{i}' for i in range(123))]
+        data = wordpress.snapshot(self.state,self.run,live=True,page=3)
+        self.assertEqual(len(data['ips']),23)
+        self.assertEqual(data['pagination'],dict(page=3,pages=3,total=123,per_page=50,view='active'))
+        self.assertEqual(self.run.call_count,2)
+        self.run.reset_mock()
+        self.assertEqual(wordpress.snapshot(self.state,self.run,page=3)['ips'],[])
+        self.run.assert_not_called()
+
     def test_unban_only_accepts_ips_belonging_to_wordpress_jail(self):
         wordpress.apply(self.state, wordpress.DEFAULT, self.run)
         self.run.reset_mock(); self.run.return_value = '192.0.2.5'

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 
 import storage
+import ban_history
 from policy import MARKER
 
 JAIL = 'wordpress-login'
@@ -226,9 +227,10 @@ def addresses(output):
     return sorted(result, key=lambda s: (':' in s, s))
 
 
-def snapshot(state, run, live=False):
+def snapshot(state, run, live=False, page=1):
+    ban_history.selection(page)
     result = {'settings': settings(state), 'managed': read_json(state, RECEIPT) is not None,
-              'loaded': live, 'ips': []}
+              'loaded': live, 'ips': [], 'pagination': ban_history.pagination(0, page)}
     if not live:
         return result
     try:
@@ -237,7 +239,10 @@ def snapshot(state, run, live=False):
         active = JAIL in [s.strip() for s in match[1].split(',')] if match else False
         result['active'] = active
         if active:
-            result['ips'] = addresses(run(CLIENT, 'get', JAIL, 'banip'))
+            all_ips = addresses(run(CLIENT, 'get', JAIL, 'banip'))
+            meta = ban_history.pagination(len(all_ips), page)
+            offset = (meta['page'] - 1) * ban_history.PAGE_SIZE
+            result.update(ips=all_ips[offset:offset + ban_history.PAGE_SIZE], pagination=meta)
         result['available'] = True
     except (OSError, RuntimeError) as error:
         result.update(available=False, error=str(error))

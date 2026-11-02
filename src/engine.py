@@ -13,6 +13,7 @@ from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, FILTER_AGE
                     account, domain, validate, site_mode, global_config, site_config)
 import activity
 import auto_bans
+import ban_history
 from presets import RULES
 import storage
 import probe_rules
@@ -260,7 +261,8 @@ def apply(policy, sites, remove=False):
             'supported_sites': sum(s['supported'] for s in sites)}
 
 
-def snapshot(policy, sites, owner=None, wordpress_live=False):
+def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
+    listing = listing or {}
     rows = []
     for site in sites:
         if owner is not None and site['owner'] != owner:
@@ -276,11 +278,13 @@ def snapshot(policy, sites, owner=None, wordpress_live=False):
     ban_status = {}
     if owner is None:
         try:
-            ban_status = auto_bans.report(STATE, policy['bans']['enabled'])
+            ban_status = auto_bans.report(STATE, policy['bans']['enabled'],
+                listing.get('bans_page', 1), listing.get('bans_view', 'active'))
         except (OSError, ValueError) as error:
             ban_status = {'error': str(error)}
     try:
-        scoped = domain_bans.report(policy, sites, STATE, owner)
+        scoped = domain_bans.report(policy, sites, STATE, owner,
+            page=listing.get('domain_page', 1), view=listing.get('domain_view', 'active'))
     except (OSError, ValueError) as error:
         scoped = {'active': 0, 'pending': 0, 'rows': [], 'error': str(error)}
     visible_keys = {row['key'] for row in rows}
@@ -291,13 +295,14 @@ def snapshot(policy, sites, owner=None, wordpress_live=False):
     wordpress_status = None
     if owner is None:
         try:
-            wordpress_status = wordpress.snapshot(STATE, run, live=wordpress_live)
+            wordpress_status = wordpress.snapshot(STATE, run, live=wordpress_live, page=listing.get('wordpress_page', 1))
         except (OSError, ValueError) as error:
             wordpress_status = {'settings': wordpress.DEFAULT, 'loaded': wordpress_live, 'error': str(error)}
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
             'domain_bans': scoped,
+            'history': ban_history.settings(STATE),
             'wordpress': wordpress_status,
             'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
             'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
@@ -315,7 +320,7 @@ def authorize(request):
     owner = account(request.get('owner', actor))
     if not admin and owner != actor:
         raise PermissionError('Another account cannot be selected')
-    if request.get('action') not in ('status', 'domain_bans_save') and not admin:
+    if request.get('action') not in ('status', 'domain_bans_save', 'history_clear') and not admin:
         raise PermissionError('Only an administrator can change De-Noise settings')
     return admin, owner
 
@@ -327,8 +332,26 @@ def dispatch(request):
     action = request.get('action')
     policy = validate(load('policy.json', DEFAULT))
     sites = collect()
-    if action == 'wordpress_save':
-        if set(request) - {'actor', 'owner', 'action', 'settings'}:
+    listing = request.get('listing', {})
+    if (not isinstance(listing, dict) or set(listing) - {'bans_page','bans_view','domain_page','domain_view','wordpress_page'}):
+        raise ValueError('Invalid IP-list selection')
+    for scope in ('bans', 'domain'):
+        ban_history.selection(listing.get(scope + '_page', 1), listing.get(scope + '_view', 'active'))
+    ban_history.selection(listing.get('wordpress_page', 1))
+    if action == 'history_clear':
+        scope = request.get('scope')
+        if scope not in ('global', 'domain') or (scope == 'global' and not (admin and owner == request['actor'])):
+            raise PermissionError('Only domain history for your account can be cleared')
+        with auto_bans.database(STATE, create=False) as db:
+            if db is not None:
+                ban_history.clear(db, scope, owner=None if admin and owner == request['actor'] else owner)
+    elif action == 'history_settings_save':
+        ban_history.configure(STATE, request.get('days'))
+        with auto_bans.database(STATE, create=False) as db:
+            if db is not None:
+                ban_history.maintain(STATE, db, force=True)
+    elif action == 'wordpress_save':
+        if set(request) - {'actor', 'owner', 'action', 'settings', 'listing'}:
             raise ValueError('Only WordPress protection settings can be submitted')
         wordpress.apply(STATE, request.get('settings'), run)
     elif action == 'wordpress_unban':
@@ -336,7 +359,7 @@ def dispatch(request):
     elif action == 'wordpress_status':
         pass
     elif action == 'domain_bans_save':
-        if set(request) - {'actor', 'owner', 'action', 'preferences'}:
+        if set(request) - {'actor', 'owner', 'action', 'preferences', 'listing'}:
             raise ValueError('Only domain trigger selections can be submitted')
         if not admin and not policy['domain_bans']['allow_users']:
             raise PermissionError('Domain automatic-ban editing is disabled by the administrator')
@@ -438,7 +461,7 @@ def dispatch(request):
     elif action != 'status':
         raise ValueError('Unsupported operation')
     return snapshot(policy, sites, None if admin and owner == request['actor'] else owner,
-                    wordpress_live=action in ('wordpress_status', 'wordpress_save', 'wordpress_unban'))
+                    wordpress_live=action in ('wordpress_status', 'wordpress_save', 'wordpress_unban'), listing=listing)
 
 
 def main():

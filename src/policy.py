@@ -7,7 +7,7 @@ from urllib.parse import quote, unquote
 import probe_rules
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.7.1'
+VERSION = '0.8.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']

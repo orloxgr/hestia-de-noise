@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+- Page global and domain IP lists in SQLite, 50 records at a time, with stable
+  ordering, total counts and separate Active bans / History views.
+- Page WordPress login IPs from the existing on-demand Fail2ban command without
+  changing that jail's history or adding periodic status reads.
+- Retain completed bans and their reason/evidence for 30 days by default. Add
+  administrator retention controls and scope-aware Empty history buttons.
+- Keep active/permanent bans, pending removals, counters, cursors and native
+  Fail2ban repeat history independent of history cleanup.
+- Preserve original ban timestamps/evidence through native unban and repeated
+  bans; archive domain removals only as completed after their rules are unapplied.
+- Keep the existing core database table layouts and native firewall formats.
+
 ## 0.7.1
 
 - Record escaped, query-free request paths and methods for native Nginx ban
