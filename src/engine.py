@@ -18,6 +18,7 @@ import storage
 import probe_rules
 import cron_spread
 import domain_bans
+import wordpress
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -259,7 +260,7 @@ def apply(policy, sites, remove=False):
             'supported_sites': sum(s['supported'] for s in sites)}
 
 
-def snapshot(policy, sites, owner=None):
+def snapshot(policy, sites, owner=None, wordpress_live=False):
     rows = []
     for site in sites:
         if owner is not None and site['owner'] != owner:
@@ -287,10 +288,17 @@ def snapshot(policy, sites, owner=None):
     scoped['can_edit'] = owner is None or policy['domain_bans']['allow_users']
     scoped['limits'] = {key: {name: policy['bans'][key][name] for name in ('maxretry', 'findtime', 'duration_days')}
                        for key in ('missing_files', 'suspicious_queries', 'any_404')}
+    wordpress_status = None
+    if owner is None:
+        try:
+            wordpress_status = wordpress.snapshot(STATE, run, live=wordpress_live)
+        except (OSError, ValueError) as error:
+            wordpress_status = {'settings': wordpress.DEFAULT, 'loaded': wordpress_live, 'error': str(error)}
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
             'domain_bans': scoped,
+            'wordpress': wordpress_status,
             'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
             'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
                         'filter_agents': FILTER_AGENTS, 'rules': RULES,
@@ -319,7 +327,15 @@ def dispatch(request):
     action = request.get('action')
     policy = validate(load('policy.json', DEFAULT))
     sites = collect()
-    if action == 'domain_bans_save':
+    if action == 'wordpress_save':
+        if set(request) - {'actor', 'owner', 'action', 'settings'}:
+            raise ValueError('Only WordPress protection settings can be submitted')
+        wordpress.apply(STATE, request.get('settings'), run)
+    elif action == 'wordpress_unban':
+        wordpress.unban(STATE, request.get('ips'), run)
+    elif action == 'wordpress_status':
+        pass
+    elif action == 'domain_bans_save':
         if set(request) - {'actor', 'owner', 'action', 'preferences'}:
             raise ValueError('Only domain trigger selections can be submitted')
         if not admin and not policy['domain_bans']['allow_users']:
@@ -406,6 +422,8 @@ def dispatch(request):
     elif action == 'disable':
         policy['mode'] = 'off'; policy['overrides'] = {}
         apply(policy, sites)
+        if wordpress.read_json(STATE, wordpress.RECEIPT) is not None:
+            wordpress.apply(STATE, {**wordpress.settings(STATE), 'enabled': False}, run)
     elif action == 'sync':
         domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
         apply(policy, sites)
@@ -419,7 +437,8 @@ def dispatch(request):
             raise RuntimeError('Unban is pending; native firewall operation failed: ' + result['error'])
     elif action != 'status':
         raise ValueError('Unsupported operation')
-    return snapshot(policy, sites, None if admin and owner == request['actor'] else owner)
+    return snapshot(policy, sites, None if admin and owner == request['actor'] else owner,
+                    wordpress_live=action in ('wordpress_status', 'wordpress_save', 'wordpress_unban'))
 
 
 def main():
@@ -427,6 +446,7 @@ def main():
         raise PermissionError('Invoke this command as root or through the Hestia panel')
     with locked():
         recover()
+        wordpress.recover(STATE, run)
         if sys.argv[1:]:
             action = sys.argv[1:]
             if action not in (['sync'], ['disable'], ['status'], ['remove-rules']):
@@ -441,6 +461,8 @@ def main():
                 else:
                     domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
                 result = apply(policy, sites, remove=action == ['remove-rules'])
+                if action == ['disable'] and wordpress.read_json(STATE, wordpress.RECEIPT) is not None:
+                    wordpress.apply(STATE, {**wordpress.settings(STATE), 'enabled': False}, run)
                 if action != ['remove-rules']:
                     bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
                     if bans.get('error'):

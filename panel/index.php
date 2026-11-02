@@ -47,6 +47,7 @@ $statusRequest = ['actor' => $actor, 'owner' => $owner, 'action' => 'status'];
 $error = '';
 $message = '';
 $submitted = null;
+$wordpressResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ((!$isAdmin && ($_POST['action'] ?? '') !== 'domain_bans_save') || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
@@ -129,6 +130,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
+        } elseif ($request['action'] === 'wordpress_save') {
+            $integer = static fn($key) => filter_var($_POST[$key] ?? '', FILTER_VALIDATE_INT);
+            $third = $integer('wordpress_third_days');
+            $request['settings'] = ['enabled' => isset($_POST['wordpress_enabled']),
+                'maxretry' => $integer('wordpress_maxretry'),
+                'findtime' => $integer('wordpress_window_minutes') * 60,
+                'durations' => [$integer('wordpress_first_minutes') * 60,
+                    $integer('wordpress_second_days') * 86400, $third === 0 ? -1 : $third * 86400]];
+        } elseif ($request['action'] === 'wordpress_unban') {
+            $request['ips'] = isset($_POST['wordpress_unban_all']) ? 'all' : ($_POST['wordpress_ips'] ?? []);
         } elseif ($request['action'] === 'bulk') {
             $request['targets'] = $_POST['targets'] ?? [];
             $request['mode'] = $_POST['bulk_mode'] ?? '';
@@ -152,11 +163,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $result = $bridge($request);
+            if (isset($result['wordpress'])) $wordpressResult = $result['wordpress'];
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
+            elseif (str_starts_with($request['action'], 'wordpress_')) $message = match ($request['action']) {
+                'wordpress_save' => 'WordPress login protection applied through Fail2ban.',
+                'wordpress_unban' => 'Selected WordPress IP bans removed.',
+                default => 'WordPress login protection status refreshed.'
+            };
             else $message = $request['action'] === 'domain_bans_save' ? 'Domain protection saved. Automatic bans synchronize within about one minute.' :
                 ($request['action'] === 'cron_preview' ? 'Cron preview generated. No schedule has changed.' :
                 ($request['action'] === 'cron_apply' ? 'Selected cron schedules updated through Hestia.' :
@@ -168,6 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     http_response_code(405); exit;
 }
 $data = $bridge($statusRequest);
+if ($wordpressResult !== null) $data['wordpress'] = $wordpressResult;
 if (empty($data['ok'])) $error = $error ?: ($data['error'] ?? 'Could not load De-Noise.');
 // When impersonating a user, render the user's scope even for an admin session.
 if (!$isAdmin) $data['sites'] = array_values(array_filter($data['sites'] ?? [], static fn($site) => $site['owner'] === $owner));

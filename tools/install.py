@@ -15,6 +15,7 @@ import engine
 import auto_bans
 from policy import DEFAULT, MARKER, VERSION, validate
 import storage
+import wordpress
 
 BASE = Path('/opt/hestia-de-noise')
 ROUTE = engine.HESTIA / 'web/plugins/de-noise'
@@ -106,6 +107,7 @@ def install():
     preflight()
     with engine.locked():
         engine.recover()
+        wordpress.recover(engine.STATE, engine.run)
         directory(BASE)
         directory(BASE / 'releases')
         previous = check_pointer()
@@ -117,7 +119,7 @@ def install():
         # complete code generation when the current pointer changes.
         stage = BASE / 'releases' / ('release-' + secrets.token_hex(10))
         stage.mkdir(mode=0o755)
-        for name in ('src', 'panel'):
+        for name in ('src', 'panel', 'config'):
             for item in (SOURCE / name).rglob('*'):
                 if item.is_symlink():
                     raise ValueError('Source symlinks are not supported')
@@ -155,6 +157,7 @@ def install():
             if sites and not any(site['supported'] for site in sites):
                 raise RuntimeError('None of the existing proxy configurations has a supported native include point')
             result = engine.apply(policy, sites)
+            result['wordpress'] = wordpress.install(engine.STATE, engine.run)
         except Exception:
             for path, old in before.items():
                 storage.replace(path, old, integration[path][1])
@@ -173,6 +176,7 @@ def uninstall():
     preflight()
     with engine.locked():
         engine.recover()
+        wordpress.recover(engine.STATE, engine.run)
         directory(BASE)
         check_pointer()
         cron_before = storage.owned(CRON)
@@ -182,6 +186,7 @@ def uninstall():
                 auto_bans.cleanup(validate(engine.load('policy.json', DEFAULT)), engine.collect(),
                                   engine.STATE, auto_bans.Native(engine.HESTIA, engine.run))
             engine.apply(validate(engine.load('policy.json', DEFAULT)), engine.collect(), remove=True)
+            wordpress.uninstall(engine.STATE, engine.run)
         except Exception:
             storage.replace(CRON, cron_before)
             raise

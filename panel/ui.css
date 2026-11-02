@@ -19,3 +19,5 @@
 @media (max-width: 640px) {
     #hdn-panel-cron .hdn-cron-table { min-width: 570px; }
 }
+.hdn-wp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; }
+.hdn-wp-grid .form-control { width: 100%; box-sizing: border-box; }

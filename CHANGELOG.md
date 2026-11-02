@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0
+
+- Add an administrator WordPress logins tab with enable, threshold/window,
+  three-stage ban durations, native Fail2ban status and scoped IP unban.
+- Document WP fail2ban as an installed-and-active WordPress prerequisite.
+  Do not discover WordPress installations, test plugin presence or install it.
+- Adopt the supported standalone WordPress jail using stable jail/action names,
+  preserving settings and ban history; keep fresh installations disabled.
+- Keep configuration in owned filters/actions and local Fail2ban files; validate
+  candidates and journal rollback/recovery. Restore adopted setup on uninstall.
+- Query Fail2ban only on explicit panel use; use its existing service for
+  IPv4/IPv6 web bans and leave periodic HTTP maintenance independent.
+
 ## 0.6.0
 
 - Add optional general 404 bans: 10 responses in 300 seconds, for 3 days by

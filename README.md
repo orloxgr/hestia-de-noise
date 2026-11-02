@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.6.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.7.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -35,6 +35,9 @@ There is no mandatory observation period.
 - Separate Scanner tools and Crawlers blocklists, each with its own switch.
   One literal, case-insensitive User-Agent substring per line.
 - Optional POST login and XML-RPC rate limits, with editable rate and burst.
+- **WordPress logins:** administrator controls for the existing Fail2ban
+  service: enable, failed-attempt threshold/window, three-stage ban durations,
+  on-demand status and selected/all WordPress unban.
 - Private-file preset: environment files, source control, configuration backups,
   cloud credentials, Kubernetes tokens and operating-system secret paths.
 - Separate editable suggestions for scanner tools and bulk / AI crawlers.
@@ -58,7 +61,7 @@ There is no mandatory observation period.
 - **Domain bans:** owners can switch on additional automatic bans for their own
   domains. These use Nginx, support IPv4/IPv6 and do not block other domains.
 - Hestia's native tabs: General, User-Agents, Endpoints, Filtered URLs, Static
-  files, IP bans, Domain bans, Cron, Domains and Activity. Tabs stay on one row,
+  files, IP bans, Domain bans, WordPress logins, Cron, Domains and Activity. Tabs stay on one row,
   scrolling horizontally on small screens. Domain bans and Cron have separate
   save/apply controls.
 - All accounts and domains in the administrator's view; bulk mode changes and
@@ -105,6 +108,41 @@ per domain. The bundled PHP preset grows from 138 to 193 paths. An unchanged
 bundled list is expanded automatically; custom lists are preserved. To merge
 suggestions into a custom list, use **Add suggested list** and **Save & Apply**.
 Filtered URLs and Static files now show their controls directly inside the tab.
+
+Version 0.7.0 adds WordPress login protection. New installations leave it off.
+The supported existing standalone `wordpress-login` jail is adopted with its
+current settings, stable jail/action identity and ban history. Its original
+configuration is retained privately and restored on addon uninstall. Unrelated
+Fail2ban configurations are kept unchanged.
+
+## WordPress login protection
+
+**Requirement:** install and activate the official **WP fail2ban** WordPress
+plugin in each site you want to protect. De-Noise does not scan for that plugin,
+run WP-CLI presence checks or install it automatically.
+
+1. Open **WordPress logins** as administrator.
+2. Enable protection. Keep **3 failures within 5 minutes** for the first ban.
+3. Set the durations: **5 minutes → 3 days → 0 days (permanent)**.
+4. Click **Save & Apply WordPress protection**.
+
+Real failed logins are read by Fail2ban from its authentication log. IP counters
+cover all sites; bans cover TCP 80/443 for IPv4 and IPv6. Successful logins,
+password-reset requests, comments, pingbacks and simply opening the login page
+do not count. Native Fail2ban escalation reduces the default failure threshold
+from 3 to 2 after the first ban and 1 after the second. Ban history is retained
+for at least 30 days; permanent bans last until an administrator removes them.
+
+Status and banned IPs are queried only when opening/refreshing this tab or
+applying its settings. The existing Fail2ban service performs detection and
+enforcement. The addon's periodic Nginx maintenance does not poll it. The
+WordPress switch is independent of Nginx Off/Observe/Enforce; **Disable
+everywhere** also disables addon-managed WordPress protection.
+
+Configuration uses addon-owned filters/actions and local Fail2ban jail files.
+Before reload, changes are syntax-checked; failed/interrupted changes restore
+the previous configuration. The history-retention setting affects the shared
+Fail2ban database, while thresholds/durations apply only to the WordPress jail.
 
 ## Enable automatic IP bans
 
