@@ -3,6 +3,8 @@ import ipaddress
 import json
 from pathlib import Path
 import time
+from itertools import chain
+import not_found
 
 import auto_bans
 from policy import site_mode
@@ -10,7 +12,7 @@ from probe_rules import token
 import storage
 
 APPLIED = 'domain-ban-applied.json'
-CATEGORIES = {'domain-file': 'missing_files', 'domain-query': 'suspicious_queries'}
+CATEGORIES = {'domain-file': 'missing_files', 'domain-query': 'suspicious_queries', 'domain-404': 'any_404'}
 
 
 def eligible(policy, sites):
@@ -79,9 +81,16 @@ def synchronize(policy, sites, state, native, now=None):
     settings = policy['bans']; preferences = policy['domain_bans']['sites']
     with auto_bans.database(state) as db:
         tables(db)
-        signature = json.dumps([preferences, {name: settings[name] for name in CATEGORIES.values()}, sorted(known)], sort_keys=True)
-        if auto_bans.get(db, 'domain-rules') != signature:
-            db.execute('DELETE FROM domain_strikes'); auto_bans.put(db, 'domain-rules', signature)
+        shared_rules = {name: settings[name] for name in CATEGORIES.values()}
+        for key in known:
+            signature = json.dumps([preferences[key], shared_rules], sort_keys=True)
+            if auto_bans.get(db, 'domain-rules:'+key) != signature:
+                db.execute('DELETE FROM domain_strikes WHERE site=?', (key,))
+                auto_bans.put(db, 'domain-rules:'+key, signature)
+        if known:
+            db.execute('DELETE FROM domain_strikes WHERE site NOT IN ('+','.join('?' for _ in known)+')', tuple(known))
+        else:
+            db.execute('DELETE FROM domain_strikes')
         cutoff = now - max(settings[name]['findtime'] for name in CATEGORIES.values())
         db.execute('DELETE FROM domain_strikes WHERE stamp<?', (cutoff,))
         for row in db.execute('SELECT * FROM domain_bans').fetchall():
@@ -101,8 +110,13 @@ def synchronize(policy, sites, state, native, now=None):
             if exempt(ipaddress.ip_address(row['ip'])):
                 db.execute('DELETE FROM domain_bans WHERE site=? AND ip=?', (row['site'], row['ip']))
         valid = {'domain-file': {token('f', value) for value in settings['missing_files']['paths']},
-                 'domain-query': {token('q', value) for value in settings['suspicious_queries']['targets']}}
-        for stamp, address, host, reason, event_token in auto_bans.events(db, 'domain_cursors'):
+                 'domain-query': {token('q', value) for value in settings['suspicious_queries']['targets']},
+                 'domain-404': {'-'}}
+        sources = chain(auto_bans.events(db, 'domain_cursors'), not_found.events(db,
+            [site for key, site in known.items() if preferences[key].get('any_404')], 'domain'))
+        for stamp, address, host, reason, event_token in sources:
+            if reason == 'not-found':
+                reason = 'domain-404'
             key = by_domain.get(host); category = CATEGORIES.get(reason)
             if not key or not category or not preferences[key][category] or event_token not in valid[reason]:
                 continue

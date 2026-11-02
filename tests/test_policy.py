@@ -2,21 +2,36 @@ import copy
 import sys
 from pathlib import Path
 import unittest
+import json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from policy import DEFAULT, LEGACY_KEYS, validate, domain, target, site_mode, global_config, site_config
 
 
 class PolicyTests(unittest.TestCase):
+    def test_v6_upgrade_expands_only_unchanged_preset_and_keeps_new_bans_off(self):
+        old = json.loads((Path(__file__).parent/'fixtures/policy-v6.json').read_text())
+        saved = validate(old)
+        self.assertEqual(len(old['bans']['missing_files']['paths']),138)
+        self.assertEqual(len(saved['bans']['missing_files']['paths']),193)
+        self.assertFalse(saved['bans']['any_404']['enabled'])
+        self.assertEqual(saved['bans']['any_404']['maxretry'],10)
+        self.assertEqual(saved['bans']['any_404']['findtime'],300)
+        self.assertFalse(saved['domain_bans']['sites']['alice/example.test']['any_404'])
+        old['bans']['missing_files']['paths']=['/custom.php']
+        self.assertEqual(validate(old)['bans']['missing_files']['paths'],['/custom.php'])
+        saved['bans']['any_404']['maxretry']=False
+        with self.assertRaises(ValueError):validate(saved)
+
     def test_v4_upgrade_preserves_existing_bans_and_does_not_enable_new_categories(self):
         old = copy.deepcopy(DEFAULT)
         old['schema'] = 4
         old.pop('probe_exceptions')
         old.pop('domain_bans')
-        for key in ('missing_files', 'suspicious_queries'): old['bans'].pop(key)
+        for key in ('missing_files', 'suspicious_queries', 'any_404'): old['bans'].pop(key)
         old['bans'].update(enabled=True, maxretry=1, duration_days=0)
         saved = validate(old)
-        self.assertEqual(saved['schema'], 6)
+        self.assertEqual(saved['schema'], 7)
         self.assertEqual(saved['bans']['duration_days'], 0)
         for key in ('missing_files', 'suspicious_queries'):
             self.assertFalse(saved['bans'][key]['enabled'])

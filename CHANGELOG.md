@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+- Add optional general 404 bans: 10 responses in 300 seconds, for 3 days by
+  default, with independent enable/count/window/duration controls.
+- Count repeated URLs, missing assets and origin 404s through incremental native
+  log reads plus metadata-only local Nginx events; retain the stricter distinct
+  PHP probe counter. Add the same optional switch to owner-scoped Domain bans.
+- Expand the PHP probe preset from 138 to 193 exact paths. Update unchanged
+  bundled lists automatically, preserve custom lists and keep new bans off.
+- Migrate saved policies and preserve new controls when an older panel saves.
+- Show Filtered URLs and Missing static files directly inside their tabs,
+  removing their redundant outer collapsible sections.
+
 ## 0.5.0
 
 - Keep all panel tabs on one row, with horizontal scrolling on narrow screens.

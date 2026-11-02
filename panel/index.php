@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 6, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 7, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
                 'scanners' => isset($_POST['scanners'])];
@@ -84,6 +84,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $field => $list($_POST['bans_' . $key . '_list'] ?? '', true)];
             }
             $submitted['bans']['suspicious_queries']['parameters'] = $list($_POST['bans_suspicious_queries_parameters'] ?? '', true);
+            $submitted['bans']['any_404'] = ['enabled' => isset($_POST['bans_any_404_enabled']),
+                'maxretry' => filter_var($_POST['bans_any_404_maxretry'] ?? '', FILTER_VALIDATE_INT),
+                'findtime' => filter_var($_POST['bans_any_404_findtime'] ?? '', FILTER_VALIDATE_INT),
+                'duration_days' => filter_var($_POST['bans_any_404_duration_days'] ?? '', FILTER_VALIDATE_INT)];
             $submitted['probe_exceptions'] = [];
             foreach (['files', 'queries'] as $kind) {
                 $submitted['probe_exceptions'][$kind] = [];
@@ -141,10 +145,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['preferences'] = [];
             if (!is_array($_POST['domain_preferences'] ?? null)) { $request['preferences'] = false; }
             else foreach ($_POST['domain_preferences'] as $site => $flags) {
-                if (!is_array($flags) || array_diff(array_keys($flags), ['present', 'missing_files', 'suspicious_queries'])) {
+                if (!is_array($flags) || array_diff(array_keys($flags), ['present', 'missing_files', 'suspicious_queries', 'any_404'])) {
                     $request['preferences'] = false; break;
                 }
-                $request['preferences'][$site] = ['missing_files' => isset($flags['missing_files']), 'suspicious_queries' => isset($flags['suspicious_queries'])];
+                $request['preferences'][$site] = ['missing_files' => isset($flags['missing_files']), 'suspicious_queries' => isset($flags['suspicious_queries']), 'any_404' => isset($flags['any_404'])];
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }

@@ -7,7 +7,7 @@ from urllib.parse import quote, unquote
 import probe_rules
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.5.0'
+VERSION = '0.6.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -16,7 +16,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'YisouSpider']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 6, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 7, 'mode': 'observe', 'agents': [], 'scanners': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
            'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
            'filters': [], 'static': [], 'static_exceptions': {},
@@ -24,6 +24,7 @@ DEFAULT = {'schema': 6, 'mode': 'observe', 'agents': [], 'scanners': False,
            'bans': {'enabled': False, 'private_files': True, 'repositories': True,
                     'maxretry': 1, 'findtime': 300, 'duration_days': 0,
                     'ignore_ips': [], 'targets': [],
+                    'any_404': {'enabled': False, 'maxretry': 10, 'findtime': 300, 'duration_days': 3},
                     'missing_files': {'enabled': False, 'maxretry': 2, 'findtime': 60,
                                       'duration_days': 3, 'paths': list(probe_rules.FILES)},
                     'suspicious_queries': {'enabled': False, 'maxretry': 2, 'findtime': 60,
@@ -84,7 +85,7 @@ def validate(raw):
             raise ValueError('Invalid saved User-Agent list')
         data.update(schema=4, tool_agents=[entry for entry in previous if entry.strip().lower() in tools],
                     agents=[entry for entry in previous if entry.strip().lower() not in tools],
-                    tool_agents_enabled=True, agents_enabled=True, bans={key: copy.deepcopy(value) for key, value in DEFAULT['bans'].items() if key not in ('missing_files', 'suspicious_queries')})
+                    tool_agents_enabled=True, agents_enabled=True, bans={key: copy.deepcopy(value) for key, value in DEFAULT['bans'].items() if key not in ('missing_files', 'suspicious_queries', 'any_404')})
     if data.get('schema') == 4 and set(data) == set(DEFAULT) - {'probe_exceptions', 'domain_bans'}:
         if not isinstance(data.get('bans'), dict):
             raise ValueError('Invalid saved automatic-ban settings')
@@ -92,7 +93,21 @@ def validate(raw):
         data.update(schema=5, probe_exceptions={'files': {}, 'queries': {}})
     if data.get('schema') == 5 and set(data) == set(DEFAULT) - {'domain_bans'}:
         data.update(schema=6, domain_bans=copy.deepcopy(DEFAULT['domain_bans']))
-    if data.get('schema') != 6 or set(data) != set(DEFAULT):
+    if data.get('schema') == 6 and set(data) == set(DEFAULT):
+        if not isinstance(data.get('bans'), dict) or not isinstance(data.get('domain_bans'), dict):
+            raise ValueError('Invalid saved automatic-ban settings')
+        data['bans']['any_404'] = copy.deepcopy(DEFAULT['bans']['any_404'])
+        if not isinstance(data['domain_bans'].get('sites'), dict):
+            raise ValueError('Invalid saved domain trigger selections')
+        for flags in data['domain_bans']['sites'].values():
+            if not isinstance(flags, dict) or set(flags) != {'missing_files', 'suspicious_queries'}:
+                raise ValueError('Invalid saved domain trigger switches')
+            flags['any_404'] = False
+        paths = data['bans'].get('missing_files', {}).get('paths')
+        if isinstance(paths, list) and probe_rules.is_previous_preset(paths):
+            data['bans']['missing_files']['paths'] = list(probe_rules.FILES)
+        data['schema'] = 7
+    if data.get('schema') != 7 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
@@ -119,6 +134,12 @@ def validate(raw):
     except ValueError as error:
         raise ValueError('Never-ban entries must be IP addresses or CIDR networks') from error
     probe_rules.validate_settings(data, exception_path, target)
+    rule = ban['any_404']
+    if (not isinstance(rule, dict) or set(rule) != {'enabled', 'maxretry', 'findtime', 'duration_days'}
+            or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not 1 <= rule['maxretry'] <= 1000
+            or type(rule['findtime']) is not int or not 30 <= rule['findtime'] <= 86400
+            or type(rule['duration_days']) is not int or not 0 <= rule['duration_days'] <= 3650):
+        raise ValueError('Invalid general 404 automatic-ban controls')
     delegation = data['domain_bans']
     if (not isinstance(delegation, dict) or set(delegation) != {'allow_users', 'sites'}
             or type(delegation['allow_users']) is not bool or not isinstance(delegation['sites'], dict)
@@ -126,7 +147,7 @@ def validate(raw):
         raise ValueError('Invalid domain automatic-ban settings')
     for key, rules in delegation['sites'].items():
         target(key)
-        if (not isinstance(rules, dict) or set(rules) != {'missing_files', 'suspicious_queries'}
+        if (not isinstance(rules, dict) or set(rules) != {'missing_files', 'suspicious_queries', 'any_404'}
                 or any(type(value) is not bool for value in rules.values())):
             raise ValueError('Domain owners may select trigger categories only')
     return validate_rules(data)
@@ -431,4 +452,6 @@ def site_config(policy, site, document_root=None):
         lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_bans if=$hdn_autoban_log;']
     if any(local.values()):
         lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_domain_bans if=$hdn_domain_autoban_log;']
+    if (policy['bans']['enabled'] and policy['bans']['any_404']['enabled']) or local.get('any_404'):
+        lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_early_404 if=$hdn_early_404_log;']
     return '\n'.join(lines) + '\n'

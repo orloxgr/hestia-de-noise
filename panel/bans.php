@@ -35,6 +35,15 @@
     : 'Match selected parameter names and complete secret file arguments, traversal to listed targets or PHP filter resource arguments, including encoded forms. Reject matches with 404 and count requests per IP across domains. Search parameters, ordinary relative paths and parameter names alone do not match the suggested rules.' ?></p>
 </div></details>
 <?php endforeach; ?>
+<?php $notFound = $ban['any_404'] ?? []; ?>
+<h3 class="u-mb10">Ban IPs after repeated 404 responses</h3>
+<label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_any_404_enabled" <?= !empty($notFound['enabled']) ? 'checked' : '' ?>> Enable general 404 bans</label>
+<?php foreach (['maxretry' => ['404 responses before ban', 1, 1000, 10],
+               'findtime' => ['Counting window (seconds)', 30, 86400, 300],
+               'duration_days' => ['Ban duration (days; 0 = permanent)', 0, 3650, 3]] as $setting => [$label, $minimum, $maximum, $default]): ?>
+<label class="form-label u-block u-mb10"><?= $escape($label) ?><input form="hdn-settings" class="form-control" type="number" name="bans_any_404_<?= $setting ?>" min="<?= $minimum ?>" max="<?= $maximum ?>" value="<?= $escape($notFound[$setting] ?? $default) ?>" required></label>
+<?php endforeach; ?>
+<p class="u-mb20">Count final HTTP 404 responses per IP across selected domains, including repeated URLs and missing assets. Other status codes do not count. Selected PHP probes retain their separate stricter counter.</p>
 <?php if (!empty($data['sites'])): ?>
 <h3 class="u-mb10">Probe exceptions by domain</h3>
 <label class="form-label" for="hdn-probe-domain">Domain</label>
@@ -57,7 +66,7 @@
 <?php endforeach; ?></select>
 <label class="form-label" for="bans-ignore">Never ban — one IP address or CIDR network per line</label>
 <textarea form="hdn-settings" class="form-control u-mb20" id="bans-ignore" name="bans_ignore_ips" rows="4" spellcheck="false"><?= $escape(implode("\n", $ban['ignore_ips'] ?? [])) ?></textarea>
-<p class="u-mb20">Never-ban entries bypass automatic IP bans only. Unselected 404s, missing static files, crawler limits and User-Agent blocks do not trigger bans. Observe/Off domains do not trigger bans. IPv6 probes still receive the HTTP block; native IPv6 firewall bans are unavailable in this backend.</p>
+<p class="u-mb20">Never-ban entries bypass automatic IP bans only. Unselected 404s count only when general 404 bans are enabled. Crawler limits and User-Agent blocks do not count as 404s. Observe/Off domains do not trigger bans. Native IPv6 firewall bans are unavailable in this backend.</p>
 <h3 class="u-mb10">Ban status</h3>
 <?php if (!empty($banState['error'])): ?><div class="alert alert-danger u-mb20" role="alert"><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($banState['error']) ?></pre></div><?php endif; ?>
 <p class="u-mb10">Active: <?= $escape($banState['active'] ?? 0) ?> · Pending: <?= $escape($banState['pending'] ?? 0) ?> · Last sync: <?= !empty($banState['last_sync']) ? $escape(gmdate('Y-m-d H:i:s', (int)$banState['last_sync']) . ' UTC') : 'Not synchronized yet' ?></p>

@@ -286,7 +286,7 @@ def snapshot(policy, sites, owner=None):
     scoped['preferences'] = {key: value for key, value in policy['domain_bans']['sites'].items() if key in visible_keys}
     scoped['can_edit'] = owner is None or policy['domain_bans']['allow_users']
     scoped['limits'] = {key: {name: policy['bans'][key][name] for name in ('maxretry', 'findtime', 'duration_days')}
-                       for key in ('missing_files', 'suspicious_queries')}
+                       for key in ('missing_files', 'suspicious_queries', 'any_404')}
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
@@ -333,9 +333,12 @@ def dispatch(request):
                 raise PermissionError('This domain does not belong to the selected account')
             if not known[key]['supported'] or known[key]['suspended']:
                 raise ValueError('This domain is suspended or unsupported')
-            if (not isinstance(flags, dict) or set(flags) != {'missing_files', 'suspicious_queries'}
+            if isinstance(flags, dict) and set(flags) == {'missing_files', 'suspicious_queries'}:
+                # An already-open 0.5 panel cannot clear a newer switch.
+                flags['any_404'] = policy['domain_bans']['sites'].get(key, {}).get('any_404', False)
+            if (not isinstance(flags, dict) or set(flags) != {'missing_files', 'suspicious_queries', 'any_404'}
                     or any(type(value) is not bool for value in flags.values())):
-                raise ValueError('Only the two domain trigger switches can be changed')
+                raise ValueError('Only domain trigger switches can be changed')
         for key, flags in preferences.items():
             if any(flags.values()):
                 policy['domain_bans']['sites'][key] = flags
@@ -359,11 +362,16 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') == 6:
+        if incoming.get('schema') in (6, 7):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
-            incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}), 'sites': previous['domain_bans']['sites']}}
+            incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') == 7 else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
+        if incoming.get('schema') in (1, 2, 3, 4, 5, 6):
+            policy['bans']['any_404'] = previous['bans']['any_404']
+        if incoming.get('schema') == 6:
+            policy['domain_bans']['sites'] = previous['domain_bans']['sites']
         if incoming.get('schema') in (1, 2, 3, 4, 5):
             policy['domain_bans'] = previous['domain_bans']
         if incoming.get('schema') in (1, 2):

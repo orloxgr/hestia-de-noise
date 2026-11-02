@@ -25,7 +25,7 @@ class ScopedBanTests(unittest.TestCase):
         self.policy = copy.deepcopy(DEFAULT); self.policy['mode'] = 'enforce'
         self.sites = [{'key': owner+'/'+host, 'owner': owner, 'domain': host, 'supported': True,
                        'suspended': False} for owner, host in [('alice','one.test'),('bob','two.test')]]
-        self.policy['domain_bans']['sites'] = {site['key']: {'missing_files': True, 'suspicious_queries': True} for site in self.sites}
+        self.policy['domain_bans']['sites'] = {site['key']: {'missing_files': True, 'suspicious_queries': True, 'any_404': False} for site in self.sites}
         self.native = FakeNative()
 
     def tearDown(self): self.patch.stop(); self.temp.cleanup()

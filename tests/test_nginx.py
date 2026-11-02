@@ -191,7 +191,7 @@ class NativeNginxTests(unittest.TestCase):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
         policy = copy.deepcopy(DEFAULT); policy['mode'] = 'enforce'
-        policy['domain_bans']['sites'] = {'alice/one.test': {'missing_files': True, 'suspicious_queries': True}}
+        policy['domain_bans']['sites'] = {'alice/one.test': {'missing_files': True, 'suspicious_queries': True, 'any_404': False}}
         sites = [{'key': 'alice/one.test'}, {'key': 'bob/two.test'}]
         blocks = {'alice/one.test': {'127.0.0.9': {}, '::1': {}}}
         text = 'pid logs/domain.pid;\nerror_log logs/domain-error.log;\nevents {}\nhttp {\n' + global_config(policy, sites, blocks)

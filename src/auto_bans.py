@@ -8,6 +8,8 @@ import re
 import sqlite3
 import stat
 import time
+from itertools import chain
+import not_found
 
 from policy import site_mode
 from probe_rules import reason_settings, token
@@ -279,7 +281,10 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     db.execute('DELETE FROM strikes WHERE domain NOT IN (' + ','.join('?' for _ in eligible) + ')', tuple(eligible))
                     valid_tokens = {'missing-file': {token('f', value) for value in settings['missing_files']['paths']},
                                     'suspicious-query': {token('q', value) for value in settings['suspicious_queries']['targets']}}
-                    for stamp, address, domain, reason, event_token in (events(db) if read_events else []):
+                    sources = chain(events(db), not_found.events(db,
+                        [site for site in sites if site['domain'] in eligible], 'native')
+                        if settings['any_404']['enabled'] else []) if read_events else []
+                    for stamp, address, domain, reason, event_token in sources:
                         try:
                             stamp, ip = float(stamp), ipaddress.ip_address(address)
                         except ValueError:
@@ -300,7 +305,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         if reason == 'missing-file':
                             count = db.execute('SELECT COUNT(DISTINCT token) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
                                                (address, reason, now-rule['findtime'])).fetchone()[0]
-                        elif reason == 'suspicious-query':
+                        elif reason in ('suspicious-query', 'not-found'):
                             count = db.execute('SELECT COUNT(*) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
                                                (address, reason, now-rule['findtime'])).fetchone()[0]
                         else:

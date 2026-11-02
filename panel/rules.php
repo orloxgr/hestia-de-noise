@@ -40,9 +40,8 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
     <?php
 };
 foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filtered URL crawling' : 'Missing static files'] : ['filters' => 'Filtered URL crawling', 'static' => 'Missing static files'] as $module => $title): ?>
-<details class="box-collapse u-mb20">
-    <summary class="box-collapse-header"><i class="fas fa-filter u-mr10"></i><?= $escape($title) ?></summary>
-    <div class="box-collapse-content">
+<section class="u-mb20">
+    <h2 class="u-mb20"><?= $escape($title) ?></h2>
         <p class="u-mb10"><?= $module === 'filters'
             ? 'Match selected crawler names, a URL path and query parameter names. Ordinary visitors and unmatched URLs keep their current routing.'
             : 'Return 404 for missing files in selected directories. Existing files keep their current routing.' ?></p>
@@ -74,8 +73,7 @@ foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filte
         <?php endforeach; ?>
         <p class="u-mt10">Exact URL paths, starting with /. Exceptions use the domain's normal routing for every query string and apply to its aliases too. Save &amp; Apply to save all domains.</p>
         <?php endif; ?>
-    </div>
-</details>
+</section>
 <template id="hdn-<?= $module ?>-template">
 <?php $renderRule($module, '__INDEX__', $module === 'filters'
     ? ['id' => '__ID__', 'enabled' => true, 'path' => '/shop/', 'parameters' => ['min_price', 'max_price', 'orderby'], 'agents' => $data['presets']['filter_agents'] ?? [], 'action' => 'limit', 'rate' => 30, 'burst' => 5, 'targets' => []]

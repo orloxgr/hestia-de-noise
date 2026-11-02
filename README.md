@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.5.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.6.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -50,6 +50,8 @@ There is no mandatory observation period.
   and selected/all unban controls.
 - Independent selected-PHP and suspicious-query 404 counters: 2 strikes in
   60 seconds and a 3-day ban by default, editable lists and domain exceptions.
+- Optional general 404 bans: 10 final 404 responses within 5 minutes, for 3 days.
+  The threshold, window and duration have separate panel controls.
 - **Cron:** preview, apply and restore spread schedules for existing WordPress
   jobs through native Hestia cron management, with readable intervals and
   expandable exact schedule details.
@@ -95,8 +97,14 @@ Enable them explicitly below. Existing schedules and saved crawler lists are not
 changed by an update. `YisouSpider` is available in the editable crawler preset.
 
 Version 0.5.0 preserves existing schedules and protection settings. Additional
-domain protection starts off for every domain. Owners may edit its two switches
+domain protection starts off for every domain. Owners may edit its switches
 unless the administrator disables that permission in **General**.
+
+Version 0.6.0 adds the optional general 404 counter, initially off globally and
+per domain. The bundled PHP preset grows from 138 to 193 paths. An unchanged
+bundled list is expanded automatically; custom lists are preserved. To merge
+suggestions into a custom list, use **Add suggested list** and **Save & Apply**.
+Filtered URLs and Static files now show their controls directly inside the tab.
 
 ## Enable automatic IP bans
 
@@ -149,11 +157,33 @@ endpoints** and enter its exact URL path. Selected-file exceptions have their
 own box. Exceptions bypass only that category. Never-ban IPs bypass bans only.
 The two counters and durations are independent of direct secret/repository bans.
 
+## Enable 10×404 bans for 3 days
+
+1. Open **IP bans** and enable **Enable automatic firewall bans**.
+2. Check **Enable general 404 bans**.
+3. Keep **404 responses before ban = 10**, **Counting window = 300 seconds**
+   and **Ban duration = 3 days**.
+4. **Save & Apply**.
+
+Every final 404 counts, including repeated requests for the same URL, missing
+assets and application 404s. Counts combine selected domains per IP. The PHP
+probe counter still bans after two distinct selected files independently.
+Other responses, such as 200, 403, 409 and 429, do not count toward this threshold.
+Owners can select the corresponding additional protection in **Domain bans**;
+their counts and blocks apply only to that domain and its aliases.
+
+General 404 bans also count genuine broken links/assets and search crawlers;
+visitors sharing an IP share its counter. Use the threshold/window and the
+administrator's never-ban list accordingly. A page saying “not found” with HTTP
+200 does not count. Probe-path exceptions do not exempt a final 404 from this
+independent general counter.
+
 ## Enable additional domain-only automatic bans
 
 1. Open **Domain bans**, as administrator or as the domain's Hestia owner.
 2. Enable **Automatic bans for selected file probes**, **Automatic bans for
-   suspicious queries**, or both, for the selected domain.
+   suspicious queries**, or **Automatic bans for repeated 404 responses** for
+   the selected domain.
 3. Click **Save domain protection**. The domain must be in **Enforce** mode.
 
 These bans affect only that domain and its aliases. They are enforced in Nginx
@@ -162,7 +192,7 @@ processed by the existing maintenance job, within about one minute.
 
 Trigger lists, exceptions, thresholds, duration and never-ban addresses come
 from the administrator's **IP bans** settings. Owners cannot edit those settings,
-add exceptions, create manual bans or unblock IPs. They can switch their two
+add exceptions, create manual bans or unblock IPs. They can switch their
 additional protections off; existing administrator rules always apply.
 The administrator sees all domains and can revoke owner editing in **General**.
 Revoking editing retains the saved protections. Off/Observe mode, disabling a
@@ -272,7 +302,14 @@ No request URL, query value, IP, cookie or credential is added to the match log.
 When automatic bans are enabled, `ban-events.log` separately stores timestamp,
 client IP, domain, a fixed reason and a non-secret rule digest, with no raw URL or query. A root-private
 `/var/lib/hestia-de-noise/bans.sqlite` stores counters, rotation cursors, expiry
-and native/domain ban state, with independent log cursors. A root-private
+and native/domain ban state, with independent log cursors. General 404 counting
+also reads the existing Hestia combined logs in `/var/log/apache2/domains/`,
+incrementally, at most 2 MiB per scope per sync and 256 KiB per file. Domains
+rotate through the read budget. Native static responses and Apache origin
+responses use that shared native log; local Nginx 404s inheriting server logging
+use a metadata-only ban event instead. No raw access-log URL/query is copied
+into addon storage. This targets the standard Hestia Apache2 combined-log layout.
+A root-private
 `domain-ban-applied.json` records the last successfully applied domain rules and
 participates in configuration recovery. Maintenance output contains counts and errors rather
 than repeatedly dumping the IP table.
@@ -285,8 +322,9 @@ The native firewall ban backend supports **IPv4**. IPv6 probes still receive the
 HTTP rejection, but are counted as unsupported for firewall bans. Domain-only
 Nginx bans support **IPv4 and IPv6**. There is no automatic change
 to SSH, panel, mail ports, the existing Fail2ban jails or recidive policy. Ordinary
-unselected 404s, missing static files, denied User-Agents and crawler rate limits do not
-trigger bans. Loopback, local server addresses and the explicit never-ban list
+unselected 404s and missing static files trigger bans only when general 404
+counting is enabled. Denied User-Agents and crawler rate limits do not count as
+404s. Loopback, local server addresses and the explicit never-ban list
 are excluded from automatic bans, along with native Hestia IP exclusions; no administrator public IP is inserted
 automatically. Bans use Nginx's configured client address, not arbitrary
 forwarded headers. Never-ban entries do not bypass request filtering.

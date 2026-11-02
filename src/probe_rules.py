@@ -5,6 +5,14 @@ import re
 from urllib.parse import unquote
 
 FILES = (Path(__file__).with_name('php-probes.txt')).read_text(encoding='utf-8').splitlines()
+
+
+def is_previous_preset(paths):
+    """Upgrade only the unchanged bundled 0.4/0.5 list, preserving custom lists."""
+    return (all(isinstance(value, str) for value in paths) and
+            hashlib.sha256('\n'.join(sorted(paths)).encode()).hexdigest() ==
+            '67568236cc1dbad6c373062fb4a361ec9c2ad20e8c13026371c2e81855b1cd67')
+
 QUERY_PARAMETERS = ['file', 'path', 'page', 'include', 'download_file', 'src',
                     'resource', 'template', 'view', 'document', 'filename', 'apis']
 QUERY_TARGETS = ['/etc/passwd', '/etc/shadow', '/etc/gshadow', '/proc/self/environ',
@@ -102,12 +110,13 @@ def validate_settings(data, path_validator, target_validator):
 
 
 def reason_settings(settings):
-    """Thresholds and lifetimes stay independent for the three trigger groups."""
+    """Keep direct, selected-file, selected-query and general-404 limits separate."""
     common = {key: settings[key] for key in ('maxretry', 'findtime', 'duration_days')}
     return {**({'private-file': common} if settings['private_files'] else {}),
             **({'repository': common} if settings['repositories'] else {}),
             **({'missing-file': settings['missing_files']} if settings['missing_files']['enabled'] else {}),
-            **({'suspicious-query': settings['suspicious_queries']} if settings['suspicious_queries']['enabled'] else {})}
+            **({'suspicious-query': settings['suspicious_queries']} if settings['suspicious_queries']['enabled'] else {}),
+            **({'not-found': settings['any_404']} if settings['any_404']['enabled'] else {})}
 
 
 def compile_maps(policy, sites, pattern, exact):
@@ -173,4 +182,10 @@ def compile_maps(policy, sites, pattern, exact):
               '    default 0;', '    ~^enforce:domain-(file|query):404$ 1;', '}',
               'map $hdn_domain_reason $hdn_domain_token { default -; domain-file $hdn_probe_file; domain-query $hdn_probe_query; }',
               'log_format hdn_domain_bans "$msec $remote_addr $server_name $hdn_domain_reason $hdn_domain_token";']
+    # Local Nginx 404s using server logging have no origin access-log record.
+    # Origin 404s and native static locations with their own logging are read
+    # from the shared native domain log instead, once per request.
+    lines += ['map "$hdn_mode:$status:$upstream_status" $hdn_early_404_log {',
+              '    default 0;', '    ~^enforce:404:(-|)$ 1;', '}',
+              'log_format hdn_early_404 "$msec $remote_addr $server_name not-found -";']
     return lines

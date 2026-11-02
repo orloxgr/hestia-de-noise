@@ -1,4 +1,4 @@
-# Presets — 0.5.0
+# Presets — 0.6.0
 
 ## Scanner tools
 
@@ -56,8 +56,10 @@ when enabled. Its two separate 404 groups default to 2 strikes in 60 seconds
 and a 3-day ban. PHP strikes require distinct selected nonexistent paths;
 query strikes require selected parameters and explicit secret-target matches.
 The complete editable PHP list is [src/php-probes.txt](src/php-probes.txt).
-It does not ban IPs for unselected 404s, ordinary missing static files, User-Agent
-matches or exceeded crawler/login budgets. The counting window, duration,
+The separate optional general 404 rule counts unselected 404s and missing static
+files, defaulting to 10 responses within 300 seconds and a 3-day ban. Repeated
+URLs count. User-Agent blocks and exceeded crawler/login budgets do not count
+as 404s. The counting window, duration,
 trigger domains and never-ban networks are editable in the panel.
 
 | Module | Match | Action in Enforce |
