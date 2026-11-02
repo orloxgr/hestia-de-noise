@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 4, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 5, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
                 'scanners' => isset($_POST['scanners'])];
@@ -75,6 +75,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'findtime' => filter_var($_POST['bans_findtime'] ?? '', FILTER_VALIDATE_INT),
                 'duration_days' => filter_var($_POST['bans_duration_days'] ?? '', FILTER_VALIDATE_INT),
                 'ignore_ips' => $list($_POST['bans_ignore_ips'] ?? '', true), 'targets' => $_POST['bans_targets'] ?? []];
+            foreach (['missing_files' => 'paths', 'suspicious_queries' => 'targets'] as $key => $field) {
+                $submitted['bans'][$key] = ['enabled' => isset($_POST['bans_' . $key . '_enabled']),
+                    'maxretry' => filter_var($_POST['bans_' . $key . '_maxretry'] ?? '', FILTER_VALIDATE_INT),
+                    'findtime' => filter_var($_POST['bans_' . $key . '_findtime'] ?? '', FILTER_VALIDATE_INT),
+                    'duration_days' => filter_var($_POST['bans_' . $key . '_duration_days'] ?? '', FILTER_VALIDATE_INT),
+                    $field => $list($_POST['bans_' . $key . '_list'] ?? '', true)];
+            }
+            $submitted['bans']['suspicious_queries']['parameters'] = $list($_POST['bans_suspicious_queries_parameters'] ?? '', true);
+            $submitted['probe_exceptions'] = [];
+            foreach (['files', 'queries'] as $kind) {
+                $submitted['probe_exceptions'][$kind] = [];
+                $values = $_POST['probe_exceptions_' . $kind] ?? [];
+                if (!is_array($values)) { $submitted['probe_exceptions'][$kind] = false; continue; }
+                foreach ($values as $site => $paths) {
+                    if (!is_string($paths)) { $submitted['probe_exceptions'][$kind] = false; break; }
+                    $paths = $list($paths, true);
+                    if ($paths) $submitted['probe_exceptions'][$kind][$site] = $paths;
+                }
+            }
             $submitted['static_exceptions'] = [];
             if (!is_array($_POST['static_exceptions'] ?? [])) { $submitted['static_exceptions'] = false; }
             else {
@@ -102,19 +121,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $request['policy'] = $submitted;
             if (is_array($submitted['static_exceptions'])) $request['policy']['static_exceptions'] = (object)$submitted['static_exceptions'];
+            foreach (['files', 'queries'] as $kind) {
+                if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
+            }
         } elseif ($request['action'] === 'bulk') {
             $request['targets'] = $_POST['targets'] ?? [];
             $request['mode'] = $_POST['bulk_mode'] ?? '';
         } elseif ($request['action'] === 'unban') {
             $request['ips'] = isset($_POST['unban_all']) ? 'all' : ($_POST['ips'] ?? []);
+        } elseif ($request['action'] === 'cron_preview') {
+            $request['minimum'] = filter_var($_POST['cron_min'] ?? '', FILTER_VALIDATE_INT);
+            $request['maximum'] = filter_var($_POST['cron_max'] ?? '', FILTER_VALIDATE_INT);
+        } elseif ($request['action'] === 'cron_apply') {
+            $request['plan_id'] = $_POST['plan_id'] ?? '';
+            $request['jobs'] = $_POST['cron_jobs'] ?? [];
+            $request['restore'] = isset($_POST['restore_cron']);
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $result = $bridge($request);
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
-            else $message = $request['action'] === 'disable' ? 'De-Noise is off for every domain. Its firewall bans will be released by synchronization.' :
-                ($request['action'] === 'unban' ? 'Unban requested. Check the active and pending counts.' : 'Settings applied. Firewall changes synchronize within about one minute.');
+            else $message = $request['action'] === 'cron_preview' ? 'Cron preview generated. No schedule has changed.' :
+                ($request['action'] === 'cron_apply' ? 'Selected cron schedules updated through Hestia.' :
+                ($request['action'] === 'disable' ? 'De-Noise is off for every domain. Its firewall bans will be released by synchronization.' :
+                ($request['action'] === 'unban' ? 'Unban requested. Check the active and pending counts.' : 'Settings applied. Firewall changes synchronize within about one minute.')));
         }
     }
 } elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {

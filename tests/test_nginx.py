@@ -48,6 +48,11 @@ class NativeNginxTests(unittest.TestCase):
         cls.literal = 'Odd";${literal}#(a)+[b]\\c'
         policy['agents'] = ['Crawler', cls.literal]
         policy['scanners'] = True
+        policy['bans']['enabled'] = True
+        policy['bans']['missing_files'].update(enabled=True, paths=policy['bans']['missing_files']['paths'] + ['/existing.php'])
+        policy['bans']['suspicious_queries']['enabled'] = True
+        policy['probe_exceptions'] = {'files': {'alice/enforce.test': ['/test.php']},
+                                     'queries': {'alice/enforce.test': ['/wp-admin/file-manager.php']}}
         policy['login'] = {'enabled': True, 'rate': 1, 'burst': 1}
         policy['xmlrpc'] = {'enabled': True, 'rate': 10, 'burst': 3}
         policy['overrides'] = {'alice/observe.test': 'observe', 'alice/off.test': 'off'}
@@ -69,6 +74,7 @@ class NativeNginxTests(unittest.TestCase):
             '/wp-content/literal$var.map', '/wp-content/quote%22%3Bfile.map', '/wp-content/.env.map']}
         (cls.directory / 'wp-content').mkdir()
         (cls.directory / 'wp-content/existing.map').write_text('existing')
+        (cls.directory / 'existing.php').write_text('existing')
         sites = [{'key': 'alice/' + host} for host in ('enforce.test', 'other.test', 'observe.test', 'off.test')]
         text = 'worker_processes 1;\npid logs/nginx.pid;\nerror_log logs/error.log notice;\nevents { worker_connections 64; }\nhttp {\n'
         text += global_config(policy, sites)
@@ -76,7 +82,7 @@ class NativeNginxTests(unittest.TestCase):
             host = site['key'].split('/')[1]
             text += 'server { listen 127.0.0.1:' + str(cls.port) + '; server_name ' + host + ' www.' + host + ';\n'
             text += site_config(policy, site, cls.directory.as_posix()).replace('/var/log/hestia-de-noise/matches.log',
-                                                     (cls.directory / 'matches.log').as_posix())
+                                                     (cls.directory / 'matches.log').as_posix()).replace('/var/log/hestia-de-noise/ban-events.log', (cls.directory / 'ban-events.log').as_posix())
             text += 'location / { proxy_pass http://127.0.0.1:' + str(cls.origin_port) + '; }\n}\n'
         text += '}\n'
         (cls.directory / 'nginx.conf').write_text(text)
@@ -122,12 +128,63 @@ class NativeNginxTests(unittest.TestCase):
         self.assertEqual(self.request(agent='Crawler', host='observe.test'), 200)
         self.assertEqual(self.request(agent='Crawler', host='off.test'), 200)
 
+    def test_selected_php_probes_preserve_existing_files_and_domain_exceptions(self):
+        before = Origin.hits
+        self.assertEqual(self.request('/auth.php'), 404)
+        self.assertEqual(Origin.hits, before)
+        self.assertEqual(self.request('/existing.php'), 200)
+        self.assertEqual(self.request('/test.php'), 200)
+        self.assertEqual(self.request('/test.php', host='other.test'), 404)
+        self.assertEqual(self.request('/unlisted.php'), 200)
+        self.assertEqual(self.request('/auth.php', host='observe.test'), 200)
+        self.assertEqual(self.request('/auth.php', host='off.test'), 200)
+
+    def test_secret_queries_encoded_variants_and_file_manager_exception(self):
+        for path in ['/?file=/etc/passwd', '/?path=../../etc/shadow',
+                     '/?file=%2fetc%2fpasswd', '/?file=%252fetc%252fpasswd',
+                     '/?file=%252F%2565%2574%2563%252F%2570%2561%2573%2573%2577%2564',
+                     '/?file=php://filter/read=convert.base64-encode/resource=wp-config.php',
+                     '/?x=ok&file=../../wp-config.php&other=1']:
+            with self.subTest(path=path):
+                before = Origin.hits
+                self.assertEqual(self.request(path), 404)
+                self.assertEqual(Origin.hits, before)
+        for path in ['/?file=../uploads/photo.jpg', '/?path=../documents', '/?s=wp-config.php', '/?s=.env',
+                     '/?s=How+to+edit+wp-config.php', '/?file=/etc/passwd-example',
+                     '/wp-admin/file-manager.php?file=/etc/passwd']:
+            with self.subTest(path=path): self.assertEqual(self.request(path), 200)
+        self.assertEqual(self.request('/wp-admin/file-manager.php?file=/etc/passwd', host='other.test'), 404)
+        self.assertEqual(self.request('/?file=/etc/passwd', host='observe.test'), 200)
+        self.assertEqual(self.request('/?file=/etc/passwd', host='off.test'), 200)
+
+    def test_probe_ban_log_requires_404_and_never_contains_query_values(self):
+        self.request('/auth.php', host='other.test')
+        self.request('/existing.php')
+        self.request('/?file=/etc/passwd')
+        self.request('/wp-admin/file-manager.php?file=/etc/passwd')
+        rows = (self.directory / 'ban-events.log').read_text().splitlines()
+        self.assertTrue(any(len(row.split()) == 5 and row.split()[3] == 'missing-file' for row in rows))
+        self.assertTrue(any(len(row.split()) == 5 and row.split()[3] == 'suspicious-query' for row in rows))
+        self.assertNotIn('passwd', '\n'.join(rows))
+        self.assertNotIn('auth.php', '\n'.join(rows))
+
     def test_configuration_is_valid_before_any_domains_exist(self):
         text = 'pid logs/empty.pid;\nerror_log logs/empty.log;\nevents {}\nhttp {\n'
         text += global_config(DEFAULT, []) + '\n}\n'
         (self.directory / 'empty.conf').write_text(text)
         command = [NGINX, '-p', self.directory.as_posix() + '/', '-c', 'empty.conf', '-t']
         result = subprocess.run(command, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_long_parameter_lists_are_split_within_native_config_token_limit(self):
+        policy = copy.deepcopy(DEFAULT)
+        policy['bans']['enabled'] = True
+        policy['bans']['suspicious_queries']['enabled'] = True
+        policy['bans']['suspicious_queries']['parameters'] = ['parameter_' + str(n) + '_' + 'x'*45 for n in range(50)]
+        text = 'pid logs/long-query.pid;\nerror_log logs/long-query.log;\nevents {}\nhttp {\n'
+        text += global_config(policy, []) + '\n}\n'
+        (self.directory / 'long-query.conf').write_text(text)
+        result = subprocess.run([NGINX, '-p', self.directory.as_posix()+'/', '-c', 'long-query.conf', '-t'], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_tool_and_crawler_switches_are_independent_in_real_nginx(self):

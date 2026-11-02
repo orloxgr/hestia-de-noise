@@ -11,6 +11,16 @@ import activity
 
 @unittest.skipUnless(os.name == 'posix' and os.geteuid() == 0, 'Requires Linux root-owned log fixture')
 class ActivityTests(unittest.TestCase):
+    def test_new_404_probe_categories_are_blocked_only_in_enforce(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / 'matches.log'; stamp = '2026-01-01T00:00:00+00:00'
+            log.write_text(f'{stamp} own.test missing-file - 404 enforce\n'
+                           f'{stamp} own.test suspicious-query - 404 enforce\n'
+                           f'{stamp} own.test suspicious-query - 200 observe\n')
+            with patch.object(activity, 'LOG', log):
+                result = activity.summary({'own.test'}, 1767225601)
+            self.assertEqual(sum(row['count'] for row in result['rows'] if row['outcome'] == 'blocked'), 2)
+            self.assertEqual(sum(row['count'] for row in result['rows'] if row['outcome'] == 'observed'), 1)
     def test_owner_scope_rotation_old_formats_and_observation_are_not_block_counts(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / 'matches.log'

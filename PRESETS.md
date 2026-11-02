@@ -1,4 +1,4 @@
-# Presets — 0.3.0
+# Presets — 0.4.0
 
 ## Scanner tools
 
@@ -52,7 +52,11 @@ blocklist. Custom entries still apply literally.
 
 The optional **IP bans** module has separate switches for secret/config-file
 and repository probes. It defaults to one matching request and permanent duration
-when enabled. It does not ban IPs for ordinary missing static files, User-Agent
+when enabled. Its two separate 404 groups default to 2 strikes in 60 seconds
+and a 3-day ban. PHP strikes require distinct selected nonexistent paths;
+query strikes require selected parameters and explicit secret-target matches.
+The complete editable PHP list is [src/php-probes.txt](src/php-probes.txt).
+It does not ban IPs for unselected 404s, ordinary missing static files, User-Agent
 matches or exceeded crawler/login budgets. The counting window, duration,
 trigger domains and never-ban networks are editable in the panel.
 

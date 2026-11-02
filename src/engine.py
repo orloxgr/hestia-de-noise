@@ -15,6 +15,8 @@ import activity
 import auto_bans
 from presets import RULES
 import storage
+import probe_rules
+import cron_spread
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -203,6 +205,8 @@ def apply(policy, sites, remove=False):
         known = {site['key'] for site in sites}
         policy['overrides'] = {key: mode for key, mode in policy['overrides'].items() if key in known}
         policy['static_exceptions'] = {key: paths for key, paths in policy['static_exceptions'].items() if key in known}
+        for kind in ('files', 'queries'):
+            policy['probe_exceptions'][kind] = {key: paths for key, paths in policy['probe_exceptions'][kind].items() if key in known}
     desired = {}
     if not remove:
         desired[str(GLOBAL)] = global_config(policy, sites)
@@ -270,8 +274,11 @@ def snapshot(policy, sites, owner=None):
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
+            'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
             'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
-                        'filter_agents': FILTER_AGENTS, 'rules': RULES}}
+                        'filter_agents': FILTER_AGENTS, 'rules': RULES,
+                        'probe_files': probe_rules.FILES, 'probe_queries': probe_rules.QUERY_TARGETS,
+                        'probe_parameters': probe_rules.QUERY_PARAMETERS}}
 
 
 def authorize(request):
@@ -295,7 +302,18 @@ def dispatch(request):
     action = request.get('action')
     policy = validate(load('policy.json', DEFAULT))
     sites = collect()
-    if action == 'save':
+    if action == 'cron_preview':
+        plan = cron_spread.preview(hestia, request.get('minimum', 5), request.get('maximum', 15))
+        storage.replace(STATE / 'cron-spread.json', storage.json_bytes(plan), 0o600)
+    elif action == 'cron_apply':
+        plan = load('cron-spread.json', None)
+        if not plan or request.get('plan_id') != plan['id']:
+            raise ValueError('Cron preview is missing or changed. Generate a new preview.')
+        cron_spread.apply(plan, request.get('jobs'), hestia,
+            lambda *args: run(str(HESTIA / 'bin/v-change-cron-job'), *args),
+            lambda value: storage.replace(STATE / 'cron-spread.json', storage.json_bytes(value), 0o600),
+            restore=request.get('restore') is True)
+    elif action == 'save':
         # Keep overrides server-side; the global form cannot overwrite them.
         incoming = request.get('policy')
         if not isinstance(incoming, dict):
@@ -308,6 +326,10 @@ def dispatch(request):
             policy['bans'] = previous['bans']
             policy['tool_agents_enabled'] = previous['tool_agents_enabled']
             policy['agents_enabled'] = previous['agents_enabled']
+        if incoming.get('schema') in (1, 2, 3, 4):
+            for key in ('missing_files', 'suspicious_queries'):
+                policy['bans'][key] = previous['bans'][key]
+            policy['probe_exceptions'] = previous['probe_exceptions']
         if policy['bans']['enabled']:
             for command in ('v-add-firewall-chain', 'v-list-firewall-ban', 'v-add-firewall-ban', 'v-delete-firewall-ban'):
                 if not (HESTIA / 'bin' / command).is_file():

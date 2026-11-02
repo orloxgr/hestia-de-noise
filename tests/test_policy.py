@@ -8,6 +8,30 @@ from policy import DEFAULT, LEGACY_KEYS, validate, domain, target, site_mode, gl
 
 
 class PolicyTests(unittest.TestCase):
+    def test_v4_upgrade_preserves_existing_bans_and_does_not_enable_new_categories(self):
+        old = copy.deepcopy(DEFAULT)
+        old['schema'] = 4
+        old.pop('probe_exceptions')
+        for key in ('missing_files', 'suspicious_queries'): old['bans'].pop(key)
+        old['bans'].update(enabled=True, maxretry=1, duration_days=0)
+        saved = validate(old)
+        self.assertEqual(saved['schema'], 5)
+        self.assertEqual(saved['bans']['duration_days'], 0)
+        for key in ('missing_files', 'suspicious_queries'):
+            self.assertFalse(saved['bans'][key]['enabled'])
+            self.assertEqual(saved['bans'][key]['maxretry'], 2)
+            self.assertEqual(saved['bans'][key]['duration_days'], 3)
+
+    def test_probe_input_is_literal_and_category_controls_are_validated(self):
+        for candidate in ['/auth.php; return 200', '/../../auth.php', '/not-php.txt']:
+            policy = copy.deepcopy(DEFAULT); policy['bans']['missing_files']['paths'] = [candidate]
+            with self.assertRaises(ValueError): validate(policy)
+        for candidate in ['/etc/passwd|.*', '../etc/passwd', '$request_uri']:
+            policy = copy.deepcopy(DEFAULT); policy['bans']['suspicious_queries']['targets'] = [candidate]
+            with self.assertRaises(ValueError): validate(policy)
+        policy = copy.deepcopy(DEFAULT); policy['bans']['missing_files']['maxretry'] = 0
+        with self.assertRaises(ValueError): validate(policy)
+
     def test_install_defaults_do_not_deny_anything(self):
         policy = validate(DEFAULT)
         self.assertEqual(policy['mode'], 'observe')

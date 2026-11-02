@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.3.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.4.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -48,8 +48,13 @@ There is no mandatory observation period.
 - **IP bans:** optional first-probe native Hestia firewall bans, permanent or
   timed, with editable trigger count/window, domain scope, never-ban networks
   and selected/all unban controls.
+- Independent selected-PHP and suspicious-query 404 counters: 2 strikes in
+  60 seconds and a 3-day ban by default, editable lists and domain exceptions.
+- **Cron:** preview, apply and restore spread schedules for existing WordPress
+  jobs through native Hestia cron management.
 - Hestia's native tabs: General, User-Agents, Endpoints, Filtered URLs, Static
-  files, IP bans, Domains and Activity. Save & Apply retains all tabs' settings.
+  files, IP bans, Cron, Domains and Activity. Save & Apply retains filtering settings;
+  cron schedules have their own explicit apply button.
 - All accounts and domains in the administrator's view; bulk mode changes and
   per-domain Off / Observe / Enforce / Inherit. Users can view their own domains.
 - Existing proxy templates stay selected, including Varnish templates. Aliases
@@ -80,6 +85,10 @@ list without changing its effective blocks. Unknown/custom entries stay under
 Crawlers / other agents. The two lists can then be edited or disabled separately.
 Automatic IP bans remain off until enabled in the panel.
 
+Version 0.4.0 keeps existing ban settings and adds two disabled trigger groups.
+Enable them explicitly below. Existing schedules and saved crawler lists are not
+changed by an update. `YisouSpider` is available in the editable crawler preset.
+
 ## Enable automatic IP bans
 
 1. Open **IP bans** and check **Enable automatic firewall bans**.
@@ -104,6 +113,46 @@ one. Duration changes apply to existing and future bans. Disabled/Observe source
 domains stop triggering bans and their existing addon bans are released at sync.
 **Disable everywhere** releases all addon bans at sync. Uninstall removes them
 before removing its maintenance job and integration.
+
+## Enable the two 404 ban rules
+
+1. Open **IP bans** and enable **Enable automatic firewall bans**.
+2. Enable **Ban IPs that 404 any of these files X times**.
+3. Enable **Ban IPs that 404 suspicious queries X times**.
+4. Keep **X = 2**, **Counting window = 60 seconds**, **Ban duration = 3 days**
+   in each box. The suggested lists are already filled and remain editable.
+5. **Save & Apply**.
+
+The PHP rule returns 404 only for a selected nonexistent file. It counts distinct
+selected file paths per IP across domains; repeating one file does not create
+two distinct strikes. Existing files retain normal routing. The full bundled
+list is [src/php-probes.txt](src/php-probes.txt), one exact URL path per line.
+
+The query rule matches selected parameter names plus complete secret-file
+arguments, traversal to those targets or PHP filter resources. It recognizes
+literal, percent-encoded and supported double-encoded forms. Matching requests
+receive 404 before the origin; two matching requests can trigger a ban. A name
+such as `file` alone, ordinary relative paths and search terms do not match the
+suggested rules. This module examines URL query arguments, not POST bodies.
+
+For a legitimate file manager use **Probe exceptions by domain → Allowed query
+endpoints** and enter its exact URL path. Selected-file exceptions have their
+own box. Exceptions bypass only that category. Never-ban IPs bypass bans only.
+The two counters and durations are independent of direct secret/repository bans.
+
+## Spread WordPress cron jobs
+
+1. Open **Cron**; keep minimum **5** and maximum **15** minutes.
+2. Click **Generate preview**.
+3. Review the selected jobs and click **Apply selected schedules**.
+
+The generated minute lists have cyclic gaps within the selected interval range,
+including the hour boundary. They remain stable and visible in native Hestia
+CRON. Commands and other jobs are preserved. Scheduled WordPress work may wait
+up to the selected maximum interval. Use **Restore selected original schedules**
+to restore jobs from the current preview. The apply operation checks for
+intervening edits in Hestia before changing each job. Generating another
+preview replaces the current preview.
 
 ## Add a filtered-URL rule
 
@@ -186,7 +235,7 @@ Logs are in `/var/log/hestia-de-noise/`: `matches.log` stores timestamp, domain,
 rule, rate-limit outcome, status and mode only; `maintenance.log` stores job results.
 No request URL, query value, IP, cookie or credential is added to the match log.
 When automatic bans are enabled, `ban-events.log` separately stores timestamp,
-client IP, domain and a fixed reason, with no raw URL or query. A root-private
+client IP, domain, a fixed reason and a non-secret rule digest, with no raw URL or query. A root-private
 `/var/lib/hestia-de-noise/bans.sqlite` stores counters, rotation cursors, expiry
 and the addon ban queue. Maintenance output contains counts and errors rather
 than repeatedly dumping the IP table.
@@ -195,10 +244,10 @@ match log when opening the panel; it is a bounded sample, not a traffic total or
 CPU measurement. The addon installs a daily logrotate policy retaining seven rotations, with a
 10 MiB size trigger when logrotate runs. Existing server logs remain separate.
 
-The native ban backend supports **IPv4**. IPv6 probes still receive HTTP 403,
+The native ban backend supports **IPv4**. IPv6 probes still receive the HTTP rejection,
 but are counted as unsupported for firewall bans. There is no automatic change
 to SSH, panel, mail ports, the existing Fail2ban jails or recidive policy. Ordinary
-404s, missing static files, denied User-Agents and crawler rate limits do not
+unselected 404s, missing static files, denied User-Agents and crawler rate limits do not
 trigger bans. Loopback, local server addresses and the explicit never-ban list
 are excluded from automatic bans, along with native Hestia IP exclusions; no administrator public IP is inserted
 automatically. Bans use Nginx's configured client address, not arbitrary

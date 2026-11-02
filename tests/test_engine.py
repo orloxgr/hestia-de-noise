@@ -121,6 +121,22 @@ class AuthorizationTests(unittest.TestCase):
             engine.dispatch({'actor': 'admin', 'action': 'save', 'policy': copy.deepcopy(DEFAULT)})
             self.assertEqual(apply.call_args.args[0]['static_exceptions'], {})
 
+    def test_stale_v4_panel_preserves_new_probe_settings_and_exceptions(self):
+        saved = copy.deepcopy(DEFAULT)
+        saved['bans']['missing_files'].update(enabled=True, maxretry=4)
+        saved['probe_exceptions']['queries'] = {'alice/example.test': ['/manager.php']}
+        incoming = copy.deepcopy(DEFAULT); incoming['schema'] = 4; incoming.pop('probe_exceptions')
+        for key in ('missing_files', 'suspicious_queries'): incoming['bans'].pop(key)
+        with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
+                patch.object(engine, 'load', return_value=saved), \
+                patch.object(engine, 'collect', return_value=[]), \
+                patch.object(engine, 'apply') as apply, \
+                patch.object(engine.activity, 'summary', return_value={}):
+            engine.dispatch({'actor': 'admin', 'action': 'save', 'policy': incoming})
+            actual = apply.call_args.args[0]
+            self.assertEqual(actual['bans']['missing_files'], saved['bans']['missing_files'])
+            self.assertEqual(actual['probe_exceptions'], saved['probe_exceptions'])
+
     def test_user_cannot_change_global_policy_or_select_another_owner(self):
         def user(*args):
             return {'alice': {'SUSPENDED': 'no', 'ROLE': 'user'}}

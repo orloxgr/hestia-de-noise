@@ -4,9 +4,10 @@ import hashlib
 import ipaddress
 import re
 from urllib.parse import quote, unquote
+import probe_rules
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -15,14 +16,20 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'YisouSpider']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 4, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 5, 'mode': 'observe', 'agents': [], 'scanners': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
            'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
            'filters': [], 'static': [], 'static_exceptions': {},
            'tool_agents': [], 'tool_agents_enabled': True, 'agents_enabled': True,
            'bans': {'enabled': False, 'private_files': True, 'repositories': True,
                     'maxretry': 1, 'findtime': 300, 'duration_days': 0,
-                    'ignore_ips': [], 'targets': []}}
+                    'ignore_ips': [], 'targets': [],
+                    'missing_files': {'enabled': False, 'maxretry': 2, 'findtime': 60,
+                                      'duration_days': 3, 'paths': list(probe_rules.FILES)},
+                    'suspicious_queries': {'enabled': False, 'maxretry': 2, 'findtime': 60,
+                                           'duration_days': 3, 'targets': list(probe_rules.QUERY_TARGETS),
+                                           'parameters': list(probe_rules.QUERY_PARAMETERS)}},
+           'probe_exceptions': {'files': {}, 'queries': {}}}
 LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
 PRIVATE_PATTERNS = [
     ('private-file', r'(?:^|/)\.env(?:[./]|$)'),
@@ -76,8 +83,13 @@ def validate(raw):
             raise ValueError('Invalid saved User-Agent list')
         data.update(schema=4, tool_agents=[entry for entry in previous if entry.strip().lower() in tools],
                     agents=[entry for entry in previous if entry.strip().lower() not in tools],
-                    tool_agents_enabled=True, agents_enabled=True, bans=copy.deepcopy(DEFAULT['bans']))
-    if data.get('schema') != 4 or set(data) != set(DEFAULT):
+                    tool_agents_enabled=True, agents_enabled=True, bans={key: copy.deepcopy(value) for key, value in DEFAULT['bans'].items() if key not in ('missing_files', 'suspicious_queries')})
+    if data.get('schema') == 4 and set(data) == set(DEFAULT) - {'probe_exceptions'}:
+        if not isinstance(data.get('bans'), dict):
+            raise ValueError('Invalid saved automatic-ban settings')
+        data['bans'].update({key: copy.deepcopy(DEFAULT['bans'][key]) for key in ('missing_files', 'suspicious_queries')})
+        data.update(schema=5, probe_exceptions={'files': {}, 'queries': {}})
+    if data.get('schema') != 5 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
@@ -103,6 +115,7 @@ def validate(raw):
         ban['ignore_ips'] = list(dict.fromkeys(str(ipaddress.ip_network(value, strict=False)) for value in ban['ignore_ips']))
     except ValueError as error:
         raise ValueError('Never-ban entries must be IP addresses or CIDR networks') from error
+    probe_rules.validate_settings(data, exception_path, target)
     return validate_rules(data)
 
 
@@ -277,9 +290,9 @@ def global_config(policy, sites):
             lines += ['    ' + pattern(regex) + ' ' + signal + ';']
     lines += ['}']
     lines += scope_map('hdn_ban_site', policy['bans'], sites)
-    lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_ban_signal" $hdn_autoban_log {',
-              '    default 0;', '    ~^enforce:1:(private-file|repository)$ 1;', '}',
-              'log_format hdn_bans "$msec $remote_addr $server_name $hdn_ban_signal";']
+    lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_ban_signal" $hdn_direct_reject {',
+              '    default 0;', '    ~^enforce:1:(private-file|repository)$ 1;', '}']
+    lines += probe_rules.compile_maps(policy, sites, pattern, exact_uri_pattern)
     lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
     for site in sites:
         if site.get('supported', True) and not site.get('suspended'):
@@ -316,10 +329,11 @@ def global_config(policy, sites):
     for rule in policy['static']:
         label = 'static-' + rule['id']
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
-    lines += ['}', 'map "$hdn_autoban_log:$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label" $hdn_match {',
+    lines += ['}', 'map "$hdn_direct_reject:$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label:$hdn_probe_query:$hdn_probe_file" $hdn_match {',
               '    default "";', '    ' + pattern('^1:') + ' private-file;',
               '    ' + pattern('^[01]:1:') + ' private-file;',
               '    ' + pattern('^[01]:[01]:1:') + ' agent;']
+    lines += ['    ' + pattern(':q[0-9a-f]{16}:') + ' suspicious-query;', '    ' + pattern(':f[0-9a-f]{16}$') + ' missing-file;']
     for _, label in block_variables:
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
     for rule in policy['static']:
@@ -353,6 +367,12 @@ def global_config(policy, sites):
 def site_config(policy, site, document_root=None):
     mode = site_mode(policy, site)
     lines = [MARKER, 'set $hdn_mode ' + mode + ';']
+    if mode != 'off' and policy['bans']['enabled'] and policy['bans']['missing_files']['enabled']:
+        if not document_root or not re.fullmatch(r'/[A-Za-z0-9_./-]+', document_root) or '..' in document_root.split('/'):
+            raise ValueError('PHP probe protection needs one literal document root: ' + site['key'])
+        lines += ['set $hdn_probe_filename "";',
+                  'if ($hdn_probe_file != "") { set $hdn_probe_filename "' + document_root.rstrip('/') + '$uri"; }',
+                  'if (-f $hdn_probe_filename) { set $hdn_probe_file ""; }']
     if mode != 'off' and any(applies(rule, site) for rule in policy['static']):
         if not document_root or not re.fullmatch(r'/[A-Za-z0-9_./-]+', document_root) or '..' in document_root.split('/'):
             raise ValueError('Static-file rules need one literal document root in the existing template: ' + site['key'])
@@ -360,7 +380,9 @@ def site_config(policy, site, document_root=None):
                   'if ($hdn_static_candidate != "") { set $hdn_static_file "' + document_root.rstrip('/') + '$uri"; }',
                   'if (-f $hdn_static_file) { set $hdn_static_candidate ""; }']
     if mode == 'enforce':
-        lines += ['if ($hdn_autoban_log) { return 403; }', 'if ($hdn_block) { return 403; }', 'if ($hdn_static_reject) { return 404; }']
+        lines += ['if ($hdn_direct_reject) { return 403; }', 'if ($hdn_block) { return 403; }',
+                  'if ($hdn_probe_query != "") { return 404; }', 'if ($hdn_probe_file != "") { return 404; }',
+                  'if ($hdn_static_reject) { return 404; }']
     for key in ('login', 'xmlrpc'):
         if policy[key]['enabled']:
             burst = policy[key]['burst']

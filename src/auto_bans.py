@@ -10,6 +10,7 @@ import stat
 import time
 
 from policy import site_mode
+from probe_rules import reason_settings, token
 
 CHAIN = 'DENOISE'
 LOG = Path('/var/log/hestia-de-noise/ban-events.log')
@@ -160,6 +161,8 @@ def database(state, create=True):
             CREATE TABLE IF NOT EXISTS bans (ip TEXT PRIMARY KEY, domain TEXT, reason TEXT,
                 created REAL, expires REAL, status TEXT, error TEXT NOT NULL DEFAULT '');
         ''')
+        if 'token' not in {row[1] for row in connection.execute('PRAGMA table_info(strikes)')}:
+            connection.execute("ALTER TABLE strikes ADD COLUMN token TEXT NOT NULL DEFAULT ''")
         yield connection
         connection.commit()
     finally:
@@ -200,8 +203,8 @@ def events(db):
                 continue
             for line in body[:end].decode('ascii', errors='replace').splitlines():
                 fields = line.split()
-                if len(fields) == 4:
-                    yield fields
+                if len(fields) in (4, 5):
+                    yield fields if len(fields) == 5 else fields + ['-']
             db.execute('INSERT OR REPLACE INTO cursors VALUES (?,?,?)', (info.st_dev, info.st_ino, offset + end))
 
 
@@ -246,20 +249,31 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         db.execute("UPDATE bans SET status='released',created=?,error='' WHERE ip=?", (now, row['ip']))
                     elif row['ip'] not in records or row['ip'] not in active:
                         raise ValueError('Native ban record and firewall disagree for ' + row['ip'])
-                duration = settings['duration_days']
-                if get(db, 'duration') != str(duration):
-                    db.execute("UPDATE bans SET expires=CASE WHEN ?=0 THEN 0 ELSE created+? END WHERE status IN ('active','pending')", (duration, duration * 86400))
-                    put(db, 'duration', duration)
+                rules = reason_settings(settings)
+                for reason, rule in rules.items():
+                    duration = rule['duration_days']
+                    if get(db, 'duration:' + reason) != str(duration):
+                        db.execute("UPDATE bans SET expires=CASE WHEN ?=0 THEN 0 ELSE created+? END WHERE reason=? AND status IN ('active','pending')", (duration, duration * 86400, reason))
+                        put(db, 'duration:' + reason, duration)
+                # Do not let stale strikes from a removed rule/scope create a ban.
+                fingerprint = json.dumps([rules, sorted(eligible)], sort_keys=True)
+                if get(db, 'rules') != fingerprint:
+                    db.execute('DELETE FROM strikes'); put(db, 'rules', fingerprint)
                 if enabled:
-                    signals = ({'private-file'} if settings['private_files'] else set()) | ({'repository'} if settings['repositories'] else set())
-                    cutoff = now - settings['findtime']
+                    cutoff = now - max([rule['findtime'] for rule in rules.values()] or [settings['findtime']])
                     db.execute('DELETE FROM strikes WHERE stamp<?', (cutoff,))
-                    for stamp, address, domain, reason in (events(db) if read_events else []):
+                    db.execute('DELETE FROM strikes WHERE domain NOT IN (' + ','.join('?' for _ in eligible) + ')', tuple(eligible))
+                    valid_tokens = {'missing-file': {token('f', value) for value in settings['missing_files']['paths']},
+                                    'suspicious-query': {token('q', value) for value in settings['suspicious_queries']['targets']}}
+                    for stamp, address, domain, reason, event_token in (events(db) if read_events else []):
                         try:
                             stamp, ip = float(stamp), ipaddress.ip_address(address)
                         except ValueError:
                             continue
-                        if not cutoff <= stamp <= now + 5 or domain not in eligible or reason not in signals or exempt(str(ip)):
+                        rule = rules.get(reason)
+                        if (not rule or not now - rule['findtime'] <= stamp <= now + 5
+                                or domain not in eligible or exempt(str(ip))
+                                or (reason in valid_tokens and event_token not in valid_tokens[reason])):
                             continue
                         if ip.version != 4:
                             put(db, 'ipv6', int(get(db, 'ipv6', '0')) + 1)
@@ -268,9 +282,18 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         previous = db.execute('SELECT * FROM bans WHERE ip=?', (address,)).fetchone()
                         if previous and (previous['status'] in ('active', 'pending', 'removing') or previous['created'] >= stamp):
                             continue
-                        db.execute('INSERT INTO strikes VALUES (?,?,?,?)', (address, domain, reason, stamp))
-                        count = db.execute('SELECT COUNT(*) FROM strikes WHERE ip=? AND stamp>=?', (address, cutoff)).fetchone()[0]
-                        if count >= settings['maxretry']:
+                        db.execute('INSERT INTO strikes (ip,domain,reason,stamp,token) VALUES (?,?,?,?,?)', (address, domain, reason, stamp, event_token))
+                        if reason == 'missing-file':
+                            count = db.execute('SELECT COUNT(DISTINCT token) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
+                                               (address, reason, now-rule['findtime'])).fetchone()[0]
+                        elif reason == 'suspicious-query':
+                            count = db.execute('SELECT COUNT(*) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
+                                               (address, reason, now-rule['findtime'])).fetchone()[0]
+                        else:
+                            count = db.execute("SELECT COUNT(*) FROM strikes WHERE ip=? AND reason IN ('private-file','repository') AND stamp>=?",
+                                               (address, now-rule['findtime'])).fetchone()[0]
+                        if count >= rule['maxretry']:
+                            duration = rule['duration_days']
                             db.execute('INSERT OR REPLACE INTO bans VALUES (?,?,?,?,?,?,?)',
                                        (address, domain, reason, now, now + duration * 86400 if duration else 0, 'pending', ''))
                             db.execute('DELETE FROM strikes WHERE ip=?', (address,))
@@ -280,7 +303,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     db.execute('DELETE FROM strikes')
                 put(db, 'enabled', int(enabled))
                 for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending')").fetchall():
-                    if not enabled or row['domain'] not in eligible or exempt(row['ip']) or (row['expires'] and row['expires'] <= now):
+                    if not enabled or row['reason'] not in rules or row['domain'] not in eligible or exempt(row['ip']) or (row['expires'] and row['expires'] <= now):
                         db.execute("UPDATE bans SET status=?,error='' WHERE ip=?", ('removing' if row['ip'] in records or row['ip'] in active else 'released', row['ip']))
                 db.commit()  # Native mutations remain resumable after interruption.
                 pending = db.execute("SELECT * FROM bans WHERE status IN ('pending','removing') ORDER BY status DESC,created LIMIT ?", (OPERATIONS,)).fetchall()

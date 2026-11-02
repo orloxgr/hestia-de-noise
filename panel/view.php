@@ -3,7 +3,7 @@ require $root . '/web/templates/header.php';
 $panel = top_panel($headerOwner, $TAB);
 $tabs = $isAdmin ? ['general' => 'General', 'agents' => 'User-Agents', 'endpoints' => 'Endpoints',
     'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans',
-    'domains' => 'Domains', 'activity' => 'Activity'] : ['domains' => 'Domains', 'activity' => 'Activity'];
+    'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domains' => 'Domains', 'activity' => 'Activity'];
 $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs);
 ?>
 <script>document.title = 'De-Noise';</script>
@@ -61,6 +61,8 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <?php $ruleModule = $key; require $install . '/panel/rules.php'; unset($ruleModule); ?>
 <?php elseif ($key === 'bans'): ?>
     <?php require $install . '/panel/bans.php'; ?>
+<?php elseif ($key === 'cron'): ?>
+    <?php require $install . '/panel/cron.php'; ?>
 <?php elseif ($key === 'domains'): ?>
     <?php require $install . '/panel/domains.php'; ?>
 <?php elseif ($key === 'activity'): ?>
@@ -69,10 +71,11 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 </div>
 <?php endforeach; ?>
 </div>
-<?php if ($isAdmin): ?><button form="hdn-settings" class="button u-mt20" type="submit"><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
+<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= $activeTab === 'cron' ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
 <p class="u-mt20"><small>Version <?= $escape($meta['version']) ?></small></p>
 </div></div>
 <script type="application/json" id="hdn-agent-presets"><?= json_encode(['scanners' => $data['presets']['scanners'] ?? [], 'crawlers' => $data['presets']['crawlers'] ?? []], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+<script type="application/json" id="hdn-probe-presets"><?= json_encode(['probe_files' => $data['presets']['probe_files'] ?? [], 'probe_queries' => $data['presets']['probe_queries'] ?? []], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script><?php readfile($install . '/panel/settings.js'); ?></script>
 <?php if ($isAdmin): ?><script><?php readfile($install . '/panel/rules.js'); ?></script><?php endif; ?>
 <?php require $root . '/web/templates/footer.php'; ?>

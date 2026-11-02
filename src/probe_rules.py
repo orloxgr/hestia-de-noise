@@ -1,0 +1,156 @@
+"""Literal probe presets and bounded native Nginx query matchers."""
+import hashlib
+from pathlib import Path
+import re
+from urllib.parse import unquote
+
+FILES = (Path(__file__).with_name('php-probes.txt')).read_text(encoding='utf-8').splitlines()
+QUERY_PARAMETERS = ['file', 'path', 'page', 'include', 'download_file', 'src',
+                    'resource', 'template', 'view', 'document', 'filename', 'apis']
+QUERY_TARGETS = ['/etc/passwd', '/etc/shadow', '/etc/gshadow', '/proc/self/environ',
+                 '/proc/self/cmdline', '/var/run/secrets/kubernetes.io/serviceaccount/token',
+                 '/root/.ssh/id_rsa', '/root/.ssh/id_ed25519', '/.aws/credentials',
+                 '/.kube/config', '/.docker/config.json', '/.git/config', '/.git/HEAD',
+                 '/.svn/entries', '/.hg/hgrc', '/var/log/auth.log',
+                 '/var/log/nginx/access.log', '/var/log/apache2/access.log',
+                 '/var/log/nginx/error.log', '/var/log/apache2/error.log',
+                 'wp-config.php', '.env', 'c:/windows/win.ini']
+
+
+def token(kind, value):
+    return kind + hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]
+
+
+def encoded_literal(text):
+    """Each ASCII character may be literal, percent encoded, or encoded twice.
+
+    Match bounded spelling alternatives in PCRE, without decoding arbitrary
+    requests in a script or interpreting administrator text as a regex.
+    """
+    out = []
+    for char in text:
+        code = format(ord(char), '02x')
+        values = [re.escape(char), '%' + code, '%25' + code]
+        if char == '/':
+            values += [r'\\', '%5c', '%255c']
+        out.append('(?:' + '|'.join(values) + ')')
+    return ''.join(out)
+
+
+def query_pattern(target, parameters=None):
+    slash = encoded_literal('/')
+    traversal = '(?:' + encoded_literal('..') + slash + '){0,16}'
+    # Entire file argument, optionally with traversal or a PHP filter wrapper.
+    # A search sentence merely mentioning wp-config.php does not match.
+    wrapper = '(?:' + encoded_literal('php://filter/') + '[^&]{0,256}' + encoded_literal('resource=') + ')?'
+    if target.startswith('/'):
+        value = '(?:' + slash + '|' + traversal + ')' + encoded_literal(target[1:])
+    else:
+        value = traversal + encoded_literal(target)
+    names = '|'.join(''.join('(?:' + re.escape(char) + '|%' + format(ord(char), '02x') + ')' for char in name)
+                     for name in (QUERY_PARAMETERS if parameters is None else parameters))
+    return '(?:^|&)(?:' + names + ')=' + wrapper + value + '(?:%00|%2500)?(?:&|$)'
+
+
+def validate_settings(data, path_validator, target_validator):
+    settings = data['bans']
+    for key, field in [('missing_files', 'paths'), ('suspicious_queries', 'targets')]:
+        rule = settings[key]
+        fields = {'enabled', 'maxretry', 'findtime', 'duration_days', field} | ({'parameters'} if key == 'suspicious_queries' else set())
+        if (not isinstance(rule, dict) or set(rule) != fields
+                or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not 1 <= rule['maxretry'] <= 1000
+                or type(rule['findtime']) is not int or not 30 <= rule['findtime'] <= 86400
+                or type(rule['duration_days']) is not int or not 0 <= rule['duration_days'] <= 3650):
+            raise ValueError('Invalid ' + key + ' controls')
+        entries = rule[field]
+        if not isinstance(entries, list) or len(entries) > 500:
+            raise ValueError('Use at most 500 selected probe paths/targets')
+        if key == 'missing_files':
+            clean = [path_validator(value) for value in entries]
+            if any(not value.lower().endswith('.php') for value in clean):
+                raise ValueError('Selected PHP probe paths must end in .php')
+        else:
+            clean = []
+            for value in entries:
+                if (not isinstance(value, str) or not 2 <= len(value) <= 250
+                        or not re.fullmatch(r'[A-Za-z0-9_./:\\-]+', value)
+                        or '..' in value.replace('\\', '/').split('/')):
+                    raise ValueError('Query targets must be literal file paths, without wildcards, traversal or expressions')
+                clean.append(value.replace('\\', '/'))
+        rule[field] = list(dict.fromkeys(clean))
+        if key == 'suspicious_queries':
+            names = rule['parameters']
+            if (not isinstance(names, list) or len(names) > 50 or any(not isinstance(name, str)
+                    or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,63}', name) for name in names)):
+                raise ValueError('Use literal query parameter names, one per line, at most 50')
+            rule['parameters'] = list(dict.fromkeys(name.lower() for name in names))
+    exceptions = data['probe_exceptions']
+    if not isinstance(exceptions, dict) or set(exceptions) != {'files', 'queries'}:
+        raise ValueError('Invalid probe exceptions')
+    total = 0
+    for kind in exceptions:
+        if not isinstance(exceptions[kind], dict) or len(exceptions[kind]) > 10000:
+            raise ValueError('Invalid domain probe exceptions')
+        for site, paths in exceptions[kind].items():
+            target_validator(site)
+            if not isinstance(paths, list) or len(paths) > 500:
+                raise ValueError('Use at most 500 probe exceptions per domain')
+            exceptions[kind][site] = list(dict.fromkeys(path_validator(value) for value in paths))
+            total += sum(len(value) for value in exceptions[kind][site])
+    if total > 64000:
+        raise ValueError('Probe exceptions exceed 64 KB')
+
+
+def reason_settings(settings):
+    """Thresholds and lifetimes stay independent for the three trigger groups."""
+    common = {key: settings[key] for key in ('maxretry', 'findtime', 'duration_days')}
+    return {**({'private-file': common} if settings['private_files'] else {}),
+            **({'repository': common} if settings['repositories'] else {}),
+            **({'missing-file': settings['missing_files']} if settings['missing_files']['enabled'] else {}),
+            **({'suspicious-query': settings['suspicious_queries']} if settings['suspicious_queries']['enabled'] else {})}
+
+
+def compile_maps(policy, sites, pattern, exact):
+    lines = []
+    settings = policy['bans']
+    for kind in ('files', 'queries'):
+        lines += ['map "$server_name:$uri" $hdn_probe_' + kind + '_exempt {', '    default 0;']
+        for site in sites:
+            if site.get('supported', True) and not site.get('suspended'):
+                host = site.get('domain', site['key'].split('/', 1)[1])
+                lines += ['    ' + exact(host + ':' + unquote(value)) + ' 1;'
+                          for value in policy['probe_exceptions'][kind].get(site['key'], [])]
+        lines += ['}']
+    lines += ['map $uri $hdn_probe_file_path {', '    default "";']
+    if settings['enabled'] and settings['missing_files']['enabled']:
+        lines += ['    ' + exact(unquote(path)) + ' ' + token('f', path) + ';'
+                  for path in settings['missing_files']['paths']]
+    source = '$args' if settings['enabled'] and settings['suspicious_queries']['enabled'] else '""'
+    lines += ['}', 'map ' + source + ' $hdn_probe_query_path {', '    default "";']
+    if settings['enabled'] and settings['suspicious_queries']['enabled'] and settings['suspicious_queries']['parameters']:
+        def matchers(value, names):
+            expression = pattern(query_pattern(value, names))
+            # Nginx config tokens have a bounded parser buffer. Split long
+            # administrator name lists without widening the matching scope.
+            if len(expression.encode()) > 3900:
+                if len(names) == 1:
+                    raise ValueError('Query target/name is too long for a native matcher; shorten the entry')
+                middle = len(names)//2
+                return matchers(value, names[:middle]) + matchers(value, names[middle:])
+            return ['    ' + expression + ' ' + token('q', value) + ';']
+        for value in settings['suspicious_queries']['targets']:
+            lines += matchers(value, settings['suspicious_queries']['parameters'])
+    lines += ['}']
+    for kind, source in [('file', 'files'), ('query', 'queries')]:
+        lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_probe_' + source + '_exempt:$hdn_probe_' + kind + '_path" $hdn_probe_' + kind + ' {',
+                  '    default "";', '    ' + pattern('^(observe|enforce):1:0:[fq][0-9a-f]{16}$') + ' $hdn_probe_' + kind + '_path;', '}']
+    lines += ['map "$hdn_direct_reject:$hdn_ban_signal:$hdn_probe_query:$hdn_probe_file" $hdn_event_reason {',
+              '    default "";', '    ~^1:private-file: private-file;', '    ~^1:repository: repository;',
+              '    ' + pattern(':q[0-9a-f]{16}:') + ' suspicious-query;', '    ' + pattern(':f[0-9a-f]{16}$') + ' missing-file;', '}',
+              'map "$hdn_probe_query:$hdn_probe_file" $hdn_event_token {', '    default -;',
+              '    ' + pattern('^q[0-9a-f]{16}:') + ' $hdn_probe_query;', '    ' + pattern(':f[0-9a-f]{16}$') + ' $hdn_probe_file;', '}',
+              'map "$hdn_mode:$hdn_ban_site:$hdn_event_reason:$status" $hdn_autoban_log {',
+              '    default 0;', '    ~^enforce:1:(private-file|repository):403$ 1;',
+              '    ~^enforce:1:(missing-file|suspicious-query):404$ 1;', '}',
+              'log_format hdn_bans "$msec $remote_addr $server_name $hdn_event_reason $hdn_event_token";']
+    return lines

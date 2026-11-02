@@ -1,11 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
-- Add `YisouSpider` to the editable optional crawler suggestions. Existing saved
-  blocklists remain unchanged until the administrator edits or inserts a preset.
-- Record the next release scope for PHP probe lists, query-value protection,
-  scoped exceptions, cross-domain probe aggregation and clearer activity.
+- Add separate controls for selected-PHP and suspicious-query 404 bans, each
+  defaulting to 2 strikes within 60 seconds and a 3-day duration when enabled.
+- Bundle 138 editable exact PHP paths; reject only selected nonexistent files,
+  preserve existing files and count distinct paths across domains per IP.
+- Match selected query parameters with literal secret targets, traversal and PHP
+  filter resource arguments, including supported encoded forms; reject with 404.
+- Add independent domain exceptions for file probes and query endpoints, plus
+  distinct activity/ban reasons and privacy-preserving event digests.
+- Preserve existing ban settings on schema upgrade and stale-panel saves; keep
+  the new categories off until selected, with independent expiry and disable.
+- Add native Hestia Cron preview/apply/restore controls for existing WordPress
+  jobs, preserving commands and rejecting stale previews after native edits.
+- Add `YisouSpider` to optional crawler suggestions without changing saved lists.
 
 ## 0.3.0
 

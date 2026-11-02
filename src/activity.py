@@ -52,7 +52,7 @@ def summary(domains, now=None):
             outcome = 'matched'
             if limit == 'REJECTED' or (mode == 'enforce' and (
                     status == '403' and (rule in ('agent', 'private-file') or rule.startswith('filter-block-'))
-                    or status == '404' and rule.startswith('static-'))):
+                    or status == '404' and (rule.startswith('static-') or rule in ('missing-file', 'suspicious-query')))):
                 outcome = 'blocked'
             elif mode == 'observe' or limit.endswith('_DRY_RUN'):
                 outcome = 'observed'

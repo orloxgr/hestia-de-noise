@@ -1,6 +1,16 @@
 (() => {
     'use strict';
     const presets = JSON.parse(document.getElementById('hdn-agent-presets').textContent);
+    const probePresets = JSON.parse(document.getElementById('hdn-probe-presets').textContent);
+    document.querySelectorAll('[data-hdn-probe-preset]').forEach(button => button.addEventListener('click', () => {
+        const field = document.getElementById(button.dataset.hdnProbeField);
+        const lines = field.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+        (probePresets[button.dataset.hdnProbePreset] || []).forEach(value => { if (!lines.includes(value)) lines.push(value); });
+        field.value = lines.join('\n');
+    }));
+    document.getElementById('hdn-probe-domain')?.addEventListener('change', event => {
+        document.querySelectorAll('[data-hdn-probe-domain]').forEach(panel => { panel.hidden = panel.dataset.hdnProbeDomain !== event.target.value; });
+    });
     document.querySelectorAll('[data-hdn-preset]').forEach(button => button.addEventListener('click', () => {
         const field = document.getElementById(button.dataset.hdnAgentField);
         const lines = field.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
@@ -12,6 +22,8 @@
     const tabs = [...document.querySelectorAll('[data-hdn-tab]')];
     tabs.forEach(button => {
         button.addEventListener('click', () => {
+            const save = document.getElementById('hdn-save');
+            if (save) save.hidden = button.dataset.hdnTab === 'cron';
             document.querySelectorAll('input[name="tab"]').forEach(input => { input.value = button.dataset.hdnTab; });
         });
         button.addEventListener('keydown', event => {

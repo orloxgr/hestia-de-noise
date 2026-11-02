@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import auto_bans
+from probe_rules import token
 from policy import DEFAULT
 
 
@@ -125,6 +126,44 @@ class BanLifecycleTests(unittest.TestCase):
         (other / 'bans.sqlite').symlink_to(self.directory / 'bans.sqlite')
         with self.assertRaises(OSError):
             auto_bans.report(other)
+
+    def probe(self, reason, value, stamp, domain='one.test', ip='198.51.100.70'):
+        with self.log.open('a') as stream:
+            stream.write(f'{stamp} {ip} {domain} {reason} {token("f" if reason == "missing-file" else "q", value)}\n')
+
+    def test_two_distinct_missing_files_across_domains_expire_after_three_days(self):
+        self.policy['bans']['missing_files']['enabled'] = True
+        self.sites.append({'domain': 'two.test', 'key': 'bob/two.test', 'supported': True})
+        self.probe('missing-file', '/auth.php', 1000)
+        self.assertEqual(self.sync()['active'], 0)
+        self.probe('missing-file', '/auth.php', 1002, 'two.test')
+        self.assertEqual(self.sync(now=1003)['active'], 0)
+        self.probe('missing-file', '/test.php', 1004, 'two.test')
+        result = self.sync(now=1005)
+        self.assertEqual(result['active'], 1)
+        self.assertEqual(result['rows'][0]['reason'], 'missing-file')
+        self.assertEqual(result['rows'][0]['expires'], 1005 + 3*86400)
+        self.assertEqual(self.sync(now=1005 + 3*86400 + 1)['active'], 0)
+
+    def test_query_counter_is_independent_and_disabled_category_releases_its_bans(self):
+        self.policy['bans']['suspicious_queries']['enabled'] = True
+        self.policy['bans']['missing_files']['enabled'] = True
+        self.probe('missing-file', '/auth.php', 1000)
+        self.probe('suspicious-query', '/etc/passwd', 1001)
+        self.assertEqual(self.sync(now=1002)['active'], 0)
+        self.probe('suspicious-query', '/etc/passwd', 1003)
+        result = self.sync(now=1004)
+        self.assertEqual(result['active'], 1)
+        self.assertEqual(result['rows'][0]['expires'], 1004 + 3*86400)
+        self.policy['bans']['suspicious_queries']['enabled'] = False
+        self.assertEqual(self.sync(now=1005)['active'], 0)
+
+    def test_unselected_probe_tokens_and_events_outside_window_do_not_count(self):
+        self.policy['bans']['missing_files']['enabled'] = True
+        self.probe('missing-file', '/not-selected.php', 1000)
+        self.probe('missing-file', '/auth.php', 930)
+        self.probe('missing-file', '/test.php', 1000)
+        self.assertEqual(self.sync(now=1001)['active'], 0)
 
     def test_uninstall_reports_foreign_native_entries_and_does_not_delete_them(self):
         self.event(); self.sync()
