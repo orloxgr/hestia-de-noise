@@ -1,6 +1,6 @@
 # Delivery status
 
-## Available in 0.4.0
+## Available in 0.5.0
 
 | Area | Delivered |
 | --- | --- |
@@ -11,7 +11,8 @@
 | PHP probes | 138 editable exact paths, nonexistent-file 404s and distinct-path counters across domains |
 | Query probes | Selected parameters, literal secret targets and encoded traversal/filter resources, independent counter and 3-day default duration |
 | Probe exceptions | Separate exact-path exceptions by domain for selected PHP files and legitimate query endpoints |
-| Cron | Explicit preview/apply/restore of native WordPress jobs with spread minute schedules |
-| Panel | Native Hestia tabs, all-domain administrator view, bulk mode changes and own-domain read-only view |
+| Cron | Explicit preview/apply/restore of native WordPress jobs with readable intervals and expandable exact schedules |
+| Domain bans | Owner-editable additional file/query bans for own domains, IPv4/IPv6 in Nginx; administrator controls delegation and shared rules |
+| Panel | Compact native Hestia tabs, responsive tables, all-domain administrator view, bulk mode changes and scoped owner controls |
 | Activity | Bounded matched/observed/blocked summaries plus administrator ban state and errors |
 | Maintenance | Domain discovery, native includes, saved policy migration, validation/recovery and owned integration removal |

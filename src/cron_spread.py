@@ -3,6 +3,7 @@ import copy
 import math
 import re
 import secrets
+from urllib.parse import urlsplit
 
 FIELDS = ('MIN', 'HOUR', 'DAY', 'MONTH', 'WDAY', 'CMD')
 
@@ -50,8 +51,38 @@ def public(plan):
         return {'error': 'Saved cron preview is invalid. Generate a new preview.'}
     return {'id': plan['id'], 'minimum': plan['minimum'], 'maximum': plan['maximum'],
             'rows': [{**{key: row[key] for key in ('key', 'owner', 'job', 'label', 'state')},
-                      'before': row['before']['MIN'], 'after': row['after']['MIN']}
+                      'site': site_label(row['label']),
+                      'before': row['before']['MIN'], 'after': row['after']['MIN'],
+                      'before_label': interval_label(row['before']['MIN']),
+                      'after_label': interval_label(row['after']['MIN'])}
                      for row in plan['rows']]}
+
+
+def site_label(label):
+    if label.startswith(('http://', 'https://')):
+        return urlsplit(label).hostname or label
+    parts = label.split('/')
+    if len(parts) > 4 and parts[1] == 'home':
+        return parts[4] if parts[3] == 'web' and len(parts) > 5 else parts[3]
+    return label
+
+
+def interval_label(value):
+    if value == '*':
+        return 'Every minute'
+    match = re.fullmatch(r'\*/([1-9][0-9]?)', value)
+    if match:
+        step = int(match[1])
+        values = list(range(0, 60, step))
+    elif re.fullmatch(r'[0-9]+(?:,[0-9]+)*', value):
+        values = sorted(set(map(int, value.split(','))))
+    else:
+        return 'Custom schedule'
+    if not values or any(not 0 <= minute < 60 for minute in values):
+        return 'Custom schedule'
+    gaps = [right-left for left, right in zip(values, values[1:]+[values[0]+60])]
+    low, high = min(gaps), max(gaps)
+    return 'Every ' + (str(low) if low == high else str(low)+'–'+str(high)) + ' minutes'
 
 
 def apply(plan, selection, hestia, change, save, restore=False):

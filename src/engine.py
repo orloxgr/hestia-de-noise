@@ -17,6 +17,7 @@ from presets import RULES
 import storage
 import probe_rules
 import cron_spread
+import domain_bans
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -193,7 +194,9 @@ def recover():
     restore(record)
     run('/usr/sbin/nginx', '-t')
     reload_nginx()
-    for name in ('policy.json', 'manifest.json'):
+    for name in ('policy.json', 'manifest.json', domain_bans.APPLIED):
+        if name not in record:
+            continue  # Recovery journals from an older installed generation.
         old = record[name]
         storage.replace(STATE / name, None if old is None else storage.json_bytes(old), 0o600)
     storage.replace(STATE / 'transaction.json', None)
@@ -205,11 +208,13 @@ def apply(policy, sites, remove=False):
         known = {site['key'] for site in sites}
         policy['overrides'] = {key: mode for key, mode in policy['overrides'].items() if key in known}
         policy['static_exceptions'] = {key: paths for key, paths in policy['static_exceptions'].items() if key in known}
+        policy['domain_bans']['sites'] = {key: value for key, value in policy['domain_bans']['sites'].items() if key in known}
         for kind in ('files', 'queries'):
             policy['probe_exceptions'][kind] = {key: paths for key, paths in policy['probe_exceptions'][kind].items() if key in known}
     desired = {}
+    domain_blocks = domain_bans.desired(policy, sites, STATE) if not remove else {}
     if not remove:
-        desired[str(GLOBAL)] = global_config(policy, sites)
+        desired[str(GLOBAL)] = global_config(policy, sites, domain_blocks)
         for site in sites:
             if site['supported']:
                 for path in site['paths']:
@@ -230,7 +235,8 @@ def apply(policy, sites, remove=False):
     # Preserve policy + ownership manifest in the same recovery journal. A
     # crash after reload but before state commit restores the old policy too.
     record = {'schema': 1, 'before': before,
-              'policy.json': load('policy.json', None), 'manifest.json': load('manifest.json', None)}
+              'policy.json': load('policy.json', None), 'manifest.json': load('manifest.json', None),
+              domain_bans.APPLIED: load(domain_bans.APPLIED, None)}
     storage.replace(STATE / 'transaction.json', storage.json_bytes(record), 0o600)
     try:
         for name, text in changes.items():
@@ -240,6 +246,7 @@ def apply(policy, sites, remove=False):
             reload_nginx()
         storage.replace(STATE / 'manifest.json', storage.json_bytes(sorted(desired)), 0o600)
         storage.replace(STATE / 'policy.json', storage.json_bytes(policy), 0o600)
+        storage.replace(STATE / domain_bans.APPLIED, storage.json_bytes(domain_blocks), 0o600)
         storage.replace(STATE / 'transaction.json', None)
     except Exception as error:
         try:
@@ -271,14 +278,24 @@ def snapshot(policy, sites, owner=None):
             ban_status = auto_bans.report(STATE, policy['bans']['enabled'])
         except (OSError, ValueError) as error:
             ban_status = {'error': str(error)}
+    try:
+        scoped = domain_bans.report(policy, sites, STATE, owner)
+    except (OSError, ValueError) as error:
+        scoped = {'active': 0, 'pending': 0, 'rows': [], 'error': str(error)}
+    visible_keys = {row['key'] for row in rows}
+    scoped['preferences'] = {key: value for key, value in policy['domain_bans']['sites'].items() if key in visible_keys}
+    scoped['can_edit'] = owner is None or policy['domain_bans']['allow_users']
+    scoped['limits'] = {key: {name: policy['bans'][key][name] for name in ('maxretry', 'findtime', 'duration_days')}
+                       for key in ('missing_files', 'suspicious_queries')}
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
+            'domain_bans': scoped,
             'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
             'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
                         'filter_agents': FILTER_AGENTS, 'rules': RULES,
                         'probe_files': probe_rules.FILES, 'probe_queries': probe_rules.QUERY_TARGETS,
-                        'probe_parameters': probe_rules.QUERY_PARAMETERS}}
+                        'probe_parameters': probe_rules.QUERY_PARAMETERS} if owner is None else {}}
 
 
 def authorize(request):
@@ -290,7 +307,7 @@ def authorize(request):
     owner = account(request.get('owner', actor))
     if not admin and owner != actor:
         raise PermissionError('Another account cannot be selected')
-    if request.get('action') != 'status' and not admin:
+    if request.get('action') not in ('status', 'domain_bans_save') and not admin:
         raise PermissionError('Only an administrator can change De-Noise settings')
     return admin, owner
 
@@ -302,7 +319,30 @@ def dispatch(request):
     action = request.get('action')
     policy = validate(load('policy.json', DEFAULT))
     sites = collect()
-    if action == 'cron_preview':
+    if action == 'domain_bans_save':
+        if set(request) - {'actor', 'owner', 'action', 'preferences'}:
+            raise ValueError('Only domain trigger selections can be submitted')
+        if not admin and not policy['domain_bans']['allow_users']:
+            raise PermissionError('Domain automatic-ban editing is disabled by the administrator')
+        preferences = request.get('preferences')
+        if not isinstance(preferences, dict) or not preferences or len(preferences) > 10000:
+            raise ValueError('Select existing domain automatic-ban settings')
+        known = {site['key']: site for site in sites}
+        for key, flags in preferences.items():
+            if (key not in known or (not (admin and owner == request['actor']) and known[key]['owner'] != owner)):
+                raise PermissionError('This domain does not belong to the selected account')
+            if not known[key]['supported'] or known[key]['suspended']:
+                raise ValueError('This domain is suspended or unsupported')
+            if (not isinstance(flags, dict) or set(flags) != {'missing_files', 'suspicious_queries'}
+                    or any(type(value) is not bool for value in flags.values())):
+                raise ValueError('Only the two domain trigger switches can be changed')
+        for key, flags in preferences.items():
+            if any(flags.values()):
+                policy['domain_bans']['sites'][key] = flags
+            else:
+                policy['domain_bans']['sites'].pop(key, None)
+        apply(policy, sites)
+    elif action == 'cron_preview':
         plan = cron_spread.preview(hestia, request.get('minimum', 5), request.get('maximum', 15))
         storage.replace(STATE / 'cron-spread.json', storage.json_bytes(plan), 0o600)
     elif action == 'cron_apply':
@@ -319,7 +359,13 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
+        if incoming.get('schema') == 6:
+            if not isinstance(incoming.get('domain_bans'), dict):
+                raise ValueError('Invalid domain automatic-ban policy')
+            incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}), 'sites': previous['domain_bans']['sites']}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
+        if incoming.get('schema') in (1, 2, 3, 4, 5):
+            policy['domain_bans'] = previous['domain_bans']
         if incoming.get('schema') in (1, 2):
             policy['static_exceptions'] = previous['static_exceptions']
         if incoming.get('schema') in (1, 2, 3):
@@ -353,6 +399,7 @@ def dispatch(request):
         policy['mode'] = 'off'; policy['overrides'] = {}
         apply(policy, sites)
     elif action == 'sync':
+        domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
         apply(policy, sites)
         result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
         if result.get('error'):
@@ -383,6 +430,8 @@ def main():
             if action != ['status']:
                 if action == ['remove-rules']:
                     auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+                else:
+                    domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
                 result = apply(policy, sites, remove=action == ['remove-rules'])
                 if action != ['remove-rules']:
                     bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))

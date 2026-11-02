@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+- Keep all panel tabs on one row, with horizontal scrolling on narrow screens.
+- Show readable Cron intervals and expandable exact schedule/path details;
+  contain long paths and tables within the panel without changing saved jobs.
+- Add Domain bans for selected-file and suspicious-query protection, editable
+  by domain owners for their own supported domains, with an administrator grant.
+- Enforce these additional bans in Nginx per domain and aliases for IPv4/IPv6,
+  without changing firewall rules or affecting neighbouring domains.
+- Reuse administrator lists, thresholds, exclusions and durations; prevent owner
+  changes to global policy, exceptions, manual bans and other accounts.
+- Process separate counters and log cursors in existing maintenance; journal
+  applied domain rules and report active, pending and removing states.
+- Preserve existing settings on schema upgrade; leave new per-domain switches
+  off until selected. Keep Cron and domain-save forms separate from global settings.
+
 ## 0.4.0
 
 - Add separate controls for selected-PHP and suspicious-query 404 bans, each

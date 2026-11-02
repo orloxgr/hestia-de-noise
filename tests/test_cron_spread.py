@@ -55,3 +55,13 @@ class CronSpreadTests(unittest.TestCase):
         self.assertFalse(self.calls)
         with self.assertRaises(ValueError):
             cron_spread.apply(plan, ['someone/99'], self.hestia, self.change, lambda p: None)
+
+    def test_public_schedule_uses_intervals_and_keeps_details_available(self):
+        self.assertEqual(cron_spread.interval_label('4,11,17,24,31,37,44,51,57'), 'Every 6–7 minutes')
+        self.assertEqual(cron_spread.interval_label('*/5'), 'Every 5 minutes')
+        self.assertEqual(cron_spread.interval_label('3,13,23,33,43,53'), 'Every 10 minutes')
+        self.assertEqual(cron_spread.site_label('/home/alice/web/one.test/public_html/wp-cron.php'), 'one.test')
+        self.assertEqual(cron_spread.site_label('/home/alice/one.test/wp-cron.php'), 'one.test')
+        result = cron_spread.public(cron_spread.preview(self.hestia))
+        self.assertEqual(result['rows'][0]['before_label'], 'Every 5 minutes')
+        self.assertEqual(result['rows'][0]['site'], 'one.test')

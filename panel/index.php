@@ -48,18 +48,19 @@ $error = '';
 $message = '';
 $submitted = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!$isAdmin || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
+    if ((!$isAdmin && ($_POST['action'] ?? '') !== 'domain_bans_save') || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
-        $error = 'Administrator access and a valid request token are required.';
+        $error = 'Write access and a valid request token are required.';
     } else {
         $request = [...$statusRequest, 'action' => $_POST['action'] ?? ''];
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 5, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 6, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
                 'scanners' => isset($_POST['scanners'])];
+            $submitted['domain_bans'] = ['allow_users' => isset($_POST['allow_domain_bans']), 'sites' => (object)[]];
             foreach (['login', 'xmlrpc'] as $key) {
                 $submitted[$key] = ['enabled' => isset($_POST[$key . '_enabled']),
                     'rate' => filter_var($_POST[$key . '_rate'] ?? '', FILTER_VALIDATE_INT),
@@ -136,16 +137,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['plan_id'] = $_POST['plan_id'] ?? '';
             $request['jobs'] = $_POST['cron_jobs'] ?? [];
             $request['restore'] = isset($_POST['restore_cron']);
+        } elseif ($request['action'] === 'domain_bans_save') {
+            $request['preferences'] = [];
+            if (!is_array($_POST['domain_preferences'] ?? null)) { $request['preferences'] = false; }
+            else foreach ($_POST['domain_preferences'] as $site => $flags) {
+                if (!is_array($flags) || array_diff(array_keys($flags), ['present', 'missing_files', 'suspicious_queries'])) {
+                    $request['preferences'] = false; break;
+                }
+                $request['preferences'][$site] = ['missing_files' => isset($flags['missing_files']), 'suspicious_queries' => isset($flags['suspicious_queries'])];
+            }
+            if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $result = $bridge($request);
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
-            else $message = $request['action'] === 'cron_preview' ? 'Cron preview generated. No schedule has changed.' :
+            else $message = $request['action'] === 'domain_bans_save' ? 'Domain protection saved. Automatic bans synchronize within about one minute.' :
+                ($request['action'] === 'cron_preview' ? 'Cron preview generated. No schedule has changed.' :
                 ($request['action'] === 'cron_apply' ? 'Selected cron schedules updated through Hestia.' :
                 ($request['action'] === 'disable' ? 'De-Noise is off for every domain. Its firewall bans will be released by synchronization.' :
-                ($request['action'] === 'unban' ? 'Unban requested. Check the active and pending counts.' : 'Settings applied. Firewall changes synchronize within about one minute.')));
+                ($request['action'] === 'unban' ? 'Unban requested. Check the active and pending counts.' : 'Settings applied. Firewall changes synchronize within about one minute.'))));
         }
     }
 } elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {

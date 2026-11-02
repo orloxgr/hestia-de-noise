@@ -113,6 +113,17 @@ def reason_settings(settings):
 def compile_maps(policy, sites, pattern, exact):
     lines = []
     settings = policy['bans']
+    preferences = policy['domain_bans']['sites']
+    for kind, key in [('file', 'missing_files'), ('query', 'suspicious_queries')]:
+        lines += ['map $server_name $hdn_local_' + kind + '_site {', '    default 0;']
+        lines += ['    ' + site.get('domain', site['key'].split('/', 1)[1]) + ' 1;'
+                  for site in sites if site.get('supported', True) and not site.get('suspended')
+                  and preferences.get(site['key'], {}).get(key)]
+        lines += ['}', 'map "$hdn_ban_site:$hdn_local_' + kind + '_site" $hdn_probe_' + kind + '_site {',
+                  '    default 0;', '    ~:1$ 1;']
+        if settings[key]['enabled']:
+            lines += ['    ~^1: 1;']
+        lines += ['}']
     for kind in ('files', 'queries'):
         lines += ['map "$server_name:$uri" $hdn_probe_' + kind + '_exempt {', '    default 0;']
         for site in sites:
@@ -122,12 +133,13 @@ def compile_maps(policy, sites, pattern, exact):
                           for value in policy['probe_exceptions'][kind].get(site['key'], [])]
         lines += ['}']
     lines += ['map $uri $hdn_probe_file_path {', '    default "";']
-    if settings['enabled'] and settings['missing_files']['enabled']:
+    if (settings['enabled'] and settings['missing_files']['enabled']) or any(value['missing_files'] for value in preferences.values()):
         lines += ['    ' + exact(unquote(path)) + ' ' + token('f', path) + ';'
                   for path in settings['missing_files']['paths']]
-    source = '$args' if settings['enabled'] and settings['suspicious_queries']['enabled'] else '""'
+    query_enabled = (settings['enabled'] and settings['suspicious_queries']['enabled']) or any(value['suspicious_queries'] for value in preferences.values())
+    source = '$args' if query_enabled else '""'
     lines += ['}', 'map ' + source + ' $hdn_probe_query_path {', '    default "";']
-    if settings['enabled'] and settings['suspicious_queries']['enabled'] and settings['suspicious_queries']['parameters']:
+    if query_enabled and settings['suspicious_queries']['parameters']:
         def matchers(value, names):
             expression = pattern(query_pattern(value, names))
             # Nginx config tokens have a bounded parser buffer. Split long
@@ -142,7 +154,7 @@ def compile_maps(policy, sites, pattern, exact):
             lines += matchers(value, settings['suspicious_queries']['parameters'])
     lines += ['}']
     for kind, source in [('file', 'files'), ('query', 'queries')]:
-        lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_probe_' + source + '_exempt:$hdn_probe_' + kind + '_path" $hdn_probe_' + kind + ' {',
+        lines += ['map "$hdn_mode:$hdn_probe_' + kind + '_site:$hdn_probe_' + source + '_exempt:$hdn_probe_' + kind + '_path" $hdn_probe_' + kind + ' {',
                   '    default "";', '    ' + pattern('^(observe|enforce):1:0:[fq][0-9a-f]{16}$') + ' $hdn_probe_' + kind + '_path;', '}']
     lines += ['map "$hdn_direct_reject:$hdn_ban_signal:$hdn_probe_query:$hdn_probe_file" $hdn_event_reason {',
               '    default "";', '    ~^1:private-file: private-file;', '    ~^1:repository: repository;',
@@ -151,6 +163,14 @@ def compile_maps(policy, sites, pattern, exact):
               '    ' + pattern('^q[0-9a-f]{16}:') + ' $hdn_probe_query;', '    ' + pattern(':f[0-9a-f]{16}$') + ' $hdn_probe_file;', '}',
               'map "$hdn_mode:$hdn_ban_site:$hdn_event_reason:$status" $hdn_autoban_log {',
               '    default 0;', '    ~^enforce:1:(private-file|repository):403$ 1;',
-              '    ~^enforce:1:(missing-file|suspicious-query):404$ 1;', '}',
+              *(['    ~^enforce:1:missing-file:404$ 1;'] if settings['missing_files']['enabled'] else []),
+              *(['    ~^enforce:1:suspicious-query:404$ 1;'] if settings['suspicious_queries']['enabled'] else []), '}',
               'log_format hdn_bans "$msec $remote_addr $server_name $hdn_event_reason $hdn_event_token";']
+    lines += ['map "$hdn_local_query_site:$hdn_probe_query:$hdn_local_file_site:$hdn_probe_file" $hdn_domain_reason {',
+              '    default "";', '    ' + pattern('^1:q[0-9a-f]{16}:') + ' domain-query;',
+              '    ' + pattern(':1:f[0-9a-f]{16}$') + ' domain-file;', '}',
+              'map "$hdn_mode:$hdn_domain_reason:$status" $hdn_domain_autoban_log {',
+              '    default 0;', '    ~^enforce:domain-(file|query):404$ 1;', '}',
+              'map $hdn_domain_reason $hdn_domain_token { default -; domain-file $hdn_probe_file; domain-query $hdn_probe_query; }',
+              'log_format hdn_domain_bans "$msec $remote_addr $server_name $hdn_domain_reason $hdn_domain_token";']
     return lines

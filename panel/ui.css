@@ -1,0 +1,21 @@
+/* Addon-scoped layout; retain Hestia's native colors, controls and tabs. */
+#hdn-container { min-width: 0; max-width: 100%; width: 100%; }
+#hdn-container > .form-container { min-width: 0; width: 100%; }
+#hdn-tabs { min-width: 0; max-width: 100%; }
+#hdn-save[hidden] { display: none; }
+#hdn-tabs > .tabs-items { flex-wrap: nowrap; gap: 0; max-width: 100%; overflow-x: auto; }
+#hdn-tabs > .tabs-items > .tabs-item { flex: 0 0 auto; margin-right: 0; padding: 10px 8px; font-size: 13px; white-space: nowrap; }
+#hdn-panel-cron { min-width: 0; }
+#hdn-panel-cron .hdn-cron-table-wrap { max-width: 100%; overflow-x: auto; }
+#hdn-panel-cron .hdn-cron-table { width: 100%; table-layout: fixed; }
+#hdn-panel-cron .hdn-cron-table th,
+#hdn-panel-cron .hdn-cron-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+#hdn-panel-cron .hdn-cron-table th:first-child { width: 8%; }
+#hdn-panel-cron .hdn-cron-table th:nth-child(3) { width: 32%; }
+#hdn-panel-cron .hdn-cron-table code { white-space: normal; overflow-wrap: anywhere; }
+.hdn-scoped-table-wrap { max-width: 100%; overflow-x: auto; }
+#hdn-panel-domain-bans td { overflow-wrap: anywhere; }
+#hdn-panel-domain-bans .box-collapse-content { padding: 14px 20px; }
+@media (max-width: 640px) {
+    #hdn-panel-cron .hdn-cron-table { min-width: 570px; }
+}

@@ -2,11 +2,12 @@
 require $root . '/web/templates/header.php';
 $panel = top_panel($headerOwner, $TAB);
 $tabs = $isAdmin ? ['general' => 'General', 'agents' => 'User-Agents', 'endpoints' => 'Endpoints',
-    'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans',
-    'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domains' => 'Domains', 'activity' => 'Activity'];
+    'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans', 'domain-bans' => 'Domain bans',
+    'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'domains' => 'Domains', 'activity' => 'Activity'];
 $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs);
 ?>
 <script>document.title = 'De-Noise';</script>
+<style><?php readfile($install . '/panel/ui.css'); ?></style>
 <div class="toolbar"><div class="toolbar-inner"><div class="toolbar-buttons">
     <a class="button button-secondary" href="/list/web/"><i class="fas fa-arrow-left icon-blue"></i>Back</a>
     <?php if ($isAdmin): ?>
@@ -14,7 +15,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <form method="post"><?php $fields('disable'); ?><button class="button button-secondary" type="submit">Disable everywhere</button></form>
     <?php endif; ?>
 </div></div></div>
-<div class="container"><div class="form-container form-container-wide">
+<div class="container" id="hdn-container"><div class="form-container form-container-wide">
 <h1 class="u-mb20">De-Noise</h1>
 <?php if ($error !== ''): ?><div class="alert alert-danger u-mb20" role="alert"><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($isAdmin ? $error : 'De-Noise is temporarily unavailable. Contact the administrator.') ?></pre></div>
 <?php elseif ($message !== ''): ?><div class="alert alert-success u-mb20" role="status"><p><?= $escape($message) ?></p></div><?php endif; ?>
@@ -37,6 +38,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     </select>
     <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="scanners" <?= !empty($policy['scanners']) ? 'checked' : '' ?>> Private-file protection</label>
     <p>Environment files, source-control metadata, configuration backups, cloud credentials and operating-system secret paths.</p>
+    <label class="form-label u-block u-mt20"><input form="hdn-settings" type="checkbox" name="allow_domain_bans" <?= !array_key_exists('domain_bans', $policy) || !empty($policy['domain_bans']['allow_users']) ? 'checked' : '' ?>> Allow domain owners to edit their additional domain-only automatic bans</label>
 <?php elseif ($key === 'agents'): ?>
     <h2 class="u-mb20">User-Agent lists</h2>
     <p class="u-mb20">One literal substring per line. Case-insensitive. Each list has its own switch.</p>
@@ -63,6 +65,8 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <?php require $install . '/panel/bans.php'; ?>
 <?php elseif ($key === 'cron'): ?>
     <?php require $install . '/panel/cron.php'; ?>
+<?php elseif ($key === 'domain-bans'): ?>
+    <?php require $install . '/panel/domain-bans.php'; ?>
 <?php elseif ($key === 'domains'): ?>
     <?php require $install . '/panel/domains.php'; ?>
 <?php elseif ($key === 'activity'): ?>
@@ -71,7 +75,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 </div>
 <?php endforeach; ?>
 </div>
-<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= $activeTab === 'cron' ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
+<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= in_array($activeTab, ['cron', 'domain-bans'], true) ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
 <p class="u-mt20"><small>Version <?= $escape($meta['version']) ?></small></p>
 </div></div>
 <script type="application/json" id="hdn-agent-presets"><?= json_encode(['scanners' => $data['presets']['scanners'] ?? [], 'crawlers' => $data['presets']['crawlers'] ?? []], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>

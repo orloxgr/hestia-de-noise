@@ -178,7 +178,9 @@ def put(db, key, value):
     db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', (key, str(value)))
 
 
-def events(db):
+def events(db, cursor_table='cursors'):
+    if cursor_table not in ('cursors', 'domain_cursors'):
+        raise ValueError('Invalid event cursor namespace')
     remaining = READ_LIMIT
     for path in (LOG.with_name(LOG.name + '.1'), LOG):
         if not remaining:
@@ -191,7 +193,7 @@ def events(db):
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 raise ValueError('Untrusted automatic-ban event log')
-            old = db.execute('SELECT offset FROM cursors WHERE device=? AND inode=?', (info.st_dev, info.st_ino)).fetchone()
+            old = db.execute('SELECT offset FROM ' + cursor_table + ' WHERE device=? AND inode=?', (info.st_dev, info.st_ino)).fetchone()
             offset = old[0] if old and old[0] <= info.st_size else 0
             stream.seek(offset)
             body = stream.read(remaining)
@@ -205,7 +207,7 @@ def events(db):
                 fields = line.split()
                 if len(fields) in (4, 5):
                     yield fields if len(fields) == 5 else fields + ['-']
-            db.execute('INSERT OR REPLACE INTO cursors VALUES (?,?,?)', (info.st_dev, info.st_ino, offset + end))
+            db.execute('INSERT OR REPLACE INTO ' + cursor_table + ' VALUES (?,?,?)', (info.st_dev, info.st_ino, offset + end))
 
 
 def report(state, enabled=False):
@@ -228,6 +230,18 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
     enabled = settings['enabled'] and bool(eligible) and not remove
     if not enabled and not (Path(state) / 'bans.sqlite').exists():
         return report(state)
+    if not enabled:
+        skip_native = False
+        with database(state, create=False) as db:
+            if (db is not None and not get(db, 'chain_owned') and not db.execute(
+                    "SELECT ip FROM bans WHERE status IN ('active','pending','removing') LIMIT 1").fetchone()):
+                # Domain-only bans share storage, not the firewall backend.
+                # Do not require iptables when no native work is owned/queued.
+                for _ in events(db):
+                    pass
+                skip_native = True
+        if skip_native:
+            return report(state, False)
     with database(state) as db:
         try:
             with native.locked():

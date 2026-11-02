@@ -12,10 +12,11 @@ class PolicyTests(unittest.TestCase):
         old = copy.deepcopy(DEFAULT)
         old['schema'] = 4
         old.pop('probe_exceptions')
+        old.pop('domain_bans')
         for key in ('missing_files', 'suspicious_queries'): old['bans'].pop(key)
         old['bans'].update(enabled=True, maxretry=1, duration_days=0)
         saved = validate(old)
-        self.assertEqual(saved['schema'], 5)
+        self.assertEqual(saved['schema'], 6)
         self.assertEqual(saved['bans']['duration_days'], 0)
         for key in ('missing_files', 'suspicious_queries'):
             self.assertFalse(saved['bans'][key]['enabled'])

@@ -23,7 +23,7 @@
     tabs.forEach(button => {
         button.addEventListener('click', () => {
             const save = document.getElementById('hdn-save');
-            if (save) save.hidden = button.dataset.hdnTab === 'cron';
+            if (save) save.hidden = ['cron', 'domain-bans'].includes(button.dataset.hdnTab);
             document.querySelectorAll('input[name="tab"]').forEach(input => { input.value = button.dataset.hdnTab; });
         });
         button.addEventListener('keydown', event => {
