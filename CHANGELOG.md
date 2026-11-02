@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `YisouSpider` to the editable optional crawler suggestions. Existing saved
+  blocklists remain unchanged until the administrator edits or inserts a preset.
+- Record the next release scope for PHP probe lists, query-value protection,
+  scoped exceptions, cross-domain probe aggregation and clearer activity.
+
 ## 0.3.0
 
 - Add optional native Hestia IPv4 bans for selected secret/repository probes,

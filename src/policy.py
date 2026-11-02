@@ -12,7 +12,7 @@ SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
 CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'ClaudeBot', 'Amazonbot', 'Reflectionbot', 'GPTBot',
-                  'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot']
+                  'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'YisouSpider']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
 DEFAULT = {'schema': 4, 'mode': 'observe', 'agents': [], 'scanners': False,

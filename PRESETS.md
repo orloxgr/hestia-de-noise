@@ -40,9 +40,10 @@ AhrefsBot
 SemrushBot
 DotBot
 BLEXBot
+YisouSpider
 ```
 
-These are collection, training or SEO-analysis crawlers, not inherently malicious
+These are collection, search, training or SEO-analysis crawlers, not inherently malicious
 services. Use the group only when that traffic is unwanted. Googlebot, Bingbot,
 Applebot, social-preview and user-requested retrieval agents are not in either
 blocklist. Custom entries still apply literally.
