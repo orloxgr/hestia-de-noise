@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 from itertools import chain
 import not_found
+import ban_evidence
 
 import auto_bans
 from policy import site_mode
@@ -66,9 +67,13 @@ def report(policy, sites, state, owner=None, now=None):
             result.append({'site': key, 'domain': key.split('/', 1)[1], 'ip': address, **data,
                            'status': 'active' if address in before and address in after else
                                      'pending' if address in after else 'removing'})
+    visible = sorted(result, key=lambda row: row['created'], reverse=True)[:100]
+    with auto_bans.database(state, create=False) as db:
+        for row in visible:
+            row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'], site=row['site']) if db else None
     return {'active': sum(row['status'] == 'active' for row in result),
             'pending': sum(row['status'] != 'active' for row in result),
-            'rows': sorted(result, key=lambda row: row['created'], reverse=True)[:100]}
+            'rows': visible}
 
 
 def synchronize(policy, sites, state, native, now=None):
@@ -114,7 +119,7 @@ def synchronize(policy, sites, state, native, now=None):
                  'domain-404': {'-'}}
         sources = chain(auto_bans.events(db, 'domain_cursors'), not_found.events(db,
             [site for key, site in known.items() if preferences[key].get('any_404')], 'domain'))
-        for stamp, address, host, reason, event_token in sources:
+        for stamp, address, host, reason, event_token, path, method in sources:
             if reason == 'not-found':
                 reason = 'domain-404'
             key = by_domain.get(host); category = CATEGORIES.get(reason)
@@ -130,15 +135,20 @@ def synchronize(policy, sites, state, native, now=None):
             address = str(ip)
             if db.execute('SELECT ip FROM domain_bans WHERE site=? AND ip=?', (key, address)).fetchone():
                 continue
-            db.execute('INSERT INTO domain_strikes VALUES (?,?,?,?,?)', (key, address, reason, event_token, stamp))
+            strike = db.execute('INSERT INTO domain_strikes (site,ip,reason,token,stamp) VALUES (?,?,?,?,?)',
+                                (key, address, reason, event_token, stamp))
+            ban_evidence.remember(db, 'domain', strike.lastrowid, address, key, reason, stamp, path, method)
             expression = 'COUNT(DISTINCT token)' if reason == 'domain-file' else 'COUNT(*)'
             count = db.execute('SELECT '+expression+' FROM domain_strikes WHERE site=? AND ip=? AND reason=? AND stamp>=?',
                                (key, address, reason, now-rule['findtime'])).fetchone()[0]
             if count >= rule['maxretry']:
                 duration = rule['duration_days']
-                db.execute('INSERT OR REPLACE INTO domain_bans VALUES (?,?,?,?,?)',
+                evidence = ban_evidence.capture(db, address, reason, rule, count, now, site=key)
+                db.execute('INSERT OR REPLACE INTO domain_bans (site,ip,reason,created,expires) VALUES (?,?,?,?,?)',
                            (key, address, reason, now, now+duration*86400 if duration else 0))
+                ban_evidence.store(db, address, now, evidence, site=key)
                 db.execute('DELETE FROM domain_strikes WHERE site=? AND ip=?', (key, address))
+        ban_evidence.prune(db, domain=True)
         # Store independent lifetimes for this scope, preserving creation time.
         for reason, category in CATEGORIES.items():
             duration = settings[category]['duration_days']

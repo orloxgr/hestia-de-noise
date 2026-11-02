@@ -10,6 +10,7 @@ import stat
 import time
 from itertools import chain
 import not_found
+import ban_evidence
 
 from policy import site_mode
 from probe_rules import reason_settings, token
@@ -165,6 +166,7 @@ def database(state, create=True):
         ''')
         if 'token' not in {row[1] for row in connection.execute('PRAGMA table_info(strikes)')}:
             connection.execute("ALTER TABLE strikes ADD COLUMN token TEXT NOT NULL DEFAULT ''")
+        ban_evidence.tables(connection)
         yield connection
         connection.commit()
     finally:
@@ -205,10 +207,10 @@ def events(db, cursor_table='cursors'):
                 if len(body) == READ_LIMIT:
                     raise ValueError('Automatic-ban event line exceeds the read bound')
                 continue
-            for line in body[:end].decode('ascii', errors='replace').splitlines():
-                fields = line.split()
-                if len(fields) in (4, 5):
-                    yield fields if len(fields) == 5 else fields + ['-']
+            for line in body[:end].decode('utf-8', errors='replace').splitlines():
+                record = ban_evidence.event(line)
+                if record is not None:
+                    yield record
             db.execute('INSERT OR REPLACE INTO ' + cursor_table + ' VALUES (?,?,?)', (info.st_dev, info.st_ino, offset + end))
 
 
@@ -217,9 +219,12 @@ def report(state, enabled=False):
         if db is None:
             return {'enabled': enabled, 'active': 0, 'pending': 0, 'rows': [], 'error': '', 'last_sync': '', 'unsupported_ipv6': 0}
         counts = dict(db.execute('SELECT status, COUNT(*) FROM bans GROUP BY status').fetchall())
+        rows = [dict(row) for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending','removing') ORDER BY created DESC LIMIT 100")]
+        for row in rows:
+            row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'])
         return {'enabled': enabled, 'active': counts.get('active', 0),
                 'pending': counts.get('pending', 0) + counts.get('removing', 0),
-                'rows': [dict(row) for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending','removing') ORDER BY created DESC LIMIT 100")],
+                'rows': rows,
                 'error': get(db, 'error'), 'last_sync': get(db, 'last_sync'),
                 'unsupported_ipv6': int(get(db, 'ipv6', '0'))}
 
@@ -284,7 +289,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     sources = chain(events(db), not_found.events(db,
                         [site for site in sites if site['domain'] in eligible], 'native')
                         if settings['any_404']['enabled'] else []) if read_events else []
-                    for stamp, address, domain, reason, event_token in sources:
+                    for stamp, address, domain, reason, event_token, path, method in sources:
                         try:
                             stamp, ip = float(stamp), ipaddress.ip_address(address)
                         except ValueError:
@@ -301,7 +306,9 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         previous = db.execute('SELECT * FROM bans WHERE ip=?', (address,)).fetchone()
                         if previous and (previous['status'] in ('active', 'pending', 'removing') or previous['created'] >= stamp):
                             continue
-                        db.execute('INSERT INTO strikes (ip,domain,reason,stamp,token) VALUES (?,?,?,?,?)', (address, domain, reason, stamp, event_token))
+                        strike = db.execute('INSERT INTO strikes (ip,domain,reason,stamp,token) VALUES (?,?,?,?,?)',
+                                            (address, domain, reason, stamp, event_token))
+                        ban_evidence.remember(db, 'global', strike.lastrowid, address, domain, reason, stamp, path, method)
                         if reason == 'missing-file':
                             count = db.execute('SELECT COUNT(DISTINCT token) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
                                                (address, reason, now-rule['findtime'])).fetchone()[0]
@@ -313,13 +320,16 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                                                (address, now-rule['findtime'])).fetchone()[0]
                         if count >= rule['maxretry']:
                             duration = rule['duration_days']
-                            db.execute('INSERT OR REPLACE INTO bans VALUES (?,?,?,?,?,?,?)',
+                            evidence = ban_evidence.capture(db, address, reason, rule, count, now)
+                            db.execute('INSERT OR REPLACE INTO bans (ip,domain,reason,created,expires,status,error) VALUES (?,?,?,?,?,?,?)',
                                        (address, domain, reason, now, now + duration * 86400 if duration else 0, 'pending', ''))
+                            ban_evidence.store(db, address, now, evidence)
                             db.execute('DELETE FROM strikes WHERE ip=?', (address,))
                 else:
                     for _ in events(db):
                         pass
                     db.execute('DELETE FROM strikes')
+                ban_evidence.prune(db)
                 put(db, 'enabled', int(enabled))
                 for row in db.execute("SELECT * FROM bans WHERE status IN ('active','pending')").fetchall():
                     if not enabled or row['reason'] not in rules or row['domain'] not in eligible or exempt(row['ip']) or (row['expires'] and row['expires'] <= now):

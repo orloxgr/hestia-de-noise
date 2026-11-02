@@ -10,11 +10,12 @@ from pathlib import Path
 import re
 import stat
 import storage
+import ban_evidence
 
 LOG_ROOT = Path('/var/log/apache2/domains')
 READ_LIMIT = 2 * 1024 * 1024
 FILE_LIMIT = 256 * 1024
-LINE = re.compile(rb'^(\S+) \S+ \S+ \[([^\]]+)\] "(?:[^"\\]|\\.)*" 404 (?:[0-9]+|-) ')
+LINE = re.compile(rb'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) ((?:[^"\\\s]|\\.)+) [^"\r\n]+" 404 (?:[0-9]+|-) ')
 
 
 def events(db, sites, namespace):
@@ -62,10 +63,12 @@ def events(db, sites, namespace):
                     match = LINE.match(raw)
                     if not match:
                         continue
-                    ip, date = match.groups()
+                    ip, date, method, target = match.groups()
                     try:
                         stamp = datetime.datetime.strptime(date.decode('ascii'), '%d/%b/%Y:%H:%M:%S %z').timestamp()
-                        yield str(stamp), ip.decode('ascii'), domain, 'not-found', '-'
+                        yield (str(stamp), ip.decode('ascii'), domain, 'not-found', '-',
+                               ban_evidence.path_only(target.decode('utf-8', errors='replace')),
+                               ban_evidence.method_only(method.decode('ascii')))
                     except (ValueError, UnicodeError):
                         continue
                 db.execute('INSERT OR REPLACE INTO access_cursors VALUES (?,?,?,?,?)',

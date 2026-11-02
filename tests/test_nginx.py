@@ -14,6 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from policy import DEFAULT, global_config, site_config
+import ban_evidence
 
 NGINX = os.environ.get('HDN_TEST_NGINX')
 
@@ -163,10 +164,11 @@ class NativeNginxTests(unittest.TestCase):
         self.request('/?file=/etc/passwd')
         self.request('/wp-admin/file-manager.php?file=/etc/passwd')
         rows = (self.directory / 'ban-events.log').read_text().splitlines()
-        self.assertTrue(any(len(row.split()) == 5 and row.split()[3] == 'missing-file' for row in rows))
-        self.assertTrue(any(len(row.split()) == 5 and row.split()[3] == 'suspicious-query' for row in rows))
-        self.assertNotIn('passwd', '\n'.join(rows))
-        self.assertNotIn('auth.php', '\n'.join(rows))
+        records = [ban_evidence.event(row) for row in rows]
+        self.assertTrue(any(row and row[3] == 'missing-file' and row[5] == '/auth.php' for row in records))
+        self.assertTrue(any(row and row[3] == 'suspicious-query' and row[5] == '/' for row in records))
+        self.assertFalse(any(row and row[3] == 'missing-file' and row[5] == '/existing.php' for row in records))
+        self.assertNotIn('file=/etc/passwd', '\n'.join(rows))
 
     def test_configuration_is_valid_before_any_domains_exist(self):
         text = 'pid logs/empty.pid;\nerror_log logs/empty.log;\nevents {}\nhttp {\n'

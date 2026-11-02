@@ -156,7 +156,7 @@ class General404Tests(unittest.TestCase):
         config=self.root/'nginx.conf';config.write_text(text)
         subprocess.run([os.environ['HDN_TEST_NGINX'],'-c',str(config),'-p',str(self.root)],check=True,capture_output=True)
         try:
-            for path in ['/origin-404','/native-missing/a.css','/hidden','/wp-content/missing.js','/opsh.php','/ok']:
+            for path in ['/origin-404','/native-missing/a.css?key=private','/hidden?password=private','/wp-content/missing.js?token=private','/opsh.php','/ok']:
                 connection=http.client.HTTPConnection('127.0.0.1',port)
                 connection.request('GET',path,headers={'Host':'one.test'})
                 response=connection.getresponse();response.read();connection.close()
@@ -170,6 +170,9 @@ class General404Tests(unittest.TestCase):
             self.assertEqual(len(upstream),2)
             self.assertEqual(len(local)+len(upstream),5)
             self.assertNotIn('/origin-404',self.log.read_text())
+            self.assertNotIn('private',self.log.read_text())
+            self.assertEqual({event[5] for event in local},{'/hidden','/wp-content/missing.js','/opsh.php'})
+            self.assertEqual({event[5] for event in upstream},{'/origin-404','/native-missing/a.css'})
         finally:
             subprocess.run([os.environ['HDN_TEST_NGINX'],'-c',str(config),'-p',str(self.root),'-s','quit'],capture_output=True)
             origin.shutdown();origin.server_close();thread.join()

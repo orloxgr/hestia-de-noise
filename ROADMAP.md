@@ -1,6 +1,6 @@
 # Delivery status
 
-## Available in 0.6.0
+## Available in 0.7.1
 
 | Area | Delivered |
 | --- | --- |
@@ -10,6 +10,8 @@
 | Firewall bans | Optional native Hestia IPv4 bans, first-request trigger, editable duration/count/window/scope, exclusions, expiry and unban |
 | PHP probes | 193 editable exact paths, nonexistent-file 404s and distinct-path counters across domains |
 | General 404s | Optional 10 responses / 5 minutes / 3-day bans, including repeated URLs and assets, globally or per domain |
+| Ban evidence | Query-free paths/methods/times and the trigger-time threshold/window, in global and scoped ban details |
+| WordPress logins | Native Fail2ban controls, three-stage durations, on-demand status and scoped unban; requires WP fail2ban |
 | Query probes | Selected parameters, literal secret targets and encoded traversal/filter resources, independent counter and 3-day default duration |
 | Probe exceptions | Separate exact-path exceptions by domain for selected PHP files and legitimate query endpoints |
 | Cron | Explicit preview/apply/restore of native WordPress jobs with readable intervals and expandable exact schedules |

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1
+
+- Record escaped, query-free request paths and methods for native Nginx ban
+  events, including early 404s, and extract the same fields from native access logs.
+- Show “Why was this IP banned?” for global and owner-scoped bans, with up to
+  ten matching requests and the threshold/window/duration captured at trigger time.
+- Preserve existing bans, counters, cursors and legacy log compatibility during
+  the additive database upgrade. Older bans show that evidence is unavailable.
+- Keep saved policy, counting behavior, exclusions and ban durations unchanged;
+  no query strings, cookies, headers or request bodies are added to addon evidence.
+
 ## 0.7.0
 
 - Add an administrator WordPress logins tab with enable, threshold/window,

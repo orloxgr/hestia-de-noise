@@ -27,7 +27,7 @@
 <p class="u-mb10">Active: <?= $escape($scopedBans['active'] ?? 0) ?> · Pending: <?= $escape($scopedBans['pending'] ?? 0) ?></p>
 <div class="hdn-scoped-table-wrap"><table class="table"><thead><tr><th>Domain</th><th>IP</th><th>Reason</th><th>Expiry (UTC)</th><th>Status</th></tr></thead><tbody>
 <?php foreach ($scopedBans['rows'] ?? [] as $row): ?><tr>
-<td><?= $escape($row['domain']) ?></td><td><?= $escape($row['ip']) ?></td><td><?= $escape(['domain-file' => 'Selected file probes', 'domain-query' => 'Suspicious queries', 'domain-404' => 'Repeated 404 responses'][$row['reason']] ?? $row['reason']) ?></td>
+<td><?= $escape($row['domain']) ?></td><td><?= $escape($row['ip']) ?></td><td><?= $escape(['domain-file' => 'Selected file probes', 'domain-query' => 'Suspicious queries', 'domain-404' => 'Repeated 404 responses'][$row['reason']] ?? $row['reason']) ?><?php require $install . '/panel/ban-details.php'; ?></td>
 <td><?= $row['expires'] ? $escape(gmdate('Y-m-d H:i:s', (int)$row['expires'])) : 'Permanent' ?></td><td><?= $escape($row['status']) ?></td>
 </tr><?php endforeach; ?></tbody></table></div>
 <?php if (empty($scopedBans['rows'])): ?><p>No domain-specific bans to display.</p><?php endif; ?>

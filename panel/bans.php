@@ -75,12 +75,12 @@
 <div class="u-mb10"><button class="button button-secondary" type="submit">Unban selected</button>
 <button class="button button-secondary" type="submit" name="unban_all" value="1">Unban all De-Noise IPs</button>
 <a class="button button-secondary" href="/list/firewall/banlist/">Hestia IP bans</a></div>
-<table class="table"><thead><tr><th>Select</th><th>IP</th><th>Source domain</th><th>Reason</th><th>Expiry</th><th>Status</th></tr></thead><tbody>
+<div class="hdn-scoped-table-wrap"><table class="table"><thead><tr><th>Select</th><th>IP</th><th>Source domain</th><th>Reason</th><th>Expiry</th><th>Status</th></tr></thead><tbody>
 <?php foreach ($banState['rows'] ?? [] as $row): ?><tr>
 <td><input type="checkbox" name="ips[]" value="<?= $escape($row['ip']) ?>" aria-label="Unban <?= $escape($row['ip']) ?>"></td>
-<td><?= $escape($row['ip']) ?></td><td><?= $escape($row['domain']) ?></td><td><?= $escape($row['reason']) ?></td>
+<td><?= $escape($row['ip']) ?></td><td><?= $escape($row['domain']) ?></td><td><?= $escape($row['reason']) ?><?php require $install . '/panel/ban-details.php'; ?></td>
 <td><?= $row['expires'] ? $escape(gmdate('Y-m-d H:i:s', (int)$row['expires']) . ' UTC') : 'Permanent' ?></td>
 <td><?= $escape($row['status']) ?><?php if ($row['error']): ?><br><?= $escape($row['error']) ?><?php endif; ?></td></tr><?php endforeach; ?>
-</tbody></table>
+</tbody></table></div>
 <?php if (empty($banState['rows'])): ?><p>No active or pending De-Noise bans.</p><?php endif; ?>
 </form>

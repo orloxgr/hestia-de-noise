@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.7.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.7.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -51,6 +51,8 @@ There is no mandatory observation period.
 - **IP bans:** optional first-probe native Hestia firewall bans, permanent or
   timed, with editable trigger count/window, domain scope, never-ban networks
   and selected/all unban controls.
+- **Why was this IP banned?** Request paths, methods and times, plus the actual
+  threshold/window and duration at trigger time, for global and domain bans.
 - Independent selected-PHP and suspicious-query 404 counters: 2 strikes in
   60 seconds and a 3-day ban by default, editable lists and domain exceptions.
 - Optional general 404 bans: 10 final 404 responses within 5 minutes, for 3 days.
@@ -114,6 +116,17 @@ The supported existing standalone `wordpress-login` jail is adopted with its
 current settings, stable jail/action identity and ban history. Its original
 configuration is retained privately and restored on addon uninstall. Unrelated
 Fail2ban configurations are kept unchanged.
+
+Version 0.7.1 adds request evidence without changing saved protection settings.
+In **IP bans** or **Domain bans**, expand **Why was this IP banned?** to see up
+to ten matching requests and the policy that triggered the ban. Evidence stays
+with the ban after its strike counter is cleared. Existing bans keep working;
+paths cannot be reconstructed for records written before this update.
+
+Addon evidence stores URL paths only: no query strings, cookies, authorization
+headers or request bodies. Native access-log queries are stripped before storage.
+Paths are capped at 1,024 characters, and the existing bounded maintenance/log
+rotation is reused. No additional service, polling or per-request script is added.
 
 ## WordPress login protection
 

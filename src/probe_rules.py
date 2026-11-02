@@ -1,10 +1,17 @@
 """Literal probe presets and bounded native Nginx query matchers."""
 import hashlib
+import json
 from pathlib import Path
 import re
 from urllib.parse import unquote
 
 FILES = (Path(__file__).with_name('php-probes.txt')).read_text(encoding='utf-8').splitlines()
+
+
+def event_format(name, reason, event_token):
+    payload = dict(v=1, ts='$msec', ip='$remote_addr', domain='$server_name',
+                   reason=reason, token=event_token, path='$hdn_request_path', method='$request_method')
+    return "log_format " + name + " escape=json '" + json.dumps(payload, separators=(',', ':')) + "';"
 
 
 def is_previous_preset(paths):
@@ -174,18 +181,20 @@ def compile_maps(policy, sites, pattern, exact):
               '    default 0;', '    ~^enforce:1:(private-file|repository):403$ 1;',
               *(['    ~^enforce:1:missing-file:404$ 1;'] if settings['missing_files']['enabled'] else []),
               *(['    ~^enforce:1:suspicious-query:404$ 1;'] if settings['suspicious_queries']['enabled'] else []), '}',
-              'log_format hdn_bans "$msec $remote_addr $server_name $hdn_event_reason $hdn_event_token";']
+              'map $request_uri $hdn_request_path {', '    default "";',
+              '    ' + pattern('^([^?]*)') + ' $1;', '}',
+              event_format('hdn_bans', '$hdn_event_reason', '$hdn_event_token')]
     lines += ['map "$hdn_local_query_site:$hdn_probe_query:$hdn_local_file_site:$hdn_probe_file" $hdn_domain_reason {',
               '    default "";', '    ' + pattern('^1:q[0-9a-f]{16}:') + ' domain-query;',
               '    ' + pattern(':1:f[0-9a-f]{16}$') + ' domain-file;', '}',
               'map "$hdn_mode:$hdn_domain_reason:$status" $hdn_domain_autoban_log {',
               '    default 0;', '    ~^enforce:domain-(file|query):404$ 1;', '}',
               'map $hdn_domain_reason $hdn_domain_token { default -; domain-file $hdn_probe_file; domain-query $hdn_probe_query; }',
-              'log_format hdn_domain_bans "$msec $remote_addr $server_name $hdn_domain_reason $hdn_domain_token";']
+              event_format('hdn_domain_bans', '$hdn_domain_reason', '$hdn_domain_token')]
     # Local Nginx 404s using server logging have no origin access-log record.
     # Origin 404s and native static locations with their own logging are read
     # from the shared native domain log instead, once per request.
     lines += ['map "$hdn_mode:$status:$upstream_status" $hdn_early_404_log {',
               '    default 0;', '    ~^enforce:404:(-|)$ 1;', '}',
-              'log_format hdn_early_404 "$msec $remote_addr $server_name not-found -";']
+              event_format('hdn_early_404', 'not-found', '-')]
     return lines
