@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.1
+
+- Fix Analyze logs submitting to an invalid URL because Hestia's hidden action
+  input shadows the form's action property. Preserve the intended form URL,
+  CSRF token, selected scope and unsaved protection settings.
+- Report HTTP failures and unexpected panel responses accurately; only identify
+  an expired session when the response redirects to Hestia's login page.
+- Add JavaScript regression coverage for named form controls, response errors
+  and report-only updates; verify submission against a strict browser fixture.
+
 ## 0.12.0
 
 - Add an administrator-triggered native-log review in Filtered URLs, scoped to

@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.12.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.12.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -555,3 +555,10 @@ actual Hestia commands and TCP traffic in isolated network/mount namespaces,
 with no changes to the running VM's native firewall files or rules. Native Hestia
 tabs and cross-tab form submission are checked in a browser. Full Hestia installer integration
 is separate from these isolated tests.
+
+The panel JavaScript regression tests require Node.js on a development machine
+only; Node.js is not a server runtime dependency:
+
+```bash
+node --test tests/panel-settings.test.cjs
+```

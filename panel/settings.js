@@ -2,7 +2,8 @@
     'use strict';
     document.getElementById('hdn-log-scan')?.addEventListener('submit', async event => {
         event.preventDefault();
-        const button = event.target.querySelector('button[type="submit"]');
+        const form = event.currentTarget;
+        const button = form.querySelector('button[type="submit"]');
         const progress = document.getElementById('hdn-analysis-progress');
         const original = button.textContent;
         const controller = new AbortController();
@@ -11,13 +12,20 @@
         button.textContent = 'Analyzing available logs…';
         progress.textContent = 'Review running. Unsaved rule edits stay on this page.';
         try {
-            const response = await fetch(event.target.action || location.href, {
-                method: 'POST', body: new FormData(event.target), credentials: 'same-origin', signal: controller.signal
+            // Hestia's hidden input named "action" shadows form.action.
+            // Read the attribute so the request cannot target [object HTMLInputElement].
+            const response = await fetch(form.getAttribute('action') || location.href, {
+                method: 'POST', body: new FormData(form), credentials: 'same-origin', signal: controller.signal
             });
             const page = new DOMParser().parseFromString(await response.text(), 'text/html');
             const error = page.getElementById('hdn-request-error');
             const output = page.getElementById('hdn-analysis-output');
-            if (!response.ok || error || !output) throw new Error(error?.textContent.trim() || 'Review could not complete. Check the session and retry.');
+            if (!response.ok) throw new Error(`Review failed: HTTP ${response.status}. ${error?.textContent.trim() || 'The panel did not return a successful response.'}`);
+            if (error) throw new Error(error.textContent.trim() || 'The panel rejected the review.');
+            if (!output) {
+                const loginRedirect = response.redirected && /\/login(?:\/|$)/.test(new URL(response.url).pathname);
+                throw new Error(loginRedirect ? 'Your Hestia session has expired. Sign in again and retry the review.' : 'Review failed: the panel returned an unexpected page without a report.');
+            }
             // Replace only the escaped report fragment, preserving every rule
             // field and unsaved switch in the existing settings form.
             document.getElementById('hdn-analysis-output').replaceChildren(...[...output.childNodes].map(node => document.importNode(node, true)));
