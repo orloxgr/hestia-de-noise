@@ -51,7 +51,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <h3 class="u-mb10"><?= $escape($title) ?></h3>
     <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="<?= $field ?>_enabled" <?= !array_key_exists($field . '_enabled', $policy) || $policy[$field . '_enabled'] ? 'checked' : '' ?>> Enable this list</label>
     <label class="form-label" for="<?= $field ?>"><?= $escape($title) ?> blocklist</label>
-    <textarea form="hdn-settings" class="form-control u-mb10" rows="7" id="<?= $field ?>" name="<?= $field ?>" maxlength="32500" spellcheck="false"><?= $escape(implode("\n", $policy[$field] ?? [])) ?></textarea>
+    <textarea form="hdn-settings" class="form-control u-mb10" rows="7" id="<?= $field ?>" name="<?= $field ?>" spellcheck="false"><?= $escape(implode("\n", $policy[$field] ?? [])) ?></textarea>
     <button type="button" class="button button-secondary u-mb20" data-hdn-preset="<?= $preset ?>" data-hdn-agent-field="<?= $field ?>"><?= $escape($button) ?></button>
     <?php endforeach; ?>
     <button type="button" class="button button-secondary u-mb10" data-hdn-preset="search_crawlers" data-hdn-agent-field="agents" title="Append LinkupBot, meta-webindexer, PetalBot, Baiduspider and ibou-search to the crawler blocklist. Review before saving: blocking search crawlers can reduce visibility in their services.">Add optional search crawlers</button>
@@ -63,9 +63,9 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <h3 class="u-mb10"><?= $escape($name) ?></h3>
     <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="<?= $endpoint ?>_enabled" <?= !empty($policy[$endpoint]['enabled']) ? 'checked' : '' ?>> Enabled</label>
     <label class="form-label" for="<?= $endpoint ?>-rate">Requests per minute, per client and domain</label>
-    <input form="hdn-settings" class="form-control u-mb10" id="<?= $endpoint ?>-rate" type="number" min="1" max="600" name="<?= $endpoint ?>_rate" value="<?= $escape($policy[$endpoint]['rate'] ?? 5) ?>" required>
+    <input form="hdn-settings" class="form-control u-mb10" id="<?= $endpoint ?>-rate" type="number" min="1" name="<?= $endpoint ?>_rate" value="<?= $escape($policy[$endpoint]['rate'] ?? 5) ?>" required>
     <label class="form-label" for="<?= $endpoint ?>-burst">Burst allowance</label>
-    <input form="hdn-settings" class="form-control u-mb20" id="<?= $endpoint ?>-burst" type="number" min="0" max="100" name="<?= $endpoint ?>_burst" value="<?= $escape($policy[$endpoint]['burst'] ?? 3) ?>" required>
+    <input form="hdn-settings" class="form-control u-mb20" id="<?= $endpoint ?>-burst" type="number" min="0" name="<?= $endpoint ?>_burst" value="<?= $escape($policy[$endpoint]['burst'] ?? 3) ?>" required>
     <?php endforeach; ?>
 <?php elseif ($key === 'filters' || $key === 'static'): ?>
     <?php $ruleModule = $key; require $install . '/panel/rules.php'; unset($ruleModule); ?>

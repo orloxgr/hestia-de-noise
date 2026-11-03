@@ -186,7 +186,8 @@ class AuthorizationTests(unittest.TestCase):
                 patch.object(engine.activity, 'summary', return_value={}) as summary:
             data = engine.dispatch({'actor': 'admin', 'owner': 'alice', 'action': 'status'})
             self.assertEqual([s['owner'] for s in data['sites']], ['alice'])
-            summary.assert_called_once_with({'alice.test'})
+            summary.assert_not_called()
+            self.assertTrue(data['activity']['on_demand'])
 
 
 if __name__ == '__main__':

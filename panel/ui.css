@@ -4,7 +4,7 @@
 #hdn-container { min-width: 0; max-width: 100%; width: 100%; }
 #hdn-container > .form-container { min-width: 0; width: 100%; }
 #hdn-tabs { min-width: 0; max-width: 100%; }
-#hdn-save[hidden] { display: none; }
+#hdn-container [hidden] { display: none !important; }
 #hdn-tabs > .tabs-items { display: grid; grid-template-columns: repeat(var(--hdn-tab-columns), minmax(0, 1fr)); gap: 0; width: 100%; max-width: 100%; overflow: visible; }
 #hdn-tabs > .tabs-items > .tabs-item { min-width: 0; width: 100%; margin: 0; padding: 12px 6px; font-size: 13px; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 #hdn-tabs > .tabs-items > .tabs-item:last-child:nth-child(odd) { grid-column: span 2; }

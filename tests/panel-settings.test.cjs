@@ -1,4 +1,3 @@
-// Run: node --test tests/panel-settings.test.cjs
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,87 +5,93 @@ const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../panel/settings.js'), 'utf8');
 
-async function submit({action = null, status = 200, panelError = null,
-    report = true, redirected = false, url = 'https://panel.test/plugins/de-noise/', abort = false} = {}) {
-    let handler;
-    let request;
-    let updated = false;
-    let timerCleared = false;
+function fixture(replies, {action = null, remembered = null, activity = false} = {}) {
+    if (!remembered) replies.unshift({ok:true,job:{id:null,state:'idle'}});
+    const handlers = {}, requests = [];
+    let updated = false, stored = remembered;
     const button = {textContent: 'Analyze logs', disabled: false};
     const progress = {textContent: ''};
-    const form = {
-        // Real HTML forms expose a named input here instead of the URL string.
-        action: {toString: () => '[object HTMLInputElement]'},
-        getAttribute: name => { assert.equal(name, 'action'); return action; },
-        querySelector: () => button,
-        addEventListener: (name, callback) => { assert.equal(name, 'submit'); handler = callback; }
-    };
-    const nodes = {'hdn-log-scan': form, 'hdn-analysis-progress': progress,
-        'hdn-agent-presets': {textContent: '{}'}, 'hdn-probe-presets': {textContent: '{}'},
-        'hdn-analysis-output': {replaceChildren: (...children) => {updated = children.length === 1;}}};
-    const context = {
-        document: {getElementById: id => nodes[id], querySelectorAll: () => [],
-            addEventListener() {}, importNode: node => node},
-        location: {href: 'https://panel.test/plugins/de-noise/?tab=filters'},
-        FormData: class {constructor(input) {assert.equal(input, form); this.fields = ['action', 'token', 'analysis_target'];}},
-        AbortController, URL,
-        setTimeout: () => 123,
-        clearTimeout: id => {assert.equal(id, 123); timerCleared = true;},
+    const cancel = {hidden: true, addEventListener: (_, fn) => {handlers.cancel = fn;}};
+    const output = {replaceChildren: (...nodes) => {updated = nodes[0] === 'report';}, addEventListener: (_, fn) => {handlers.page = fn;}};
+    const form = {action: {toString: () => '[object HTMLInputElement]'},
+        getAttribute: () => action,
+        querySelector: selector => selector.startsWith('button') ? button : {value: 'csrf-token'},
+        addEventListener: (_, fn) => {handlers.submit = fn;}};
+    const nodes = {[activity ? 'hdn-activity-scan' : 'hdn-log-scan']: form,
+        [activity ? 'hdn-activity-progress' : 'hdn-analysis-progress']: progress,
+        [activity ? 'hdn-activity-cancel' : 'hdn-analysis-cancel']: cancel,
+        [activity ? 'hdn-activity-output' : 'hdn-analysis-output']: output,
+        'hdn-agent-presets': {textContent: '{}'}, 'hdn-probe-presets': {textContent: '{}'}};
+    vm.runInNewContext(source, {
+        document: {getElementById: id => nodes[id], querySelectorAll: () => [], addEventListener() {}, importNode: node => node},
+        location: {pathname: '/plugins/de-noise/', href: 'https://panel.test/plugins/de-noise/?tab=filters'},
+        sessionStorage: {getItem: () => stored, setItem: (_, value) => {stored = value;}},
+        FormData: class {constructor(input) {this.fields = new Map(input ? [['action', 'log_scan_start'], ['token', 'csrf-token'], ['analysis_target', 'all']] : []);} set(k,v) {this.fields.set(k,String(v));}},
+        URL, setTimeout: fn => fn(),
         fetch: async (target, options) => {
-            request = {target, options};
-            if (abort) throw Object.assign(new Error('aborted'), {name: 'AbortError'});
-            return {ok: status >= 200 && status < 300, status, redirected, url, text: async () => 'fixture'};
+            requests.push({target, options}); assert.ok(replies.length, 'Unexpected request');
+            const value = replies.shift();
+            return {ok: !value.http || value.http < 400, status: value.http || 200,
+                redirected: value.redirected || false, url: value.url || 'https://panel.test/plugins/de-noise/',
+                text: async () => value.text === undefined ? JSON.stringify(value) : value.text};
         },
-        DOMParser: class {parseFromString() {return {getElementById: id =>
-            id === 'hdn-request-error' ? (panelError === null ? null : {textContent: panelError}) :
-                id === 'hdn-analysis-output' && report ? {childNodes: ['escaped report']} : null};}}
-    };
-    vm.runInNewContext(source, context);
-    await handler({currentTarget: form, target: form, preventDefault() {}});
-    assert.equal(button.disabled, false);
-    assert.equal(button.textContent, 'Analyze logs');
-    assert.equal(timerCleared, true);
-    return {request, updated, message: progress.textContent};
+        DOMParser: class {parseFromString() {return {getElementById: () => ({childNodes: ['report']})};}}
+    });
+    if (!remembered) requests.shift(); // Initial status lookup is not a new scan.
+    return {handlers, requests, button, progress, updated: () => updated,
+        submit: () => handlers.submit({preventDefault() {}})};
 }
+const queued = {ok: true, job: {id: 'one', state: 'queued'}};
+const done = {ok: true, job: {id: 'one', state: 'complete'}, report: 'HTML'};
 
-test('named action input cannot shadow the current panel URL', async () => {
-    const result = await submit();
-    assert.equal(result.request.target, 'https://panel.test/plugins/de-noise/?tab=filters');
-    assert.equal(result.request.options.method, 'POST');
-    assert.equal(result.request.options.credentials, 'same-origin');
-    assert.equal(result.request.options.body.fields.includes('token'), true);
-    assert.equal(result.updated, true);
-    assert.match(result.message, /Review completed/);
-});
-test('explicit action attribute is respected', async () => {
-    assert.equal((await submit({action: '/plugins/de-noise/'})).request.target, '/plugins/de-noise/');
-});
-test('HTTP failures report their status without blaming the session', async () => {
-    for (const status of [404, 500, 503]) {
-        const result = await submit({status, report: false});
-        assert.match(result.message, new RegExp(`HTTP ${status}`));
-        assert.doesNotMatch(result.message, /session/i);
-        assert.equal(result.updated, false);
+test('named action input cannot clobber the URL; review POST retains CSRF and scope', async () => {
+    const f = fixture([queued, done]); await f.submit();
+    for (const r of f.requests) {
+        assert.equal(r.target, 'https://panel.test/plugins/de-noise/?tab=filters');
+        assert.equal(r.options.credentials, 'same-origin');
+        assert.equal(r.options.body.fields.get('token'), 'csrf-token');
+        assert.equal(r.options.headers['X-HDN-Analysis'], '1');
+        assert.equal(r.options.body.fields.has('policy'), false);
     }
+    assert.equal(f.requests[0].options.body.fields.get('action'), 'log_scan_start');
+    assert.equal(f.requests[1].options.body.fields.get('action'), 'log_scan_status');
+    assert.equal(f.updated(), true); assert.equal(f.button.disabled, false);
 });
-test('panel validation errors preserve the report', async () => {
-    const result = await submit({panelError: 'Invalid CSRF token.'});
-    assert.equal(result.message, 'Invalid CSRF token.');
-    assert.equal(result.updated, false);
+test('explicit form action is used', async () => {
+    const f = fixture([queued, done], {action: '/review'}); await f.submit(); assert.equal(f.requests[0].target, '/review');
 });
-test('unexpected successful HTML is distinguished from login', async () => {
-    const result = await submit({report: false});
-    assert.match(result.message, /unexpected page/);
-    assert.doesNotMatch(result.message, /session/i);
+test('observation continues past the former overall browser timeout', async () => {
+    const running = {ok: true, job: {id: 'one', state: 'running', progress: {records: 900}}};
+    const f = fixture([queued, ...Array(25).fill(running), done]); await f.submit();
+    assert.equal(f.requests.length, 27); assert.equal(f.updated(), true); assert.doesNotMatch(source, /AbortController|20000/);
 });
-test('login redirect identifies an expired session', async () => {
-    assert.match((await submit({report: false, redirected: true, url: 'https://panel.test/login/'})).message, /session has expired/);
+test('HTTP failures do not incorrectly blame the session', async () => {
+    const f = fixture([{http: 503, text: '<html>Failed</html>'}]); await f.submit();
+    assert.match(f.progress.textContent, /HTTP 503/); assert.doesNotMatch(f.progress.textContent, /session/i); assert.equal(f.button.disabled, false);
 });
-test('unrelated redirects are not identified as session expiry', async () => {
-    assert.match((await submit({report: false, redirected: true})).message, /unexpected page/);
+test('actual login redirect identifies expiry and resumption', async () => {
+    const f = fixture([{text: 'login', redirected: true, url: 'https://panel.test/login/'}]); await f.submit(); assert.match(f.progress.textContent, /session has expired/);
 });
-test('timeouts restore controls without replacing the report', async () => {
-    const result = await submit({abort: true});
-    assert.match(result.message, /timed out/);
-    assert.equal(result.updated, false);
+test('failed worker is not presented as a completed review', async () => {
+    const f = fixture([queued, {ok:true, job:{id:'one',state:'failed',error:'Read failed'}}]); await f.submit(); assert.equal(f.progress.textContent,'Read failed'); assert.equal(f.updated(),false);
+});
+test('reload resumes the existing job without starting a second one', async () => {
+    const f = fixture([done],{remembered:'one'}); await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.requests.length,1); assert.equal(f.requests[0].options.body.fields.get('action'),'log_scan_status'); assert.equal(f.updated(),true);
+});
+test('pagination exposes remaining findings without policy changes', async () => {
+    const f = fixture([queued,done,done]); await f.submit(); await f.handlers.page({target:{closest:()=>({dataset:{hdnAnalysisPage:'2'}})}});
+    assert.equal(f.requests[2].options.body.fields.get('analysis_page'),'2'); assert.equal(f.requests[2].options.body.fields.has('analysis_target'),false);
+});
+test('cancellation uses the authenticated job endpoint', async () => {
+    const f = fixture([queued,done,{ok:true,job:{id:'one',state:'cancelled'}}]); await f.submit(); await f.handlers.cancel();
+    assert.equal(f.requests[2].options.body.fields.get('action'),'log_scan_cancel'); assert.match(f.progress.textContent,/Review cancelled/);
+});
+
+test('activity loads metadata without scanning and uses its own start/status endpoints', async () => {
+    const f = fixture([queued,done], {activity:true}); await f.submit();
+    assert.equal(f.requests[0].options.body.fields.get('action'),'activity_start');
+    assert.equal(f.requests[1].options.body.fields.get('action'),'activity_status');
+    assert.equal(f.requests[0].options.body.fields.get('tab'),'activity');
+    assert.equal(f.updated(),true);
 });

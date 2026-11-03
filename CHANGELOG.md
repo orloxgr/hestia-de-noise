@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0 · 2026-11-04
+
+- Complete log and Activity reviews run as root-private, low-priority background jobs with progress, cancellation and resumption. New reviews queue without discarding work; panel sessions are released while work continues.
+- Read all available numbered/compressed rotations, with no addon byte/time/domain/group/distinct-count quota. Exact disk-backed aggregates and paginated results expose every retained finding and activity record.
+- Preserve authenticated admin/owner scopes, CSRF, trusted file/log access, privacy, managed-file ownership and configuration rollback. Reviews never apply protection rules or bans.
+- Remove addon limits on settings/list counts, managed files, transport output, cron range, ban evidence, maintenance operations and WordPress Unban all. Native format checks, chosen thresholds and history retention still apply.
+- Complete firewall synchronization until finished, leaving genuine failed operations pending while attempting unrelated operations. Support owned IPv6 web-only bans alongside Hestia's IPv4 backend.
+- Remove addon administrative deadlines and Referer interstitials. Complete both child output streams without pipe deadlocks; report actual native failures.
+- Keep exact native Fail2ban escalation durations, including permanent bans, for arbitrary valid administrator-selected first durations.
+
 ## 0.12.1
 
 - Fix Analyze logs submitting to an invalid URL because Hestia's hidden action

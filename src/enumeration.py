@@ -22,7 +22,7 @@ def validate(value, target):
         raise ValueError('Invalid user-enumeration settings')
     if any(type(value[key]) is not bool for key in SETTINGS if key != 'targets'):
         raise ValueError('User-enumeration switches must be booleans')
-    if not isinstance(value['targets'], list) or len(value['targets']) > 10000:
+    if not isinstance(value['targets'], list):
         raise ValueError('Invalid user-enumeration domain selection')
     value['targets'] = list(dict.fromkeys(target(key) for key in value['targets']))
 
@@ -46,7 +46,7 @@ def helper(owner, root, action, **values):
     result = subprocess.run(['/usr/sbin/runuser', '-u', owner, '--', '/usr/bin/python3',
                              '-I', str(ROOT / 'src/enumeration_site.py')],
                             input=json.dumps(dict(root=root, action=action, **values)),
-                            capture_output=True, text=True, timeout=15)
+                            capture_output=True, text=True, timeout=None)
     if result.returncode:
         raise ValueError('User enumeration: ' + (result.stderr.strip() or 'website operation failed'))
     return json.loads(result.stdout)

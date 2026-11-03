@@ -1,11 +1,11 @@
 <h2 class="u-mb20">Activity</h2>
-<?php $activity = $data['activity'] ?? []; ?>
-<?php if (!empty($activity['available'])): ?>
-<p class="u-mb10">Matched requests · last 15 minutes · <?= $escape($activity['total']) ?> in the bounded log sample</p>
-<table class="table"><thead><tr><th>Domain</th><th>Rule</th><th>Outcome</th><th>Requests</th></tr></thead><tbody>
-<?php foreach ($activity['rows'] ?? [] as $row): ?><tr>
-<td><?= $escape($row['domain']) ?></td><td><?= $escape($row['rule']) ?></td>
-<td><?= $escape($row['outcome']) ?></td><td><?= $escape($row['count']) ?></td></tr><?php endforeach; ?>
-</tbody></table>
-<?php if (empty($activity['rows'])): ?><p>No matching requests in this sample.</p><?php endif; ?>
-<?php else: ?><p>Activity is unavailable.<?= $isAdmin && !empty($activity['error']) ? ' ' . $escape($activity['error']) : '' ?></p><?php endif; ?>
+<p class="u-mb10">Review matched requests from all available retained logs. A review runs only when requested; opening this panel does not rescan logs.</p>
+<form method="post" id="hdn-activity-scan" data-hdn-context="<?= $escape(($actor ?? $headerOwner) . ":" . ($isAdmin ? "all" : $headerOwner)) ?>">
+<?php $fields('activity_start'); ?>
+<label class="form-label">Time window (minutes)
+<input class="form-control" type="number" name="analysis_minutes" value="15" min="1" required title="Read every retained activity record within this time window in the background. Results remain limited to domains you may view."></label>
+<button type="submit" class="button button-secondary" title="Start a complete read-only activity review. Existing jobs can be resumed and results are paginated without truncation.">Refresh activity</button>
+<button type="button" id="hdn-activity-cancel" class="button button-secondary" hidden title="Stop only this review; protection rules and bans are unchanged.">Cancel review</button>
+<p id="hdn-activity-progress" class="u-mt10" role="status"></p>
+</form>
+<?php require $install . '/panel/activity-output.php'; ?>

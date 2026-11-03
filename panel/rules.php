@@ -6,10 +6,10 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
     $targets = $rule['targets'] ?? [];
     ?>
     <div class="hdn-rule u-mb20" data-module="<?= $module ?>">
-        <label class="form-label u-block">Name <input form="hdn-settings" class="form-control" name="<?= $field('id') ?>" value="<?= $escape($rule['id']) ?>" pattern="[a-z][a-z0-9_]{0,31}" maxlength="32" required></label>
+        <label class="form-label u-block">Name <input form="hdn-settings" class="form-control" name="<?= $field('id') ?>" value="<?= $escape($rule['id']) ?>" pattern="[a-z][a-z0-9_]{0,31}" required></label>
         <label class="form-label u-block u-mt10"><input form="hdn-settings" type="checkbox" name="<?= $field('enabled') ?>" <?= !empty($rule['enabled']) ? 'checked' : '' ?>> Enabled</label>
         <label class="form-label u-block">URL <?= $filter ? 'path prefix' : 'directory' ?>
-            <input form="hdn-settings" class="form-control" name="<?= $field('path') ?>" value="<?= $escape($rule['path']) ?>" maxlength="250" required></label>
+            <input form="hdn-settings" class="form-control" name="<?= $field('path') ?>" value="<?= $escape($rule['path']) ?>" required></label>
         <?php if ($filter): ?>
         <label class="form-label u-block u-mt10">Query parameter names (one per line)
             <textarea form="hdn-settings" class="form-control" name="<?= $field('parameters') ?>" rows="3" required><?= $escape(implode("\n", $rule['parameters'])) ?></textarea></label>
@@ -21,9 +21,9 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
             <option value="block" <?= $rule['action'] === 'block' ? 'selected' : '' ?>>Block matching crawlers on these URLs</option>
         </select></label>
         <label class="form-label u-block u-mt10">Requests per minute, per crawler and domain, across all client IPs
-            <input form="hdn-settings" class="form-control" name="<?= $field('rate') ?>" type="number" min="1" max="600" value="<?= $escape($rule['rate']) ?>" required></label>
+            <input form="hdn-settings" class="form-control" name="<?= $field('rate') ?>" type="number" min="1" value="<?= $escape($rule['rate']) ?>" required></label>
         <label class="form-label u-block u-mt10">Burst allowance
-            <input form="hdn-settings" class="form-control" name="<?= $field('burst') ?>" type="number" min="0" max="100" value="<?= $escape($rule['burst']) ?>" required></label>
+            <input form="hdn-settings" class="form-control" name="<?= $field('burst') ?>" type="number" min="0" value="<?= $escape($rule['burst']) ?>" required></label>
         <?php else: ?>
         <label class="form-label u-block u-mt10">File extensions (without dots)
             <input form="hdn-settings" class="form-control" name="<?= $field('extensions') ?>" value="<?= $escape(implode(' ', $rule['extensions'])) ?>" required></label>
@@ -84,7 +84,7 @@ foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filte
             $exceptions = $policy['static_exceptions'][$site['key']] ?? []; ?>
         <div data-hdn-exception-domain="<?= $escape($site['key']) ?>" <?= $index !== 0 ? 'hidden' : '' ?>>
             <label class="form-label u-block" for="hdn-exceptions-<?= $index ?>">Allowed file paths — one per line</label>
-            <textarea form="hdn-settings" class="form-control" rows="4" maxlength="65536" spellcheck="false" id="hdn-exceptions-<?= $index ?>" name="static_exceptions[<?= $escape($site['key']) ?>]" placeholder="/wp-content/plugins/example/assets/app.js.map"><?= $escape(implode("\n", is_array($exceptions) ? $exceptions : [])) ?></textarea>
+            <textarea form="hdn-settings" class="form-control" rows="4" spellcheck="false" id="hdn-exceptions-<?= $index ?>" name="static_exceptions[<?= $escape($site['key']) ?>]" placeholder="/wp-content/plugins/example/assets/app.js.map"><?= $escape(implode("\n", is_array($exceptions) ? $exceptions : [])) ?></textarea>
         </div>
         <?php endforeach; ?>
         <p class="u-mt10">Exact URL paths, starting with /. Exceptions use the domain's normal routing for every query string and apply to its aliases too. Save &amp; Apply to save all domains.</p>

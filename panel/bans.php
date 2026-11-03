@@ -1,15 +1,15 @@
 <?php $ban = $policy['bans'] ?? []; $banState = $data['bans'] ?? []; ?>
 <h2 class="u-mb20">Automatic IP bans</h2>
 <label class="form-label u-block u-mb20"><input form="hdn-settings" type="checkbox" name="bans_enabled" <?= !empty($ban['enabled']) ? 'checked' : '' ?>> Enable automatic firewall bans</label>
-<p class="u-mb20">Selected probes are rejected immediately. Firewall bans synchronize within about one minute and cover all sites on TCP 80/443. Backend: Hestia native IPv4 firewall.</p>
+<p class="u-mb20">Selected probes are rejected immediately. Firewall bans synchronize within about one minute and cover all sites on TCP 80/443. Backend: Hestia native IPv4 firewall and owned IPv6 web-only chain.</p>
 <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_private_files" <?= !empty($ban['private_files']) ? 'checked' : '' ?>> Secret and configuration-file probes, including traversal to secret paths</label>
 <label class="form-label u-block u-mb20"><input form="hdn-settings" type="checkbox" name="bans_repositories" <?= !empty($ban['repositories']) ? 'checked' : '' ?>> Source-control metadata probes (.git, .svn, .hg)</label>
 <h3 class="u-mb10">Direct secret / repository probes</h3>
-<?php foreach (['maxretry' => ['Matching requests before ban', 1, 1000, 1],
-               'findtime' => ['Counting window (seconds)', 30, 86400, 300],
-               'duration_days' => ['Ban duration (days; 0 = permanent), for existing and new bans', 0, 3650, 0]] as $key => [$label, $minimum, $maximum, $default]): ?>
+<?php foreach (['maxretry' => ['Matching requests before ban', 1, 1],
+               'findtime' => ['Counting window (seconds)', 1, 300],
+               'duration_days' => ['Ban duration (days; 0 = permanent), for existing and new bans', 0, 0]] as $key => [$label, $minimum, $default]): ?>
 <div class="u-mb20"><label class="form-label" for="bans-<?= $key ?>"><?= $escape($label) ?></label>
-<input form="hdn-settings" class="form-control" type="number" id="bans-<?= $key ?>" name="bans_<?= $key ?>" min="<?= $minimum ?>" max="<?= $maximum ?>" value="<?= $escape($ban[$key] ?? $default) ?>" required></div>
+<input form="hdn-settings" class="form-control" type="number" id="bans-<?= $key ?>" name="bans_<?= $key ?>" min="<?= $minimum ?>" value="<?= $escape($ban[$key] ?? $default) ?>" required></div>
 <?php endforeach; ?>
 <?php foreach (['missing_files' => ['Ban IPs that 404 any of these files X times', 'paths', 'Selected PHP file paths — one per line', 'probe_files'],
                'suspicious_queries' => ['Ban IPs that 404 suspicious queries X times', 'targets', 'Secret file targets in query values — one per line', 'probe_queries']] as $key => [$title, $field, $label, $preset]):
@@ -18,17 +18,17 @@
 <summary class="box-collapse-header"><?= $escape($title) ?></summary>
 <div class="box-collapse-content">
 <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_<?= $key ?>_enabled" <?= !empty($rule['enabled']) ? 'checked' : '' ?>> Enabled</label>
-<?php foreach (['maxretry' => ['X — matching ' . ($key === 'missing_files' ? 'distinct file paths' : 'requests') . ' before ban', 1, 1000, 2],
-               'findtime' => ['Counting window (seconds)', 30, 86400, 60],
-               'duration_days' => ['Ban duration (days; 0 = permanent)', 0, 3650, 3]] as $setting => [$settingLabel, $minimum, $maximum, $default]): ?>
-<label class="form-label u-block u-mb10"><?= $escape($settingLabel) ?><input form="hdn-settings" class="form-control" type="number" name="bans_<?= $key ?>_<?= $setting ?>" min="<?= $minimum ?>" max="<?= $maximum ?>" value="<?= $escape($rule[$setting] ?? $default) ?>" required></label>
+<?php foreach (['maxretry' => ['X — matching ' . ($key === 'missing_files' ? 'distinct file paths' : 'requests') . ' before ban', 1, 2],
+               'findtime' => ['Counting window (seconds)', 1, 60],
+               'duration_days' => ['Ban duration (days; 0 = permanent)', 0, 3]] as $setting => [$settingLabel, $minimum, $default]): ?>
+<label class="form-label u-block u-mb10"><?= $escape($settingLabel) ?><input form="hdn-settings" class="form-control" type="number" name="bans_<?= $key ?>_<?= $setting ?>" min="<?= $minimum ?>" value="<?= $escape($rule[$setting] ?? $default) ?>" required></label>
 <?php endforeach; ?>
 <?php if ($key === 'suspicious_queries'): ?>
 <label class="form-label" for="bans-query-parameters">Query parameter names — one per line</label>
 <textarea form="hdn-settings" class="form-control u-mb10" id="bans-query-parameters" name="bans_suspicious_queries_parameters" rows="3" spellcheck="false"><?= $escape(implode("\n", $rule['parameters'] ?? [])) ?></textarea>
 <?php endif; ?>
 <label class="form-label" for="bans-<?= $key ?>-list"><?= $escape($label) ?></label>
-<textarea form="hdn-settings" class="form-control u-mb10" id="bans-<?= $key ?>-list" name="bans_<?= $key ?>_list" rows="7" spellcheck="false" maxlength="128000"><?= $escape(implode("\n", $rule[$field] ?? [])) ?></textarea>
+<textarea form="hdn-settings" class="form-control u-mb10" id="bans-<?= $key ?>-list" name="bans_<?= $key ?>_list" rows="7" spellcheck="false"><?= $escape(implode("\n", $rule[$field] ?? [])) ?></textarea>
 <button type="button" class="button button-secondary u-mb10" data-hdn-probe-preset="<?= $preset ?>" data-hdn-probe-field="bans-<?= $key ?>-list" title="Merge bundled suggestions into this list without removing custom entries or changing thresholds, exceptions or enabled switches. Review, then Save &amp; Apply."><?= $key === 'missing_files' ? 'Add suggested PHP files' : 'Add suggested query targets' ?></button>
 <p><?= $key === 'missing_files'
     ? 'Only selected nonexistent PHP files are rejected with 404. Existing files retain normal routing. Count distinct paths per IP across all domains.'
@@ -38,14 +38,14 @@
 <?php $notFound = $ban['any_404'] ?? []; ?>
 <h3 class="u-mb10">Ban IPs after repeated 404 responses</h3>
 <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_any_404_enabled" <?= !empty($notFound['enabled']) ? 'checked' : '' ?>> Enable general 404 bans</label>
-<?php foreach (['maxretry' => ['404 responses before ban', 1, 1000, 10],
-               'findtime' => ['Counting window (seconds)', 30, 86400, 300],
-               'duration_days' => ['Ban duration (days; 0 = permanent)', 0, 3650, 3]] as $setting => [$label, $minimum, $maximum, $default]): ?>
-<label class="form-label u-block u-mb10"><?= $escape($label) ?><input form="hdn-settings" class="form-control" type="number" name="bans_any_404_<?= $setting ?>" min="<?= $minimum ?>" max="<?= $maximum ?>" value="<?= $escape($notFound[$setting] ?? $default) ?>" required></label>
+<?php foreach (['maxretry' => ['404 responses before ban', 1, 10],
+               'findtime' => ['Counting window (seconds)', 1, 300],
+               'duration_days' => ['Ban duration (days; 0 = permanent)', 0, 3]] as $setting => [$label, $minimum, $default]): ?>
+<label class="form-label u-block u-mb10"><?= $escape($label) ?><input form="hdn-settings" class="form-control" type="number" name="bans_any_404_<?= $setting ?>" min="<?= $minimum ?>" value="<?= $escape($notFound[$setting] ?? $default) ?>" required></label>
 <?php endforeach; ?>
 <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_any_404_exclude_static" <?= !empty($notFound['exclude_static']) ? 'checked' : '' ?> title="Do not count missing images, CSS, JavaScript, source maps, fonts, media or PDF files toward the general 404 ban. Explicit security probes keep their own counter."> Exclude missing static assets from general 404 bans</label>
 <label class="form-label u-block u-mb10">Minimum different URL paths
-<input form="hdn-settings" class="form-control" type="number" name="bans_any_404_min_distinct_paths" min="1" max="1000" value="<?= $escape($notFound['min_distinct_paths'] ?? 3) ?>" required title="Require this many different URL paths as well as the request threshold within the counting window. Query strings do not create different paths. Set 1 to allow repeated requests to one path."></label>
+<input form="hdn-settings" class="form-control" type="number" name="bans_any_404_min_distinct_paths" min="1" value="<?= $escape($notFound['min_distinct_paths'] ?? 3) ?>" required title="Require this many different URL paths as well as the request threshold within the counting window. Query strings do not create different paths. Set 1 to allow repeated requests to one path."></label>
 <p class="u-mb20">Both limits must be reached. Counts apply per IP across selected web domains. Other status codes do not count. Explicit security probes retain their separate stricter counters. Existing bans are preserved.</p>
 <?php if (!empty($data['sites'])): ?>
 <h3 class="u-mb10">Probe exceptions by domain</h3>
@@ -75,7 +75,7 @@
 <p class="u-mb10">Last successful maintenance: <?= !empty($maintenance['last_success']) ? $escape(gmdate('Y-m-d H:i:s', (int)$maintenance['last_success']) . ' UTC') : 'Not recorded yet' ?></p>
 <form method="post" class="u-mb20"><?php $fields('history_settings_save'); ?>
 <label class="form-label" for="history-days">History retention (days)</label>
-<input class="form-control u-mb10" id="history-days" name="history_days" type="number" min="1" max="3650" required value="<?= $escape($data['history']['days'] ?? 30) ?>" title="Completed ban history is automatically removed after this many days during existing maintenance. Active bans and their evidence remain available.">
+<input class="form-control u-mb10" id="history-days" name="history_days" type="number" min="1" required value="<?= $escape($data['history']['days'] ?? 30) ?>" title="Completed ban history is removed after this many days during maintenance. Completed review reports use the same retention and are cleaned when a new review starts. Active bans and active reviews remain available.">
 <button class="button button-secondary" type="submit" title="Save retention and remove completed history older than this limit.">Save history retention</button>
 </form>
 <?php if (!empty($banState['error'])): ?><div class="alert alert-danger u-mb20" role="alert"><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($banState['error']) ?></pre></div><?php endif; ?>

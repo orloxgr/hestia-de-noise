@@ -10,12 +10,11 @@ from pathlib import Path
 import re
 import stat
 import storage
+import log_files
 import ban_evidence
 from urllib.parse import unquote
 
 LOG_ROOT = Path('/var/log/apache2/domains')
-READ_LIMIT = 2 * 1024 * 1024
-FILE_LIMIT = 256 * 1024
 LINE = re.compile(rb'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) ((?:[^"\\\s]|\\.)+) [^"\r\n]+" 404 (?:[0-9]+|-) ')
 
 ASSETS = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svg|ico|bmp|tiff?|apng|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
@@ -42,37 +41,29 @@ def events(db, sites, namespace):
         return
     row = db.execute('SELECT value FROM meta WHERE key=?', ('404-next:'+namespace,)).fetchone()
     first = int(row[0]) % len(names) if row else 0
-    names = names[first:] + names[:first]; remaining = READ_LIMIT
+    names = names[first:] + names[:first]
     for index, domain in enumerate(names):
         if not re.fullmatch(r'[a-z0-9][a-z0-9.-]*', domain):
             raise ValueError('Invalid native access-log domain')
-        for suffix in ('.log.1', '.log'):
-            if remaining <= 0:
-                break
-            path = LOG_ROOT / (domain+suffix)
+        for path in log_files.rotations(LOG_ROOT / (domain + '.log')):
             try:
-                # All ancestors and the log itself must be root-controlled.
-                with storage.parent(path) as parent:
-                    fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                context = log_files.opened(path)
+                stream, raw_stream = context.__enter__()
             except FileNotFoundError:
                 continue
-            with os.fdopen(fd, 'rb') as stream:
-                info = os.fstat(stream.fileno())
-                if info.st_uid not in trusted_uids or info.st_mode & 0o022 or not stat.S_ISREG(info.st_mode):
-                    raise ValueError('Untrusted native access log: '+str(path))
+            try:
+                info = os.fstat(raw_stream.fileno())
                 cursor = db.execute('SELECT offset FROM access_cursors WHERE namespace=? AND domain=? AND device=? AND inode=?',
                                     (namespace, domain, info.st_dev, info.st_ino)).fetchone()
-                offset = cursor[0] if cursor and cursor[0] <= info.st_size else max(0, info.st_size-FILE_LIMIT)
+                offset = cursor[0] if cursor and (log_files.compressed(path) or cursor[0] <= info.st_size) else 0
                 stream.seek(offset)
-                if not cursor and offset:
-                    stream.readline(); offset = stream.tell()
-                body = stream.read(min(FILE_LIMIT, remaining)); remaining -= len(body)
-                end = body.rfind(b'\n')+1
-                if not end:
-                    if len(body) == FILE_LIMIT:
-                        raise ValueError('Native access-log line exceeds the read bound')
-                    continue
-                for raw in body[:end].splitlines():
+                end = offset
+                for raw in stream:
+                    if not log_files.compressed(path) and end + len(raw) > info.st_size:
+                        break  # Appended data remains for the next cursor pass.
+                    if not raw.endswith(b'\n'):
+                        break
+                    end += len(raw)
                     match = LINE.match(raw)
                     if not match:
                         continue
@@ -85,7 +76,7 @@ def events(db, sites, namespace):
                     except (ValueError, UnicodeError):
                         continue
                 db.execute('INSERT OR REPLACE INTO access_cursors VALUES (?,?,?,?,?)',
-                           (namespace,domain,info.st_dev,info.st_ino,offset+end))
+                            (namespace,domain,info.st_dev,info.st_ino,end))
+            finally:
+                context.__exit__(None, None, None)
         db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('404-next:'+namespace,str((first+index+1) % len(names))))
-        if remaining <= 0:
-            break

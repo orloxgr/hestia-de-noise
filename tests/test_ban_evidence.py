@@ -29,7 +29,7 @@ class EventPrivacyTests(unittest.TestCase):
         self.assertEqual(ban_evidence.event('1000 198.51.100.9 one.test private-file')[-2:], ('', ''))
         self.assertEqual(ban_evidence.path_only('https://user:password@one.test/path?key=private'), '/path')
         self.assertEqual(ban_evidence.path_only('/bad\nforged'), '')
-        self.assertEqual(len(ban_evidence.path_only('/' + 'a'*5000)), ban_evidence.PATH_LIMIT)
+        self.assertEqual(len(ban_evidence.path_only('/' + 'a'*5000)), 5001)
         self.assertIsNone(ban_evidence.event('{"v":1}'))
 
 
@@ -109,12 +109,12 @@ class EvidenceLifecycleTests(unittest.TestCase):
             db.execute("INSERT OR REPLACE INTO bans VALUES ('198.51.100.10','one.test','not-found',991,9999,'active','')")
             db.execute("INSERT INTO strikes VALUES ('198.51.100.10','one.test','not-found',1000,'-')")
 
-    def test_evidence_is_bounded_and_legacy_lines_do_not_disable_bans(self):
+    def test_all_triggering_evidence_is_retained_and_legacy_lines_do_not_disable_bans(self):
         self.policy['bans']['any_404']['maxretry']=11
         with self.log.open('a') as stream:
             stream.write('1000 198.51.100.9 one.test not-found -\n')
         for i in range(11):self.event(1000+i/100,'one.test','/file'+str(i)+'?secret=private')
         details=self.sync()['rows'][0]['diagnostics']
         self.assertEqual(details['count'],11)
-        self.assertEqual(len(details['samples']),ban_evidence.SAMPLE_LIMIT)
+        self.assertEqual(len(details['samples']),11)
         self.assertNotIn('private',json.dumps(details))

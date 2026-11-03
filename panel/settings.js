@@ -1,43 +1,104 @@
 (() => {
     'use strict';
-    document.getElementById('hdn-log-scan')?.addEventListener('submit', async event => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const button = form.querySelector('button[type="submit"]');
-        const progress = document.getElementById('hdn-analysis-progress');
-        const original = button.textContent;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 20000);
-        button.disabled = true;
-        button.textContent = 'Analyzing available logs…';
-        progress.textContent = 'Review running. Unsaved rule edits stay on this page.';
-        try {
-            // Hestia's hidden input named "action" shadows form.action.
-            // Read the attribute so the request cannot target [object HTMLInputElement].
-            const response = await fetch(form.getAttribute('action') || location.href, {
-                method: 'POST', body: new FormData(form), credentials: 'same-origin', signal: controller.signal
+    const initializeReview = (formId, prefix, actionPrefix, tab, label) => {
+      const scanForm = document.getElementById(formId);
+      if (scanForm) {
+        const button = scanForm.querySelector('button[type="submit"]');
+        const cancel = document.getElementById(prefix + '-cancel');
+        const progress = document.getElementById(prefix + '-progress');
+        const output = document.getElementById(prefix + '-output');
+        const storageKey = 'hdn-review:' + location.pathname + ':' + actionPrefix + ':' + (scanForm.dataset?.hdnContext || '');
+        let job = null, active = false, generation = 0;
+        try { job = sessionStorage.getItem(storageKey); } catch (_) { /* Storage is optional. */ }
+        const remember = id => { job = id; try { sessionStorage.setItem(storageKey, id); } catch (_) {} };
+        const request = async (action, page = 1, initial = false) => {
+            const body = initial ? new FormData(scanForm) : new FormData();
+            body.set('action', action);
+            body.set('token', scanForm.querySelector('input[name="token"]').value);
+            body.set('tab', tab);
+            if (job) body.set('analysis_job', job);
+            body.set('analysis_page', page);
+            // Named input "action" must never shadow the form's URL attribute.
+            const response = await fetch(scanForm.getAttribute('action') || location.href, {
+                method: 'POST', body, credentials: 'same-origin', headers: {'X-HDN-Analysis': '1'}
             });
-            const page = new DOMParser().parseFromString(await response.text(), 'text/html');
-            const error = page.getElementById('hdn-request-error');
-            const output = page.getElementById('hdn-analysis-output');
-            if (!response.ok) throw new Error(`Review failed: HTTP ${response.status}. ${error?.textContent.trim() || 'The panel did not return a successful response.'}`);
-            if (error) throw new Error(error.textContent.trim() || 'The panel rejected the review.');
-            if (!output) {
-                const loginRedirect = response.redirected && /\/login(?:\/|$)/.test(new URL(response.url).pathname);
-                throw new Error(loginRedirect ? 'Your Hestia session has expired. Sign in again and retry the review.' : 'Review failed: the panel returned an unexpected page without a report.');
+            const text = await response.text();
+            let value;
+            try { value = JSON.parse(text); } catch (_) {
+                const login = response.redirected && /\/login(?:\/|$)/.test(new URL(response.url).pathname);
+                throw new Error(login ? 'Your Hestia session has expired. Sign in again to resume the review.' : `Review response was not JSON (HTTP ${response.status}). The background job can be resumed.`);
             }
-            // Replace only the escaped report fragment, preserving every rule
-            // field and unsaved switch in the existing settings form.
-            document.getElementById('hdn-analysis-output').replaceChildren(...[...output.childNodes].map(node => document.importNode(node, true)));
-            progress.textContent = 'Review completed. Protection settings and unsaved rule edits are unchanged.';
-        } catch (error) {
-            progress.textContent = error.name === 'AbortError' ? 'Review timed out. Protection settings and rule edits are unchanged.' : error.message;
-        } finally {
-            clearTimeout(timeout);
+            if (!response.ok || !value.ok) throw new Error(value.error || `Review failed: HTTP ${response.status}.`);
+            return value;
+        };
+        const display = value => {
+            const current = value.job;
+            if (current.id) remember(current.id);
+            active = ['queued', 'running'].includes(current.state);
+            cancel.hidden = !active;
+            if (value.report) {
+                const page = new DOMParser().parseFromString(value.report, 'text/html');
+                const report = page.getElementById(prefix + '-output');
+                if (!report) throw new Error('The panel returned an unexpected report.');
+                output.replaceChildren(...[...report.childNodes].map(node => document.importNode(node, true)));
+            }
+            if (current.state === 'idle') progress.textContent = '';
+            else if (current.state === 'complete') progress.textContent = 'Review completed. All available retained logs were processed; see coverage for missing or unreadable data. Unsaved rule edits are unchanged.';
+            else if (current.state === 'cancelled') progress.textContent = 'Review cancelled. Protection settings and unsaved edits are unchanged.';
+            else if (current.state === 'failed') throw new Error(current.error || 'Review process failed.');
+            else {
+                const p = current.progress || {};
+                progress.textContent = `${p.stage || (current.state === 'queued' ? 'Review queued' : 'Review running')} · ${p.records || 0} records · ${((p.bytes || 0) / 1048576).toFixed(2)} MiB · ${p.files_done || 0}/${p.files_total || '?'} files${p.domain ? ' · ' + p.domain : ''}`;
+            }
+            return active;
+        };
+        const observe = async (start = false) => {
+            const turn = ++generation;
+            button.disabled = true;
+            try {
+                if (start) {
+                    const value = await request(actionPrefix + '_start', 1, true);
+                    remember(value.job.id);
+                    display(value);
+                }
+                while (turn === generation) {
+                    const value = await request(actionPrefix + '_status');
+                    if (turn !== generation || !display(value)) break;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            } catch (error) {
+                progress.textContent = error.message;
+            } finally {
+                if (turn === generation) {
+                    button.disabled = false;
+                    button.textContent = active ? 'Resume review' : label;
+                }
+            }
+        };
+        scanForm.addEventListener('submit', event => {
+            event.preventDefault();
+            return observe(!job || !active);
+        });
+        cancel.addEventListener('click', async () => {
+            ++generation;
+            try { display(await request(actionPrefix + '_cancel')); }
+            catch (error) { progress.textContent = error.message; }
             button.disabled = false;
-            button.textContent = original;
-        }
-    });
+            button.textContent = active ? 'Resume review' : label;
+        });
+        output.addEventListener('click', async event => {
+            const page = event.target.closest('[data-hdn-analysis-page]');
+            if (!page || !job) return;
+            try { display(await request(actionPrefix + '_status', Number(page.dataset.hdnAnalysisPage))); }
+            catch (error) { progress.textContent = error.message; }
+        });
+        // Ask once for the last server-side job too: its start response may have
+        // been lost, or this may be a new browser tab. This does not start work.
+        observe();
+      }
+    };
+    initializeReview('hdn-log-scan', 'hdn-analysis', 'log_scan', 'filters', 'Analyze logs');
+    initializeReview('hdn-activity-scan', 'hdn-activity', 'activity', 'activity', 'Refresh activity');
     const presets = JSON.parse(document.getElementById('hdn-agent-presets').textContent);
     const probePresets = JSON.parse(document.getElementById('hdn-probe-presets').textContent);
     document.querySelectorAll('[data-hdn-probe-preset]').forEach(button => button.addEventListener('click', () => {

@@ -50,6 +50,34 @@ class BanLifecycleTests(unittest.TestCase):
     def sync(self, now=1001, **kwargs):
         return auto_bans.synchronize(self.policy, self.sites, self.directory, self.native, now, **kwargs)
 
+    def test_all_pending_firewall_operations_complete_beyond_old_hundred_limit(self):
+        import ipaddress
+        for number in range(175):
+            self.event(str(ipaddress.ip_address('198.18.0.1') + number))
+        result=self.sync()
+        self.assertEqual(result['active'],175)
+        self.assertEqual(result['pending'],0)
+        self.assertEqual(len([call for call in self.native.calls if call[0]=='add']),175)
+
+    def test_one_native_failure_does_not_abandon_other_pending_bans(self):
+        self.event('198.18.0.1');self.event('198.18.0.2')
+        original=self.native.add
+        def apply(address):
+            if address=='198.18.0.1':raise RuntimeError('One native operation failed')
+            original(address)
+        with patch.object(self.native,'add',side_effect=apply):
+            report=self.sync()
+        self.assertEqual(report['active'],1)
+        self.assertEqual(report['pending'],1)
+        self.assertIn('198.18.0.2',self.native.active)
+
+    def test_log_cursor_consumes_more_than_two_mib_without_skipping_later_events(self):
+        self.log.write_text(('not an event ' + 'x'*1000 + '\n') * 2200)
+        self.event()
+        self.assertEqual(self.sync()['active'],1)
+        with auto_bans.database(self.directory) as db:
+            self.assertEqual(db.execute('SELECT offset FROM cursors').fetchone()[0], self.log.stat().st_size)
+
     def test_first_recent_request_bans_permanently_and_manual_unban_does_not_replay_old_events(self):
         self.event(stamp=950)
         report = self.sync()
@@ -101,8 +129,8 @@ class BanLifecycleTests(unittest.TestCase):
             ('198.51.100.202',600,'one.test','private-file'), ('2001:db8::1',1000,'one.test','private-file')]:
             self.event(ip, stamp, domain, reason)
         report = self.sync()
-        self.assertEqual(report['active'], 0); self.assertEqual(report['unsupported_ipv6'], 1)
-        self.assertFalse(self.native.calls)
+        self.assertEqual(report['active'], 1); self.assertEqual(report['unsupported_ipv6'], 0)
+        self.assertIn(('add', '2001:db8::1'), self.native.calls)
         self.policy['overrides'] = {'alice/one.test': 'observe'}
         self.event('198.51.100.200',1002)
         self.assertEqual(self.sync(now=1003)['active'], 0)

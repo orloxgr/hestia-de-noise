@@ -46,7 +46,7 @@ def execute(request):
         else:
             with os.fdopen(handle, 'rb') as stream:
                 info = os.fstat(stream.fileno())
-                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 65536:
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
                     raise ValueError('Refusing a non-regular companion file')
                 current = stream.read().decode('utf-8')
             if not current.startswith(MARKER):
@@ -56,7 +56,7 @@ def execute(request):
         if request['action'] != 'replace':
             raise ValueError('Unknown website operation')
         body = request.get('body')
-        if body is not None and (not isinstance(body, str) or not body.startswith(MARKER) or len(body) > 65536):
+        if body is not None and (not isinstance(body, str) or not body.startswith(MARKER)):
             raise ValueError('Invalid companion payload')
         # Recovery is idempotent if this particular write was not reached.
         if current == body:

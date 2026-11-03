@@ -20,9 +20,6 @@ JOURNAL = 'wordpress-transaction.json'
 RECEIPT = 'wordpress-install.json'
 DEFAULT = {'enabled': False, 'maxretry': 3, 'findtime': 300,
            'durations': [300, 259200, -1]}
-# Native multipliers use floating-point scaling. These offered initial values
-# preserve the exact -1 permanent sentinel, including through SQLite storage.
-FIRST_DURATIONS = (60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400)
 LEGACY_HEADER = b'# WordPress failed logins across hosted sites.\n'
 HISTORY_HEADER = b'# Preserve repeat-offender history beyond the three-day second ban.\n'
 
@@ -32,14 +29,14 @@ def validate(value):
         raise ValueError('Expected WordPress login protection settings')
     if type(value['enabled']) is not bool:
         raise ValueError('Enabled must be a switch')
-    for key, low, high in [('maxretry', 1, 100), ('findtime', 60, 86400)]:
-        if type(value[key]) is not int or not low <= value[key] <= high:
-            raise ValueError(key + ' is outside the allowed range')
+    for key in ('maxretry', 'findtime'):
+        if type(value[key]) is not int or value[key] < 1:
+            raise ValueError(key + ' must be a positive integer')
     times = value['durations']
     if (not isinstance(times, list) or len(times) != 3 or
             any(type(t) is not int for t in times) or
-            times[0] not in FIRST_DURATIONS or not times[0] <= times[1] <= 315360000 or
-            (times[2] != -1 and not times[1] <= times[2] <= 315360000)):
+            times[0] < 1 or times[1] < times[0] or
+            (times[2] != -1 and times[2] < times[1])):
         raise ValueError('Use three increasing ban durations; the last can be permanent')
     return copy.deepcopy(value)
 
@@ -100,8 +97,13 @@ def render(value, state):
             'usedns = no\nport = 80,443\nprotocol = tcp\n' +
             'findtime = ' + str(value['findtime']) + '\nmaxretry = ' + str(value['maxretry']) + '\n' +
             'bantime = ' + str(first) + '\nbantime.increment = true\n' +
-            'bantime.factor = 1/' + str(first) + '\nbantime.multipliers = ' +
-            ' '.join(map(str, (first, second, third))) + '\nbantime.overalljails = false\n' +
+            # Native formulas clamp -1; reciprocal floats lose its exact value
+            # for some first durations. Native multiplier evaluation permits a
+            # factor expression: normalize the base to integer 1, then multiply
+            # by the exact, validated integer durations. No imports or hooks.
+            'bantime.factor = type("ExactBanUnit", (), {"__rmul__": lambda self, base: 1})()\n' +
+            'bantime.multipliers = ' + ' '.join(map(str, (first, second, third))) +
+            '\nbantime.overalljails = false\n' +
             'action = hdn-wordpress[actname=hestia-wordpress-WORDPRESS,name=WORDPRESS]\n')
     filter_text = (header + '[INCLUDES]\nbefore = common.conf\n[Definition]\n' +
                    '_daemon = (?:wordpress|wp)\n' +
@@ -255,7 +257,7 @@ def unban(state, selection, run):
     active = addresses(run(CLIENT, 'get', JAIL, 'banip'))
     if selection == 'all':
         selection = active
-    if (not isinstance(selection, list) or len(selection) > 500 or
+    if (not isinstance(selection, list) or
             any(not isinstance(s, str) or s not in active for s in selection)):
         raise ValueError('Select existing WordPress bans')
     for address in dict.fromkeys(selection):

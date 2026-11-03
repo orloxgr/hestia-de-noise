@@ -33,16 +33,16 @@ class BanPanelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             source=Path(temp)/'activity.php'
             source.write_text('''<?php
-                $data=['activity'=>['available'=>false,'error'=>'<untrusted>']];$isAdmin=true;
+                $data=[];$isAdmin=true;$headerOwner='admin';$install=$argv[1];$fields=static function($action){};
                 $escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
                 require $argv[1].'/panel/activity.php';
             ''')
             r=subprocess.run(['php',str(source),str(ROOT)],capture_output=True,text=True,timeout=5)
         self.assertEqual(r.returncode,0,r.stderr)
-        self.assertIn('Activity is unavailable.',r.stdout)
+        self.assertIn('only when requested',r.stdout)
         self.assertNotIn('0 in the bounded',r.stdout)
         self.assertNotIn('Matched requests',r.stdout)
-        self.assertIn('&lt;untrusted&gt;',r.stdout)
+        self.assertIn('hdn-activity-scan',r.stdout)
 
     def render(self, view, scope):
         data = dict(policy=copy.deepcopy(DEFAULT),sites=[],history={'days':30},bans={},domain_bans={})

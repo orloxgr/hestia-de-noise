@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.12.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.13.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -71,7 +71,7 @@ There is no mandatory observation period.
 - **Missing static files:** select a directory and file extensions; return 404
   before PHP for missing files. Existing files keep their current routing.
 - **Activity:** last 15 minutes of matched, observed and blocked requests by
-  domain and rule, from bounded addon logs.
+  domain and rule, from complete on-demand reviews of available retained addon logs.
 - **IP bans:** optional first-probe native Hestia firewall bans, permanent or
   timed, with editable trigger count/window, domain scope, never-ban networks
   and selected/all unban controls.
@@ -213,14 +213,13 @@ Fail2ban configurations are kept unchanged.
 
 Version 0.7.1 adds request evidence without changing saved protection settings.
 In **IP bans** or **Domain bans**, expand **Why was this IP banned?** to see up
-to ten matching requests and the policy that triggered the ban. Evidence stays
+all retained matching requests and the policy that triggered the ban. Evidence stays
 with the ban after its strike counter is cleared. Existing bans keep working;
 paths cannot be reconstructed for records written before this update.
 
 Addon evidence stores URL paths only: no query strings, cookies, authorization
 headers or request bodies. Native access-log queries are stripped before storage.
-Paths are capped at 1,024 characters, and the existing bounded maintenance/log
-rotation is reused. No additional service, polling or per-request script is added.
+Paths are retained without an addon length cutoff; the existing log rotation is reused. No additional service, polling or per-request script is added.
 
 Version 0.8.0 adds **Active bans / History** and **Previous / Next** navigation
 to IP bans and Domain bans, with 50 records selected per page in SQLite.
@@ -396,33 +395,43 @@ Existing rules remain editable. Ordinary
 URLs without the selected parameter names and visitors without the selected
 crawler names do not match the rule.
 
-### Log-analysis limits and privacy
+### Complete reviews, progress and privacy
 
-The administrator may review one known web domain or up to 500 web domains.
-The review reads only current and previous uncompressed native access logs in
-the standard Apache/Nginx log directories, with trusted-owner/no-follow checks
-and shared-inode deduplication. It uses a separate nonblocking scan lock and
-lower process priority; no new collector, request-time script or scheduled task
-is installed. The review bypasses protection/recovery transactions and never
-modifies policy, ban evidence/counters, firewall rules or website files.
+An administrator may select one known web domain or all web domains, and any
+positive time window in minutes. Presets are conveniences, not exclusive choices.
+The worker reads current and all available numbered rotations, including gzip,
+bzip2 and xz, using trusted-owner/no-follow checks and shared-inode deduplication.
+There is no addon quota for bytes, elapsed work, domains, groups or distinct counts.
+A snapshot boundary leaves newly appended active-log data for the next review.
+Logs already removed by retention cannot be reconstructed; coverage and genuine
+read errors are reported instead of claiming an incomplete review succeeded.
 
-Each review has a 64-MiB read and 8-second processing budget, 600 route groups,
-256 distinct clients/combinations per group and at most 20 displayed findings.
-Partial, unavailable and malformed-log coverage is explicit; there is no claim
-that a zero-result sample proves safety. Native records are not total incoming
-requests or proof of PHP work: early blocks/cache HITs can be absent, and layered
-logs can duplicate records. Request/upstream timing and cache state are shown
-only for explicit `rt=`, `urt=` and `cache=` fields, if already present; no logging
-configuration is changed to collect them.
+Reviews run on demand in a low-priority background process, separate from
+protection/recovery transactions. Progress, cancellation and resumption survive
+a panel reload or lost HTTP response. Requests wait in a serialized queue rather
+than being rejected when another review is running. No periodic collector or
+public request-time script is installed. Reviews never modify protection rules,
+ban counters, firewall rules or website files.
 
-Query values, IPs and raw User-Agents are not returned or retained in reports.
-Tracking/authentication values are excluded from filter-diversity suggestions;
-only bounded in-memory digests are used for distinct combinations/clients.
-Reports are returned for the current page and are not saved as scan history.
-The panel refreshes only the report after a review, preserving unsaved rule edits.
+Exact aggregates and complete findings are stored in root-private SQLite files
+under `/var/lib/hestia-de-noise/analysis-jobs/`. Display pages contain 20 findings;
+all pages are available. Activity uses the same background workflow and exposes
+every retained event in the chosen window, limited to the viewer's domains.
+Opening the panel fetches job metadata rather than rescanning logs. Completed,
+failed and cancelled reports older than the selected history retention are
+removed when a new review starts; active work is never removed by that cleanup.
+
+Query values, raw client IPs and raw User-Agents are not returned or retained in
+reports. Distinct client/combination counts use one-way digests in private
+aggregation. Sensitive path segments remain redacted with distinct hash labels.
+Unsaved protection-rule edits survive report updates and page navigation.
+Native access-log records are not total incoming traffic or proof of PHP work:
+early blocks/cache HITs may be absent and layered logs may duplicate records.
+Timing/cache information is shown only when already recorded; no logging
+configuration is added to collect it.
 
 Optional Googlebot verification downloads only Google's public common-crawler
-CIDRs, with a hard two-second downloader timeout and root-private 24-hour cache
+CIDRs, without a separate addon work deadline, and uses a root-private 24-hour cache
 at `/var/lib/hestia-de-noise/google-common-crawlers.json`. No visitor data is sent
 to Google and no per-request DNS lookup occurs. A source-range match is not a
 verdict that the requested URL is useful or harmless. Missing/failed verification
@@ -516,14 +525,10 @@ A root-private
 `domain-ban-applied.json` records the last successfully applied domain rules and
 participates in configuration recovery. Maintenance output contains counts and errors rather
 than repeatedly dumping the IP table.
-Activity reads at most 2 MiB each from the current and previous uncompressed
-match log when opening the panel; it is a bounded sample, not a traffic total or
-CPU measurement. The addon installs a daily logrotate policy retaining seven rotations, with a
+Activity reads all retained rotations for the selected interval when explicitly requested. It is not a total-traffic or CPU measurement. The addon installs a daily logrotate policy retaining seven rotations, with a
 10 MiB size trigger when logrotate runs. Existing server logs remain separate.
 
-The native firewall ban backend supports **IPv4**. IPv6 probes still receive the
-HTTP rejection, but are counted as unsupported for firewall bans. Domain-only
-Nginx bans support **IPv4 and IPv6**. There is no automatic change
+Global bans support **IPv4 and IPv6**. IPv4 uses native Hestia commands; IPv6 uses an addon-owned `ip6tables` chain restricted to TCP 80/443, with a root-private ownership journal. Reconciliation restores owned IPv6 rules after a native firewall reload. Domain-only Nginx bans also support both families. There is no automatic change
 to SSH, panel, mail ports, the existing Fail2ban jails or recidive policy. Ordinary
 unselected 404s trigger bans only when general 404 counting is enabled. Missing
 static assets are excluded by default. Denied User-Agents and crawler rate limits do not count as

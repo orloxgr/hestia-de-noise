@@ -22,11 +22,11 @@ class ScopeTests(unittest.TestCase):
              dict(key='bob/two.test', domain='two.test', kind='web'),
              dict(key='bob/webmail.two.test', domain='webmail.two.test', kind='mail')]
 
-    def test_only_known_web_domains_and_fixed_windows_are_accepted(self):
+    def test_only_known_web_domains_and_positive_windows_are_accepted(self):
         self.assertEqual(len(review.selection(self.sites, 'all', 30)), 2)
         self.assertEqual(review.selection(self.sites, 'alice/one.test', 1440), self.sites[:1])
         for key, minutes in [('bob/webmail.two.test', 30), ('../../etc/passwd', 30),
-                             ('all', True), ('all', 15), (None, 30)]:
+                             ('all', True), ('all', 0), (None, 30)]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 review.selection(self.sites, key, minutes)
 
@@ -163,35 +163,33 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(rows['/broken']['kind'], 'site')
         self.assertEqual(rows['/slow']['mean_upstream_ms'], 1500)
 
-    def test_partial_budget_and_group_limit_are_explicit(self):
-        for i in range(50):self.record('/probe'+str(i)+'.php', 404)
-        with patch.object(review, 'READ_LIMIT', 1000), patch.object(review, 'FILE_LIMIT', 1000):
-            result = self.scan()
-        self.assertLessEqual(result['bytes_read'], 1000)
-        self.assertTrue(result['partial'])
-        with patch.object(review, 'GROUP_LIMIT', 1):
-            result = self.scan()
-        self.assertTrue(result['group_limit_reached'])
-        self.assertTrue(result['partial'])
-
-    def test_time_limit_and_malformed_lines_report_incomplete_coverage(self):
+    def test_all_routes_and_later_domains_are_processed_without_a_budget(self):
+        for i in range(750):self.record('/probe'+str(i)+'.php', 404)
         self.record('/.env', 403)
-        with patch.object(review.time, 'monotonic', side_effect=iter([0] + [10] * 20)):
-            result = self.scan()
-        self.assertTrue(result['partial'])
-        self.assertEqual(result['findings'], [])
+        other = self.path
+        self.path = self.logs / 'two.test.log'
+        self.record('/.git/config', 403)
+        self.path = other
+        result = self.scan('all')
+        self.assertEqual(result['totals']['requests'], 752)
+        self.assertEqual({row['site'] for row in result['findings']}, {'alice/one.test', 'bob/two.test'})
+        self.assertFalse(result['group_limit_reached'])
+        self.assertFalse(result['partial'])
+
+    def test_malformed_lines_report_incomplete_coverage_without_a_deadline(self):
+        self.record('/.env', 403)
         with self.path.open('a') as out:out.write('bad log line\n' + 'unfinished')
         result = self.scan()
         self.assertEqual(result['totals']['unparsed'], 1)
         self.assertEqual(result['totals']['incomplete_lines'], 1)
+        self.assertEqual(len(result['findings']), 1)
         self.assertTrue(result['partial'])
 
-    def test_distinct_counts_cap_and_report_lower_bounds(self):
-        for i in range(35):self.record('/catalog/?season='+str(i))
-        with patch.object(review, 'DISTINCT_LIMIT', 20):
-            row = self.scan()['findings'][0]
-        self.assertEqual(row['combinations'], 20)
-        self.assertTrue(row['distinct_capped'])
+    def test_distinct_counts_remain_exact_above_old_limit(self):
+        for i in range(750):self.record('/catalog/?season='+str(i))
+        row = self.scan()['findings'][0]
+        self.assertEqual(row['combinations'], 750)
+        self.assertFalse(row['distinct_capped'])
 
     def test_symlink_and_writable_logs_refused_and_no_recent_data_is_not_a_clean_bill(self):
         self.path.unlink();self.path.symlink_to('/etc/passwd')
@@ -201,10 +199,17 @@ class ScanTests(unittest.TestCase):
         self.path.unlink();self.path.write_text('x');self.path.chmod(0o666)
         self.assertTrue(self.scan()['errors'])
 
-    def test_two_reviews_cannot_overlap_but_protection_lock_is_independent(self):
+    def test_second_review_waits_without_losing_the_request(self):
+        import threading
+        acquired = threading.Event()
+        def second():
+            with review.scan_lock(self.state):acquired.set()
         with review.scan_lock(self.state):
-            with self.assertRaisesRegex(ValueError, 'already running'):
-                with review.scan_lock(self.state):pass
+            thread = threading.Thread(target=second)
+            thread.start()
+            self.assertFalse(acquired.wait(0.05))
+        thread.join(2)
+        self.assertTrue(acquired.is_set())
         self.assertFalse((self.state/'operation.lock').exists())
 
     def test_google_verification_downloads_no_visitor_data_and_uses_private_cache(self):
@@ -217,7 +222,7 @@ class ScanTests(unittest.TestCase):
         self.assertEqual(row['verified_google'], 1)
         self.assertEqual(row['unconfirmed_google'], 1)
         self.assertNotIn('198.51.100.1', repr(fetch.call_args))
-        self.assertEqual(fetch.call_args.kwargs['timeout'], 2)
+        self.assertIsNone(fetch.call_args.kwargs['timeout'])
         cache = self.state / review.GOOGLE_CACHE
         self.assertEqual(cache.stat().st_mode & 0o777, 0o600)
         with patch.object(review.subprocess, 'run') as fetch:

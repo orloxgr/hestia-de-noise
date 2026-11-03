@@ -1,8 +1,8 @@
 <h2 class="u-mb20">Spread WordPress cron jobs</h2>
 <p class="u-mb20">Spread existing WordPress jobs across the hour. The interval columns show how often each job runs; exact clock minutes are under Schedule details. Selected jobs remain editable in Hestia CRON. No schedule changes until you apply it.</p>
 <form method="post" class="u-mb20"><?php $fields('cron_preview'); ?>
-<label class="form-label u-block u-mb10">Minimum interval (minutes)<input class="form-control" type="number" name="cron_min" min="1" max="30" value="<?= $escape($data['cron']['minimum'] ?? 5) ?>" required></label>
-<label class="form-label u-block u-mb10">Maximum interval (minutes)<input class="form-control" type="number" name="cron_max" min="1" max="30" value="<?= $escape($data['cron']['maximum'] ?? 15) ?>" required></label>
+<label class="form-label u-block u-mb10">Minimum interval (minutes)<input class="form-control" type="number" name="cron_min" min="1" value="<?= $escape($data['cron']['minimum'] ?? 5) ?>" required></label>
+<label class="form-label u-block u-mb10">Maximum interval (minutes)<input class="form-control" type="number" name="cron_max" min="1" value="<?= $escape($data['cron']['maximum'] ?? 15) ?>" required></label>
 <button class="button button-secondary" type="submit">Generate preview</button></form>
 <?php if (!empty($data['cron']['error'])): ?><div class="alert alert-danger" role="alert"><?= $escape($data['cron']['error']) ?></div>
 <?php elseif (!empty($data['cron']['id'])): ?>

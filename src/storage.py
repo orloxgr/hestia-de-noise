@@ -72,9 +72,7 @@ def read(path):
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 raise ValueError('Refusing a non-regular or untrusted managed file: ' + str(path))
-            data = stream.read(2 * 1024 * 1024 + 1)
-            if len(data) > 2 * 1024 * 1024:
-                raise ValueError('Managed file is unexpectedly large: ' + str(path))
+            data = stream.read()
             return data
 
 

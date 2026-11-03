@@ -12,21 +12,18 @@ $wpTimes = $wpSettings['durations'];
 <h3 class="u-mb10">Failed attempts</h3>
 <div class="hdn-wp-grid u-mb20">
 <label class="form-label" title="Number of real authentication failures from one IP before its first ban. Fail2ban becomes stricter for repeat offenders.">Failures before first ban
-<input class="form-control" name="wordpress_maxretry" type="number" min="1" max="100" value="<?= $escape($wpSettings['maxretry']) ?>" required></label>
+<input class="form-control" name="wordpress_maxretry" type="number" min="1" value="<?= $escape($wpSettings['maxretry']) ?>" required></label>
 <label class="form-label" title="Count failures that occur within this rolling time window, across all protected sites.">Counting window (minutes)
-<input class="form-control" name="wordpress_window_minutes" type="number" min="1" max="1440" value="<?= $escape($wpSettings['findtime'] / 60) ?>" required></label>
+<input class="form-control" name="wordpress_window_minutes" type="number" min="1" value="<?= $escape($wpSettings['findtime'] / 60) ?>" required></label>
 </div>
 <h3 class="u-mb10">Ban escalation</h3>
 <div class="hdn-wp-grid u-mb20">
 <label class="form-label" title="How long the first ban lasts. The ban history is retained for repeat-offender escalation.">First ban
-<select class="form-select" name="wordpress_first_minutes">
-<?php foreach ([1 => '1 minute', 2 => '2 minutes', 3 => '3 minutes', 5 => '5 minutes', 10 => '10 minutes', 15 => '15 minutes', 30 => '30 minutes', 60 => '1 hour', 120 => '2 hours', 360 => '6 hours', 720 => '12 hours', 1440 => '1 day'] as $minutes => $label): ?>
-<option value="<?= $minutes ?>" <?= $wpTimes[0] === $minutes * 60 ? 'selected' : '' ?>><?= $escape($label) ?></option>
-<?php endforeach; ?></select></label>
+<input class="form-control" name="wordpress_first_minutes" type="number" min="1" value="<?= $escape($wpTimes[0] / 60) ?>" required></label>
 <label class="form-label" title="Duration of the next ban for an IP already recorded as a WordPress offender.">Second ban (days)
-<input class="form-control" name="wordpress_second_days" type="number" min="1" max="3650" value="<?= $escape($wpTimes[1] / 86400) ?>" required></label>
+<input class="form-control" name="wordpress_second_days" type="number" min="1" value="<?= $escape($wpTimes[1] / 86400) ?>" required></label>
 <label class="form-label" title="Duration of the third and later bans. Enter zero for a permanent ban, which remains until an administrator unbans the IP.">Third ban (days; 0 = permanent)
-<input class="form-control" name="wordpress_third_days" type="number" min="0" max="3650" value="<?= $escape($wpTimes[2] === -1 ? 0 : $wpTimes[2] / 86400) ?>" required></label>
+<input class="form-control" name="wordpress_third_days" type="number" min="0" value="<?= $escape($wpTimes[2] === -1 ? 0 : $wpTimes[2] / 86400) ?>" required></label>
 </div>
 <p class="u-mb20">With a first-ban threshold of 3, native Fail2ban escalation requires 2 failures after the first ban and 1 after the second.</p>
 <button class="button u-mb20" type="submit" title="Validate the generated Fail2ban configuration and apply this WordPress jail.">Save &amp; Apply WordPress protection</button>

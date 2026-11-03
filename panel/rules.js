@@ -20,7 +20,6 @@
             names(rule[module === 'static' ? 'extensions' : 'parameters'].join(' '));
         const rules = preset ? preset.rules.filter(rule => !existing.some(row => match(row, rule))) : [null];
         const message = document.getElementById('hdn-' + module + '-message');
-        if (existing.length + rules.length > 20) { message.textContent = 'Use at most 20 rules in this section.'; return; }
         if (!rules.length) { message.textContent = 'These rules already exist. Your settings were kept.'; return; }
         const template = document.getElementById('hdn-' + module + '-template');
         rules.forEach(rule => {
@@ -29,7 +28,7 @@
             let number = 1, ident = rule ? base : base + '_1';
             while (used.has(ident)) ident = base + '_' + (++number);
             const indices = [...list.querySelectorAll('input[name$="[id]"]')].map(input => Number(input.name.match(/\[(\d+)\]/)?.[1] ?? -1));
-            const next = Math.max(-1, ...indices) + 1;
+            const next = indices.reduce((largest, value) => Math.max(largest, value), -1) + 1;
             const fragment = template.content.cloneNode(true);
             fragment.querySelectorAll('[name]').forEach(input => { input.name = input.name.replace('__INDEX__', String(next)); });
             const row = fragment.querySelector('.hdn-rule');
@@ -53,10 +52,6 @@
             const agents = JSON.parse(document.getElementById('hdn-agent-presets').textContent).search_crawlers || [];
             const lines = field.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
             agents.forEach(agent => { if (!lines.some(line => line.toLowerCase() === agent.toLowerCase())) lines.push(agent); });
-            if (lines.length > 40) {
-                document.getElementById('hdn-filters-message').textContent = 'Use at most 40 crawler names per rule. Your list was kept unchanged.';
-                return;
-            }
             field.value = lines.join('\n');
             document.getElementById('hdn-filters-message').textContent = 'Added crawler names to this rule only. Review domains, action and rate, then Save & Apply.';
         }
@@ -68,8 +63,8 @@
             const message = document.getElementById('hdn-filters-message');
             const preview = document.getElementById('hdn-robots-preview');
             // Only render literal path prefixes and valid parameter names.
-            if (!/^\/[A-Za-z0-9_./~-]*$/.test(prefix) || prefix.length > 250 || prefix.split('/').includes('..') || prefix.includes('//') ||
-                !parameters.length || parameters.length > 20 || parameters.some(name => !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name))) {
+            if (!/^\/[A-Za-z0-9_./~-]*$/.test(prefix) || prefix.split('/').includes('..') || prefix.includes('//') ||
+                !parameters.length || parameters.some(name => !/^[A-Za-z][A-Za-z0-9_.-]*$/.test(name))) {
                 preview.hidden = true;
                 message.textContent = 'Use a literal URL path and valid parameter names before generating robots.txt suggestions.';
                 return;

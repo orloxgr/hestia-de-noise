@@ -56,7 +56,7 @@ PRIVATE_PATTERNS = [
 
 
 def account(value):
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', value):
         raise ValueError('Invalid account name')
     return value
 
@@ -141,14 +141,14 @@ def validate(raw):
     ban = data['bans']
     if (not isinstance(ban, dict) or set(ban) != set(DEFAULT['bans']) or
             any(type(ban[key]) is not bool for key in ('enabled', 'private_files', 'repositories')) or
-            type(ban['maxretry']) is not int or not 1 <= ban['maxretry'] <= 1000 or
-            type(ban['findtime']) is not int or not 30 <= ban['findtime'] <= 86400 or
-            type(ban['duration_days']) is not int or not 0 <= ban['duration_days'] <= 3650):
-        raise ValueError('Invalid automatic-ban settings: attempts 1–1000, window 30–86400 seconds, duration 0–3650 days')
-    if not isinstance(ban['targets'], list) or len(ban['targets']) > 10000:
+            type(ban['maxretry']) is not int or not ban['maxretry'] >= 1 or
+            type(ban['findtime']) is not int or not ban['findtime'] > 0 or
+            type(ban['duration_days']) is not int or not ban['duration_days'] >= 0):
+        raise ValueError('Automatic-ban attempts/window must be positive; duration must be nonnegative')
+    if not isinstance(ban['targets'], list):
         raise ValueError('Invalid automatic-ban domain selection')
     ban['targets'] = list(dict.fromkeys(target(name) for name in ban['targets']))
-    if not isinstance(ban['ignore_ips'], list) or len(ban['ignore_ips']) > 1000:
+    if not isinstance(ban['ignore_ips'], list):
         raise ValueError('Invalid never-ban IP list')
     if any(not isinstance(value, str) for value in ban['ignore_ips']):
         raise ValueError('Never-ban entries must be IP addresses or CIDR networks')
@@ -163,16 +163,16 @@ def validate(raw):
         ban['missing_files']['paths'] = list(probe_rules.FILES)
     rule = ban['any_404']
     if (not isinstance(rule, dict) or set(rule) != set(DEFAULT['bans']['any_404'])
-            or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not 1 <= rule['maxretry'] <= 1000
-            or type(rule['findtime']) is not int or not 30 <= rule['findtime'] <= 86400
-            or type(rule['duration_days']) is not int or not 0 <= rule['duration_days'] <= 3650
+            or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not rule['maxretry'] >= 1
+            or type(rule['findtime']) is not int or not rule['findtime'] > 0
+            or type(rule['duration_days']) is not int or not rule['duration_days'] >= 0
             or type(rule['exclude_static']) is not bool or type(rule['min_distinct_paths']) is not int
-            or not 1 <= rule['min_distinct_paths'] <= 1000):
+            or not rule['min_distinct_paths'] >= 1):
         raise ValueError('Invalid general 404 automatic-ban controls')
     delegation = data['domain_bans']
     if (not isinstance(delegation, dict) or set(delegation) != {'allow_users', 'sites'}
             or type(delegation['allow_users']) is not bool or not isinstance(delegation['sites'], dict)
-            or len(delegation['sites']) > 10000):
+            ):
         raise ValueError('Invalid domain automatic-ban settings')
     for key, rules in delegation['sites'].items():
         target(key)
@@ -183,15 +183,15 @@ def validate(raw):
 
 
 def validate_agents(entries):
-    if not isinstance(entries, list) or len(entries) > 200:
-        raise ValueError('Use at most 200 entries per User-Agent list')
+    if not isinstance(entries, list):
+        raise ValueError('Use a User-Agent list')
     agents = []
     for entry in entries:
         # Printable ASCII keeps the literal substring behavior explicit across
         # Nginx/PCRE builds. Quotes, regex and config punctuation are escaped.
-        if (not isinstance(entry, str) or not 2 <= len(entry.strip()) <= 160 or
+        if (not isinstance(entry, str) or not bool(entry.strip()) or
                 any(ord(c) < 32 or ord(c) > 126 for c in entry)):
-            raise ValueError('User-Agents must be printable text, 2–160 characters per line')
+            raise ValueError('User-Agents must be nonempty printable text')
         entry = entry.strip()
         if entry.lower() not in [x.lower() for x in agents]:
             agents.append(entry)
@@ -203,10 +203,10 @@ def validate_rules(data):
         rule = data[key]
         if (not isinstance(rule, dict) or set(rule) != {'enabled', 'rate', 'burst'} or
                 type(rule['enabled']) is not bool or type(rule['rate']) is not int or
-                not 1 <= rule['rate'] <= 600 or type(rule['burst']) is not int or
-                not 0 <= rule['burst'] <= 100):
-            raise ValueError('Rates must be 1–600 per minute; burst must be 0–100')
-    if not isinstance(data['overrides'], dict) or len(data['overrides']) > 10000:
+                not rule['rate'] >= 1 or type(rule['burst']) is not int or
+                not rule['burst'] >= 0):
+            raise ValueError('Rate must be positive and burst nonnegative')
+    if not isinstance(data['overrides'], dict):
         raise ValueError('Invalid domain overrides')
     for key, mode in data['overrides'].items():
         target(key)
@@ -214,66 +214,62 @@ def validate_rules(data):
             raise ValueError('Invalid domain mode')
     ids = set()
     for module in ('filters', 'static'):
-        if not isinstance(data[module], list) or len(data[module]) > 20:
-            raise ValueError('Use at most 20 rules per module')
+        if not isinstance(data[module], list):
+            raise ValueError('Use a rule list')
         for rule in data[module]:
             fields = {'id', 'enabled', 'path', 'targets'} | (
                 {'parameters', 'agents', 'action', 'rate', 'burst'} if module == 'filters' else {'extensions'})
             if not isinstance(rule, dict) or set(rule) != fields:
                 raise ValueError('Invalid ' + module + ' rule fields')
             ident = rule['id']
-            if not isinstance(ident, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,31}', ident) or ident in ids:
-                raise ValueError('Rule IDs must be unique lowercase names, up to 32 characters')
+            if not isinstance(ident, str) or not re.fullmatch(r'[a-z][a-z0-9_]*', ident) or ident in ids:
+                raise ValueError('Rule IDs must be unique lowercase names')
             ids.add(ident)
             if type(rule['enabled']) is not bool:
                 raise ValueError('Invalid rule switch')
             path = rule['path']
             if (not isinstance(path, str) or not re.fullmatch(r'/[A-Za-z0-9_./~-]*', path) or
-                    '..' in path.split('/') or '//' in path or len(path) > 250):
+                    '..' in path.split('/') or '//' in path):
                 raise ValueError('Enter a literal URL path, without query, wildcard or traversal')
             if module == 'static' and (path == '/' or not path.endswith('/')):
                 raise ValueError('Static directories must end in / and cannot be the site root')
-            if not isinstance(rule['targets'], list) or len(rule['targets']) > 10000:
+            if not isinstance(rule['targets'], list):
                 raise ValueError('Invalid rule domain selection')
             rule['targets'] = list(dict.fromkeys(target(x) for x in rule['targets']))
             if module == 'filters':
                 if rule['action'] not in ('limit', 'block'):
                     raise ValueError('Choose limit or block for filtered URLs')
-                if (type(rule['rate']) is not int or not 1 <= rule['rate'] <= 600 or
-                        type(rule['burst']) is not int or not 0 <= rule['burst'] <= 100):
-                    raise ValueError('Rates must be 1–600 per minute; burst must be 0–100')
-                if not isinstance(rule['parameters'], list) or not 1 <= len(rule['parameters']) <= 20:
-                    raise ValueError('Enter 1–20 filter parameter names')
-                if any(not isinstance(x, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,63}', x)
+                if (type(rule['rate']) is not int or not rule['rate'] >= 1 or
+                        type(rule['burst']) is not int or not rule['burst'] >= 0):
+                    raise ValueError('Rate must be positive and burst nonnegative')
+                if not isinstance(rule['parameters'], list) or not bool(rule['parameters']):
+                    raise ValueError('Enter filter parameter names')
+                if any(not isinstance(x, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*', x)
                        for x in rule['parameters']):
                     raise ValueError('Invalid filter parameter name')
                 rule['parameters'] = list(dict.fromkeys(x.lower() for x in rule['parameters']))
-                if (not isinstance(rule['agents'], list) or not 1 <= len(rule['agents']) <= 40 or
-                        any(not isinstance(x, str) or not 2 <= len(x) <= 100 or
+                if (not isinstance(rule['agents'], list) or not bool(rule['agents']) or
+                        any(not isinstance(x, str) or not bool(x) or
                             any(ord(c) < 32 or ord(c) > 126 for c in x) for x in rule['agents'])):
-                    raise ValueError('Enter 1–40 literal crawler names for a filter rule')
+                    raise ValueError('Enter literal crawler names for a filter rule')
                 rule['agents'] = list(dict.fromkeys(x.lower() for x in rule['agents']))
             else:
-                if (not isinstance(rule['extensions'], list) or not 1 <= len(rule['extensions']) <= 20 or
-                        any(not isinstance(x, str) or not re.fullmatch(r'[a-z0-9]{1,10}', x)
+                if (not isinstance(rule['extensions'], list) or not bool(rule['extensions']) or
+                        any(not isinstance(x, str) or not re.fullmatch(r'[a-z0-9]+', x)
                             for x in rule['extensions'])):
-                    raise ValueError('Enter 1–20 lowercase static file extensions, without dots')
+                    raise ValueError('Enter lowercase static file extensions, without dots')
                 rule['extensions'] = list(dict.fromkeys(rule['extensions']))
     exceptions = data['static_exceptions']
-    if not isinstance(exceptions, dict) or len(exceptions) > 10000:
+    if not isinstance(exceptions, dict):
         raise ValueError('Invalid static-file exceptions')
-    normalized, count, size = {}, 0, 0
+    normalized = {}
     for site, paths in exceptions.items():
         target(site)
-        if not isinstance(paths, list) or len(paths) > 500:
-            raise ValueError('Use at most 500 file exceptions per domain')
+        if not isinstance(paths, list):
+            raise ValueError('Use a file-exception list')
         paths = list(dict.fromkeys(exception_path(path) for path in paths))
         if paths:
             normalized[site] = paths
-            count += len(paths)
-            size += sum(len((site.split('/', 1)[1] + ':' + unquote(path)).encode('utf-8')) for path in paths)
-    if count > 2000 or size > 65536:
-        raise ValueError('Use at most 2000 file exceptions and 64 KiB of exception entries in total')
     data['static_exceptions'] = normalized
     return data
 
@@ -286,7 +282,7 @@ def exception_path(value):
         decoded = unquote(value, encoding='utf-8', errors='strict')
     except UnicodeError as error:
         raise ValueError('File exceptions must contain valid UTF-8 URL paths') from error
-    if (len(decoded.encode('utf-8')) > 2048 or decoded.endswith('/') or '//' in decoded or
+    if (decoded.endswith('/') or '//' in decoded or
             any(part in ('.', '..') for part in decoded.split('/')) or
             any(char in decoded for char in '?#*\\') or not decoded.isprintable()):
         raise ValueError('Enter exact file paths without query strings, wildcards or traversal')

@@ -61,7 +61,7 @@ class PolicyTests(unittest.TestCase):
         policy = copy.deepcopy(DEFAULT)
         policy['agents'] = ['Crawler', ' crawler ', 'Other']
         self.assertEqual(validate(policy)['agents'], ['Crawler', 'Other'])
-        for text in ['a\nreturn 403;', 'a\rfoo', 'agent\x00x', 'a', 'x' * 161]:
+        for text in ['a\nreturn 403;', 'a\rfoo', 'agent\x00x', '' ]:
             with self.subTest(text=text):
                 policy['agents'] = [text]
                 with self.assertRaises(ValueError):

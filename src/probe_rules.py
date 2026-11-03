@@ -56,10 +56,10 @@ def encoded_literal(text):
 
 def query_pattern(target, parameters=None):
     slash = encoded_literal('/')
-    traversal = '(?:' + encoded_literal('..') + slash + '){0,16}'
+    traversal = '(?:' + encoded_literal('..') + slash + ')*'
     # Entire file argument, optionally with traversal or a PHP filter wrapper.
     # A search sentence merely mentioning wp-config.php does not match.
-    wrapper = '(?:' + encoded_literal('php://filter/') + '[^&]{0,256}' + encoded_literal('resource=') + ')?'
+    wrapper = '(?:' + encoded_literal('php://filter/') + '[^&]*' + encoded_literal('resource=') + ')?'
     if target.startswith('/'):
         value = '(?:' + slash + '|' + traversal + ')' + encoded_literal(target[1:])
     else:
@@ -75,13 +75,13 @@ def validate_settings(data, path_validator, target_validator):
         rule = settings[key]
         fields = {'enabled', 'maxretry', 'findtime', 'duration_days', field} | ({'parameters'} if key == 'suspicious_queries' else set())
         if (not isinstance(rule, dict) or set(rule) != fields
-                or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not 1 <= rule['maxretry'] <= 1000
-                or type(rule['findtime']) is not int or not 30 <= rule['findtime'] <= 86400
-                or type(rule['duration_days']) is not int or not 0 <= rule['duration_days'] <= 3650):
+                or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not rule['maxretry'] >= 1
+                or type(rule['findtime']) is not int or not rule['findtime'] > 0
+                or type(rule['duration_days']) is not int or not rule['duration_days'] >= 0):
             raise ValueError('Invalid ' + key + ' controls')
         entries = rule[field]
-        if not isinstance(entries, list) or len(entries) > 500:
-            raise ValueError('Use at most 500 selected probe paths/targets')
+        if not isinstance(entries, list):
+            raise ValueError('Use a list of selected probe paths/targets')
         if key == 'missing_files':
             clean = [path_validator(value) for value in entries]
             if any(not value.lower().endswith('.php') for value in clean):
@@ -89,7 +89,7 @@ def validate_settings(data, path_validator, target_validator):
         else:
             clean = []
             for value in entries:
-                if (not isinstance(value, str) or not 2 <= len(value) <= 250
+                if (not isinstance(value, str) or not bool(value)
                         or not re.fullmatch(r'[A-Za-z0-9_./:\\-]+', value)
                         or '..' in value.replace('\\', '/').split('/')):
                     raise ValueError('Query targets must be literal file paths, without wildcards, traversal or expressions')
@@ -97,25 +97,23 @@ def validate_settings(data, path_validator, target_validator):
         rule[field] = list(dict.fromkeys(clean))
         if key == 'suspicious_queries':
             names = rule['parameters']
-            if (not isinstance(names, list) or len(names) > 50 or any(not isinstance(name, str)
-                    or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,63}', name) for name in names)):
-                raise ValueError('Use literal query parameter names, one per line, at most 50')
+            if (not isinstance(names, list) or any(not isinstance(name, str)
+                    or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]*', name) for name in names)):
+                raise ValueError('Use literal query parameter names, one per line')
             rule['parameters'] = list(dict.fromkeys(name.lower() for name in names))
     exceptions = data['probe_exceptions']
     if not isinstance(exceptions, dict) or set(exceptions) != {'files', 'queries'}:
         raise ValueError('Invalid probe exceptions')
     total = 0
     for kind in exceptions:
-        if not isinstance(exceptions[kind], dict) or len(exceptions[kind]) > 10000:
+        if not isinstance(exceptions[kind], dict):
             raise ValueError('Invalid domain probe exceptions')
         for site, paths in exceptions[kind].items():
             target_validator(site)
-            if not isinstance(paths, list) or len(paths) > 500:
-                raise ValueError('Use at most 500 probe exceptions per domain')
+            if not isinstance(paths, list):
+                raise ValueError('Use a probe-exception list')
             exceptions[kind][site] = list(dict.fromkeys(path_validator(value) for value in paths))
             total += sum(len(value) for value in exceptions[kind][site])
-    if total > 64000:
-        raise ValueError('Probe exceptions exceed 64 KB')
 
 
 def reason_settings(settings):

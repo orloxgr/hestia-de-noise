@@ -3,11 +3,7 @@
 declare(strict_types=1);
 $install = '__INSTALL_ROOT__';
 $meta = json_decode(file_get_contents($install . '/addon.json'), true, 16, JSON_THROW_ON_ERROR);
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($_SERVER['HTTP_REFERER'])) {
-    header('Cache-Control: no-store');
-    echo '<!doctype html><meta charset="utf-8"><title>De-Noise</title><p><a href="./">Open De-Noise</a></p>';
-    exit;
-}
+
 $root = '/usr/local/hestia';
 chdir($root . '/web');
 $TAB = 'WEB';
@@ -36,9 +32,28 @@ $bridge = static function (array $request) use ($root): array {
     $process = proc_open(['/usr/bin/sudo', '-n', $root . '/bin/v-denoise-hestia'],
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($process)) return ['ok' => false, 'error' => 'Could not start the De-Noise command.'];
-    fwrite($pipes[0], json_encode($request, JSON_THROW_ON_ERROR)); fclose($pipes[0]);
-    $output = stream_get_contents($pipes[1], 2097152); fclose($pipes[1]);
-    $error = stream_get_contents($pipes[2], 8192); fclose($pipes[2]);
+    $input = json_encode($request, JSON_THROW_ON_ERROR);
+    for ($offset = 0, $length = strlen($input); $offset < $length;) {
+        $written = @fwrite($pipes[0], substr($input, $offset, 65536));
+        if ($written === false || $written === 0) break;
+        $offset += $written;
+    }
+    fclose($pipes[0]);
+    // Drain both pipes together so a complete diagnostic cannot deadlock stdout.
+    $output = ''; $error = ''; $open = [1 => $pipes[1], 2 => $pipes[2]];
+    foreach ($open as $pipe) stream_set_blocking($pipe, false);
+    while ($open) {
+        $ready = array_values($open); $write = null; $except = null;
+        if (stream_select($ready, $write, $except, null) === false) continue;
+        foreach ($open as $index => $pipe) {
+            if (!in_array($pipe, $ready, true)) continue;
+            $chunk = fread($pipe, 8192);
+            if ($chunk !== false) {
+                if ($index === 1) $output .= $chunk; else $error .= $chunk;
+            }
+            if (feof($pipe)) { fclose($pipe); unset($open[$index]); }
+        }
+    }
     $code = proc_close($process);
     $result = json_decode($output, true);
     return is_array($result) ? $result : ['ok' => false, 'error' => "De-Noise failed (exit $code): " . $error];
@@ -47,12 +62,12 @@ $listing = [];
 foreach (['bans', 'domain'] as $scope) {
     $pageValue = $_POST[$scope . '_page'] ?? $_GET[$scope . '_page'] ?? 1;
     $viewValue = $_POST[$scope . '_view'] ?? $_GET[$scope . '_view'] ?? 'active';
-    $listing[$scope . '_page'] = filter_var($pageValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000000]]) ?: 1;
+    $listing[$scope . '_page'] = filter_var($pageValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1;
     $listing[$scope . '_view'] = in_array($viewValue, ['active', 'history'], true) ? $viewValue : 'active';
 }
 $statusRequest = ['actor' => $actor, 'owner' => $owner, 'action' => 'status', 'listing' => $listing];
 $listing['wordpress_page'] = filter_var($_POST['wordpress_target_page'] ?? $_POST['wordpress_page'] ?? $_GET['wordpress_page'] ?? 1,
-    FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000000]]) ?: 1;
+    FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1;
 $statusRequest['listing'] = $listing;
 $error = '';
 $message = '';
@@ -60,7 +75,7 @@ $submitted = null;
 $wordpressResult = null;
 $analysisResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['domain_bans_save', 'history_clear'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
+    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
         $error = 'Write access and a valid request token are required.';
     } else {
@@ -148,10 +163,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
-        } elseif ($request['action'] === 'log_scan') {
+        } elseif ($request['action'] === 'activity_start') {
+            $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
+        } elseif (in_array($request['action'], ['log_scan', 'log_scan_start'], true)) {
             $request['target'] = $_POST['analysis_target'] ?? '';
             $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
             $request['verify_google'] = isset($_POST['analysis_verify_google']);
+        } elseif (in_array($request['action'], ['log_scan_status', 'log_scan_cancel', 'activity_status', 'activity_cancel'], true)) {
+            $request['job'] = $_POST['analysis_job'] ?? '';
+            $request['page'] = filter_var($_POST['analysis_page'] ?? 1, FILTER_VALIDATE_INT);
         } elseif ($request['action'] === 'history_clear') {
             $request['scope'] = $_POST['history_scope'] ?? '';
         } elseif ($request['action'] === 'history_settings_save') {
@@ -189,10 +209,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'], true)) {
             $error = 'Unsupported operation.';
         } else {
+            $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_');
+            if ($isReview) session_write_close();
             $result = $bridge($request);
+            if ($isReview && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ?? '') === '1') {
+                if (!empty($result['job']['analysis'])) {
+                    $data = ['analysis' => $result['job']['analysis']];
+                    ob_start(); require $install . ($request['action'][0] === 'a' ? '/panel/activity-output.php' : '/panel/analysis-output.php');
+                    $result['report'] = ob_get_clean();
+                    unset($result['job']['analysis']);
+                }
+                header('Content-Type: application/json; charset=utf-8');
+                if (empty($result['ok'])) http_response_code(400);
+                echo json_encode($result, JSON_THROW_ON_ERROR); exit;
+            }
             if (isset($result['wordpress'])) $wordpressResult = $result['wordpress'];
             if ($request['action'] === 'log_scan' && !empty($result['ok'])) $analysisResult = $result['analysis'] ?? null;
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
@@ -213,6 +246,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 } elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405); exit;
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ?? '') === '1') {
+    header('Content-Type: application/json; charset=utf-8'); http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => $error ?: 'Review request rejected.']); exit;
 }
 $data = $bridge($statusRequest);
 if ($wordpressResult !== null) $data['wordpress'] = $wordpressResult;

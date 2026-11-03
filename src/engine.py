@@ -22,6 +22,7 @@ import domain_bans
 import wordpress
 import enumeration
 import log_analysis
+import analysis_jobs
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -30,11 +31,11 @@ COMMAND_ENV = {'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:
                'LANG': 'C.UTF-8', 'HESTIA': str(HESTIA)}
 
 
-def run(*args, timeout=90):
+def run(*args, timeout=None):
     result = subprocess.run(args, env=COMMAND_ENV, text=True, capture_output=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError('Command failed (' + str(result.returncode) + '): ' + ' '.join(args) +
-                           '\n' + (result.stderr or result.stdout)[-6000:].strip())
+                           '\n' + (result.stderr or result.stdout).strip())
     return result.stdout
 
 
@@ -203,13 +204,14 @@ def reload_nginx():
 
     previous = workers()
     run('/usr/bin/systemctl', 'reload', 'nginx')
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
+    while True:
         current = workers()
         if current and not current.intersection(previous):
             return
+        state = run('/usr/bin/systemctl', 'is-active', 'nginx').strip()
+        if state not in ('active', 'reloading', 'activating'):
+            raise RuntimeError('Nginx stopped during configuration reload')
         time.sleep(.1)
-    raise RuntimeError('Nginx did not start its new worker generation after reload')
 
 
 def restore(record):
@@ -314,20 +316,20 @@ def synchronize(policy, sites, remove=False, disable_wordpress=False):
     health.update(last_attempt=time.time(), error='')
     try:
         if remove:
-            auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+            auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run, STATE))
         else:
-            domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+            domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run, STATE))
         result = apply(policy, sites, remove=remove)
         if disable_wordpress and wordpress.read_json(STATE, wordpress.RECEIPT) is not None:
             wordpress.apply(STATE, {**wordpress.settings(STATE), 'enabled': False}, run)
         if not remove:
-            bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+            bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run, STATE))
             if bans.get('error'):
                 raise RuntimeError('HTTP rules synchronized; automatic firewall bans failed: ' + bans['error'])
             result['bans'] = {key: value for key, value in bans.items() if key != 'rows'}
         health.update(last_success=time.time(), error='')
     except Exception as error:
-        health['error'] = str(error)[-4000:]
+        health['error'] = str(error)
         storage.replace(STATE / 'maintenance.json', storage.json_bytes(health), 0o600)
         raise
     storage.replace(STATE / 'maintenance.json', storage.json_bytes(health), 0o600)
@@ -344,10 +346,7 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
                                                    'suspended', 'supported', 'reason')},
                      'kind': site.get('kind', 'web'), 'mode': site_mode(policy, site),
                      'override': policy['overrides'].get(site['key'], 'inherit')})
-    try:
-        metrics = activity.summary({row['domain'] for row in rows})
-    except (OSError, ValueError) as error:
-        metrics = {'available': False, 'error': str(error)}
+    metrics = {'available': False, 'on_demand': True}
     ban_status = {}
     if owner is None:
         try:
@@ -397,7 +396,7 @@ def authorize(request):
     owner = account(request.get('owner', actor))
     if not admin and owner != actor:
         raise PermissionError('Another account cannot be selected')
-    if request.get('action') not in ('status', 'domain_bans_save', 'history_clear') and not admin:
+    if request.get('action') not in ('status', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel') and not admin:
         raise PermissionError('Only an administrator can change De-Noise settings')
     return admin, owner
 
@@ -405,12 +404,31 @@ def authorize(request):
 def dispatch(request):
     if not isinstance(request, dict):
         raise ValueError('Expected a JSON object')
-    if request.get('action') == 'log_scan':
+    if request.get('action') in ('log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'):
         admin, owner = authorize(request)
+        if request['action'].startswith('activity_'):
+            if set(request) - {'actor', 'owner', 'action', 'minutes', 'job', 'page', 'listing'}:
+                raise ValueError('Only activity selections can be submitted')
+            scope = None if admin and owner == request['actor'] else owner
+            arguments = dict(kind='activity', owner=scope)
+            if request['action'] == 'activity_start':
+                job = analysis_jobs.start(STATE, None, request['actor'], 'all', request.get('minutes'), **arguments)
+            elif request['action'] == 'activity_status':
+                job = analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1), **arguments)
+            else:
+                job = analysis_jobs.cancel(STATE, request.get('job'), request['actor'], **arguments)
+            return {'ok': True, 'job': job}
         if not admin or owner != request['actor']:
             raise PermissionError('Log analysis requires the administrator context')
-        if set(request) - {'actor', 'owner', 'action', 'target', 'minutes', 'verify_google', 'listing'}:
+        if set(request) - {'actor', 'owner', 'action', 'target', 'minutes', 'verify_google', 'listing', 'job', 'page'}:
             raise ValueError('Only log-analysis selections can be submitted')
+        if request['action'] == 'log_scan_start':
+            return {'ok': True, 'job': analysis_jobs.start(STATE, None, request['actor'],
+                request.get('target'), request.get('minutes'), request.get('verify_google', False))}
+        if request['action'] == 'log_scan_status':
+            return {'ok': True, 'job': analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1))}
+        if request['action'] == 'log_scan_cancel':
+            return {'ok': True, 'job': analysis_jobs.cancel(STATE, request.get('job'), request['actor'])}
         return {'ok': True, 'analysis': log_analysis.review(collect(), request.get('target'),
                 request.get('minutes'), STATE, request.get('verify_google', False))}
     admin, owner = authorize(request)
@@ -449,7 +467,7 @@ def dispatch(request):
         if not admin and not policy['domain_bans']['allow_users']:
             raise PermissionError('Domain automatic-ban editing is disabled by the administrator')
         preferences = request.get('preferences')
-        if not isinstance(preferences, dict) or not preferences or len(preferences) > 10000:
+        if not isinstance(preferences, dict) or not preferences:
             raise ValueError('Select existing domain automatic-ban settings')
         known = {site['key']: site for site in sites if site.get('kind') != 'mail'}
         for key, flags in preferences.items():
@@ -524,7 +542,7 @@ def dispatch(request):
         selection = request.get('targets')
         mode = request.get('mode')
         known = {s['key'] for s in sites}
-        if (not isinstance(selection, list) or not selection or len(selection) > 10000 or
+        if (not isinstance(selection, list) or not selection or
                 any(not isinstance(x, str) or x not in known for x in selection) or
                 mode not in ('inherit', 'off', 'observe', 'enforce')):
             raise ValueError('Select existing domains and a valid mode')
@@ -542,8 +560,8 @@ def dispatch(request):
     elif action == 'sync':
         synchronize(policy, sites)
     elif action == 'unban':
-        auto_bans.unban(STATE, auto_bans.Native(HESTIA, run), request.get('ips'))
-        result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run), read_events=False)
+        auto_bans.unban(STATE, auto_bans.Native(HESTIA, run, STATE), request.get('ips'))
+        result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run, STATE), read_events=False)
         if result.get('error'):
             raise RuntimeError('Unban is pending; native firewall operation failed: ' + result['error'])
     elif action != 'status':
@@ -557,13 +575,11 @@ def main():
         raise PermissionError('Invoke this command as root or through the Hestia panel')
     request = None
     if not sys.argv[1:]:
-        raw = sys.stdin.buffer.read(1048577)
-        if len(raw) > 1048576:
-            raise ValueError('Request too large')
+        raw = sys.stdin.buffer.read()
         request = json.loads(raw)
-        # An explicit read-only review has its own nonblocking scan lock. It
+        # An explicit read-only review has its own queued scan lock. It
         # must not hold the protection/recovery lock or run mutation recovery.
-        if isinstance(request, dict) and request.get('action') == 'log_scan':
+        if isinstance(request, dict) and request.get('action') in ('log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'):
             return dispatch(request)
     with locked():
         recover()

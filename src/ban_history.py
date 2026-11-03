@@ -14,14 +14,14 @@ SETTINGS = 'history-settings.json'
 def settings(state):
     raw = storage.read(Path(state) / SETTINGS)
     value = json.loads(raw) if raw is not None else {'days': 30}
-    if not isinstance(value, dict) or set(value) != {'days'} or type(value['days']) is not int or not 1 <= value['days'] <= 3650:
-        raise ValueError('History retention must be 1–3650 days')
+    if not isinstance(value, dict) or set(value) != {'days'} or type(value['days']) is not int or not value['days'] >= 1:
+        raise ValueError('History retention must be a positive number of days')
     return value
 
 
 def configure(state, days):
-    if type(days) is not int or not 1 <= days <= 3650:
-        raise ValueError('History retention must be 1–3650 days')
+    if type(days) is not int or not days >= 1:
+        raise ValueError('History retention must be a positive number of days')
     storage.replace(Path(state) / SETTINGS, storage.json_bytes({'days': days}), 0o600)
 
 
@@ -100,7 +100,7 @@ def maintain(state, db, now=None, force=False):
 
 
 def selection(page=1, view='active'):
-    if type(page) is not int or not 1 <= page <= 1000000 or view not in ('active', 'history'):
+    if type(page) is not int or not page >= 1 or view not in ('active', 'history'):
         raise ValueError('Invalid IP-list page or view')
     return page, view
 

@@ -8,20 +8,43 @@ from urllib.parse import urlsplit
 FIELDS = ('MIN', 'HOUR', 'DAY', 'MONTH', 'WDAY', 'CMD')
 
 
-def minutes(minimum=5, maximum=15, rng=None):
-    if type(minimum) is not int or type(maximum) is not int or not 1 <= minimum <= maximum <= 30:
-        raise ValueError('Cron intervals must be integers between 1 and 30 minutes')
-    lo, hi = math.ceil(60/maximum), math.floor(60/minimum)
+def minutes(minimum=5, maximum=15, rng=None, period=60):
+    if type(minimum) is not int or type(maximum) is not int or not 1 <= minimum <= maximum:
+        raise ValueError('Cron intervals must be positive integers in increasing order')
+    lo, hi = max(1, math.ceil(period/maximum)), min(period, math.floor(period/minimum))
     if lo > hi:
-        raise ValueError('This interval range cannot repeat hourly; use a wider range such as 5–15')
+        raise ValueError('This interval range cannot be expressed by one repeating native cron field')
     rng = rng or secrets.SystemRandom()
-    count, offset = rng.randint(lo, hi), rng.randrange(60)
-    values = sorted((offset + index*60//count) % 60 for index in range(count))
+    count, offset = rng.randint(lo, hi), rng.randrange(period)
+    values = sorted((offset + index*period//count) % period for index in range(count))
     return ','.join(map(str, values))
 
 
+def schedule(minimum, maximum):
+    try:
+        return {'MIN': minutes(minimum, maximum), 'HOUR': '*', 'WDAY': '*'}
+    except ValueError:
+        # One Hestia cron job has independent calendar fields. Preserve exact
+        # requested gap bounds instead of pretending a nonrepresentable range fits.
+        if type(minimum) is not int or type(maximum) is not int or not 1 <= minimum <= maximum:
+            raise
+    rng = secrets.SystemRandom()
+    for unit, period, field in ((60, 24, 'HOUR'), (1440, 7, 'WDAY')):
+        low, high = math.ceil(minimum / unit), math.floor(maximum / unit)
+        if low < 1 or high < low:
+            continue
+        try:
+            values = minutes(low, high, rng, period)
+        except ValueError:
+            continue
+        result = {'MIN': str(rng.randrange(60)), 'HOUR': str(rng.randrange(24)), 'WDAY': '*'}
+        result[field] = values
+        return result
+    raise ValueError('The requested gap range cannot be represented by a single native calendar cron job')
+
+
 def preview(hestia, minimum=5, maximum=15):
-    minutes(minimum, maximum)  # Validate before calling native commands.
+    schedule(minimum, maximum)  # Validate before calling native commands.
     rows = []
     for owner, user in hestia('v-list-users').items():
         if user.get('SUSPENDED') == 'yes':
@@ -37,7 +60,7 @@ def preview(hestia, minimum=5, maximum=15):
             if not re.fullmatch(r'[0-9]+', ident) or not all(isinstance(job.get(key), str) for key in FIELDS):
                 raise ValueError('Malformed native WordPress cron job')
             before = {key: job[key] for key in FIELDS}
-            after = {**before, 'MIN': minutes(minimum, maximum)}
+            after = {**before, **schedule(minimum, maximum)}
             rows.append({'key': owner+'/'+ident, 'owner': owner, 'job': ident,
                          'label': match[0], 'before': before, 'after': after, 'state': 'preview'})
     return {'id': secrets.token_hex(16), 'minimum': minimum, 'maximum': maximum, 'rows': rows}
@@ -54,7 +77,8 @@ def public(plan):
                       'site': site_label(row['label']),
                       'before': row['before']['MIN'], 'after': row['after']['MIN'],
                       'before_label': interval_label(row['before']['MIN']),
-                      'after_label': interval_label(row['after']['MIN'])}
+                      'after_label': interval_label(row['after']['MIN']) if row['after']['HOUR'] == '*' and row['after']['WDAY'] == '*' else
+                          'Minutes ' + row['after']['MIN'] + ' · hours ' + row['after']['HOUR'] + ' · weekdays ' + row['after']['WDAY']}
                      for row in plan['rows']]}
 
 
@@ -86,7 +110,7 @@ def interval_label(value):
 
 
 def apply(plan, selection, hestia, change, save, restore=False):
-    if (not isinstance(selection, list) or not selection or len(selection) > 10000
+    if (not isinstance(selection, list) or not selection
             or any(not isinstance(key, str) for key in selection)):
         raise ValueError('Select existing WordPress cron jobs')
     known = {row['key']: row for row in plan['rows']}

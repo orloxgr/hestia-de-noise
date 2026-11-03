@@ -43,7 +43,7 @@ class WordPressTests(unittest.TestCase):
         value = {**copy.deepcopy(wordpress.DEFAULT), 'enabled': True}
         wordpress.apply(self.state, value, self.run)
         jail = (self.etc / 'jail.d/wordpress-login.local').read_text()
-        self.assertIn('bantime.factor = 1/300', jail)
+        self.assertIn('ExactBanUnit', jail)
         self.assertIn('bantime.multipliers = 300 259200 -1', jail)
         self.assertIn('filter = hdn-wordpress-login', jail)
         self.assertIn('actname=hestia-wordpress-WORDPRESS', jail)
@@ -153,6 +153,16 @@ action = hestia-wordpress[name=WORDPRESS,port="80,443",protocol=tcp,blocktype=DR
         self.assertEqual(self.run.call_args.args,
                          (wordpress.CLIENT, 'set', wordpress.JAIL, 'unbanip', '192.0.2.5'))
 
+    def test_unban_all_completes_every_ip_beyond_old_five_hundred_limit(self):
+        import ipaddress
+        wordpress.apply(self.state,wordpress.DEFAULT,self.run)
+        self.run.reset_mock()
+        values=[str(ipaddress.ip_address('198.18.0.1')+number) for number in range(650)]
+        self.run.return_value=' '.join(values)
+        wordpress.unban(self.state,'all',self.run)
+        self.assertEqual(self.run.call_count,651)
+        self.assertEqual({call.args[-1] for call in self.run.call_args_list[1:]}, set(values))
+
     def test_users_cannot_invoke_wordpress_actions(self):
         for action in ['wordpress_status', 'wordpress_save', 'wordpress_unban']:
             with patch.object(engine, 'hestia', return_value={'alice': {'SUSPENDED': 'no', 'ROLE': 'user'}}):
@@ -179,11 +189,14 @@ action = hestia-wordpress[name=WORDPRESS,port="80,443",protocol=tcp,blocktype=DR
                 wordpress.apply(self.state, {**wordpress.DEFAULT, **update}, self.run)
         self.run.assert_not_called()
 
-    def test_offered_first_durations_preserve_native_permanent_sentinel(self):
-        for seconds in wordpress.FIRST_DURATIONS:
-            self.assertEqual(seconds * (1 / seconds) * -1, -1)
-        with self.assertRaises(ValueError):
-            wordpress.validate({**wordpress.DEFAULT, 'durations': [4020, 259200, -1]})
+    def test_arbitrary_durations_preserve_exact_permanent_sentinel_without_float_scaling(self):
+        value={**wordpress.DEFAULT, 'durations':[4020,259200,-1]}
+        wordpress.validate(value)
+        text=next(body.decode() for path,body in wordpress.render(value,self.state).items() if path.name=='wordpress-login.local')
+        self.assertIn('ExactBanUnit',text)
+        self.assertIn('bantime.multipliers = 4020 259200 -1',text)
+        self.assertNotIn('bantime.factor = 1/',text)
+
 
 
 if __name__ == '__main__':

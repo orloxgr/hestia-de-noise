@@ -3,8 +3,6 @@ import json
 import re
 from urllib.parse import urlsplit
 
-PATH_LIMIT = 1024
-SAMPLE_LIMIT = 10
 
 
 def path_only(value):
@@ -16,7 +14,7 @@ def path_only(value):
             value = urlsplit(value).path
         except ValueError:
             return ''
-    return value[:PATH_LIMIT] if value.startswith('/') else ''
+    return value if value.startswith('/') else ''
 
 
 def method_only(value):
@@ -98,8 +96,8 @@ def capture(db, address, reason, rule, count, now, site=None):
     rows = db.execute('SELECT s.stamp,s.' + domain + ',s.reason,e.path,e.method FROM ' + table +
                       ' s LEFT JOIN strike_evidence e ON e.scope=? AND e.row_id=s.rowid AND e.ip=s.ip'
                       ' AND e.stamp=s.stamp AND e.domain=s.' + domain + ' AND e.reason=s.reason'
-                      ' WHERE ' + where + ' ORDER BY s.stamp DESC,s.rowid DESC LIMIT ?',
-                      ('domain' if site is not None else 'global', *args, SAMPLE_LIMIT)).fetchall()
+                      ' WHERE ' + where + ' ORDER BY s.stamp DESC,s.rowid DESC',
+                      ('domain' if site is not None else 'global', *args, )).fetchall()
     samples = [dict(at=r[0], domain=r[1].split('/', 1)[1] if site is not None else r[1],
                     reason=r[2], path=path_only(r[3]), method=method_only(r[4])) for r in reversed(rows)]
     details = dict(v=1, count=count, maxretry=rule['maxretry'], findtime=rule['findtime'],
@@ -117,7 +115,7 @@ def decoded(raw):
         if any(type(data.get(k)) is not int for k in ('count', 'maxretry', 'findtime', 'duration_days')):
             return None
         samples = data.get('samples')
-        if not isinstance(samples, list) or len(samples) > SAMPLE_LIMIT:
+        if not isinstance(samples, list):
             return None
         for sample in samples:
             if not isinstance(sample, dict):

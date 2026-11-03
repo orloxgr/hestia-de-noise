@@ -43,10 +43,9 @@ class ActivityTests(unittest.TestCase):
                 self.assertEqual({r['domain'] for r in report['rows']}, {'own.test'})
                 self.assertEqual({r['outcome'] for r in report['rows']}, {'blocked', 'observed', 'matched'})
                 self.assertNotIn('stamp', report['recent'][0])
-                with patch.object(activity, 'MAX_BYTES', 100):
-                    bounded = activity.summary({'own.test'}, now)
-                    self.assertTrue(bounded['sample_truncated'])
-                    self.assertLessEqual(bounded['bytes_read'], 200)
+                complete = activity.summary({'own.test'}, now)
+                self.assertFalse(complete['sample_truncated'])
+                self.assertEqual(complete['total'], report['total'])
                 alias = Path(directory) / 'alias.log'
                 alias.symlink_to(log)
                 with patch.object(activity, 'LOG', alias), self.assertRaises(OSError):
