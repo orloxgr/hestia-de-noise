@@ -12,6 +12,7 @@ from itertools import chain
 import not_found
 import ban_evidence
 import ban_history
+import storage
 
 from policy import site_mode
 from probe_rules import reason_settings, token
@@ -192,13 +193,11 @@ def events(db, cursor_table='cursors'):
         if not remaining:
             break
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            stream = storage.log_stream(path)
         except FileNotFoundError:
             continue
-        with os.fdopen(fd, 'rb') as stream:
+        with stream:
             info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
-                raise ValueError('Untrusted automatic-ban event log')
             old = db.execute('SELECT offset FROM ' + cursor_table + ' WHERE device=? AND inode=?', (info.st_dev, info.st_ino)).fetchone()
             offset = old[0] if old and old[0] <= info.st_size else 0
             stream.seek(offset)
@@ -300,7 +299,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     valid_tokens = {'missing-file': {token('f', value) for value in settings['missing_files']['paths']},
                                     'suspicious-query': {token('q', value) for value in settings['suspicious_queries']['targets']}}
                     sources = chain(events(db), not_found.events(db,
-                        [site for site in sites if site['domain'] in eligible], 'native')
+                        [site for site in sites if site['domain'] in eligible and site.get('kind') != 'mail'], 'native')
                         if settings['any_404']['enabled'] else []) if read_events else []
                     for stamp, address, domain, reason, event_token, path, method in sources:
                         try:
@@ -312,6 +311,12 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                                 or domain not in eligible or exempt(str(ip))
                                 or (reason in valid_tokens and event_token not in valid_tokens[reason])):
                             continue
+                        if reason == 'not-found':
+                            if any(site.get('kind') == 'mail' and site['domain'] == domain for site in sites):
+                                continue
+                            if not not_found.countable(rule, path):
+                                continue
+                            event_token = token('n', not_found.normal_path(path))
                         if ip.version != 4:
                             put(db, 'ipv6', int(get(db, 'ipv6', '0')) + 1)
                             continue
@@ -322,16 +327,21 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         strike = db.execute('INSERT INTO strikes (ip,domain,reason,stamp,token) VALUES (?,?,?,?,?)',
                                             (address, domain, reason, stamp, event_token))
                         ban_evidence.remember(db, 'global', strike.lastrowid, address, domain, reason, stamp, path, method)
-                        if reason == 'missing-file':
+                        diverse = True
+                        if reason == 'not-found':
+                            count, paths = db.execute('SELECT COUNT(*),COUNT(DISTINCT token) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
+                                (address, reason, now-rule['findtime'])).fetchone()
+                            diverse = paths >= rule['min_distinct_paths']
+                        elif reason == 'missing-file':
                             count = db.execute('SELECT COUNT(DISTINCT token) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
                                                (address, reason, now-rule['findtime'])).fetchone()[0]
-                        elif reason in ('suspicious-query', 'not-found'):
+                        elif reason == 'suspicious-query':
                             count = db.execute('SELECT COUNT(*) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
                                                (address, reason, now-rule['findtime'])).fetchone()[0]
                         else:
                             count = db.execute("SELECT COUNT(*) FROM strikes WHERE ip=? AND reason IN ('private-file','repository') AND stamp>=?",
                                                (address, now-rule['findtime'])).fetchone()[0]
-                        if count >= rule['maxretry']:
+                        if count >= rule['maxretry'] and diverse:
                             duration = rule['duration_days']
                             evidence = ban_evidence.capture(db, address, reason, rule, count, now)
                             db.execute('INSERT OR REPLACE INTO bans (ip,domain,reason,created,expires,status,error) VALUES (?,?,?,?,?,?,?)',

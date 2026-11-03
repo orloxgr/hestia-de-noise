@@ -15,10 +15,11 @@ def event_format(name, reason, event_token):
 
 
 def is_previous_preset(paths):
-    """Upgrade only the unchanged bundled 0.4/0.5 list, preserving custom lists."""
+    """Upgrade unchanged bundled lists, preserving custom lists."""
     return (all(isinstance(value, str) for value in paths) and
-            hashlib.sha256('\n'.join(sorted(paths)).encode()).hexdigest() ==
-            '67568236cc1dbad6c373062fb4a361ec9c2ad20e8c13026371c2e81855b1cd67')
+            hashlib.sha256('\n'.join(sorted(paths)).encode()).hexdigest() in
+            {'67568236cc1dbad6c373062fb4a361ec9c2ad20e8c13026371c2e81855b1cd67',
+             '667fd8e9488d0313098dd34c5582edf1c95ee02b11cda209b38ecf23a6f48830'})
 
 QUERY_PARAMETERS = ['file', 'path', 'page', 'include', 'download_file', 'src',
                     'resource', 'template', 'view', 'document', 'filename', 'apis']
@@ -127,7 +128,10 @@ def reason_settings(settings):
 
 
 def compile_maps(policy, sites, pattern, exact):
-    lines = []
+    lines = ['map $server_name $hdn_probe_web_site {', '    default 0;']
+    lines += ['    ' + site.get('domain', site['key'].split('/', 1)[1]) + ' 1;'
+              for site in sites if site.get('supported', True) and not site.get('suspended')]
+    lines += ['}']
     settings = policy['bans']
     preferences = policy['domain_bans']['sites']
     for kind, key in [('file', 'missing_files'), ('query', 'suspicious_queries')]:
@@ -135,10 +139,10 @@ def compile_maps(policy, sites, pattern, exact):
         lines += ['    ' + site.get('domain', site['key'].split('/', 1)[1]) + ' 1;'
                   for site in sites if site.get('supported', True) and not site.get('suspended')
                   and preferences.get(site['key'], {}).get(key)]
-        lines += ['}', 'map "$hdn_ban_site:$hdn_local_' + kind + '_site" $hdn_probe_' + kind + '_site {',
-                  '    default 0;', '    ~:1$ 1;']
+        lines += ['}', 'map "$hdn_ban_site:$hdn_local_' + kind + '_site:$hdn_probe_web_site" $hdn_probe_' + kind + '_site {',
+                  '    default 0;', '    ~:1:1$ 1;']
         if settings[key]['enabled']:
-            lines += ['    ~^1: 1;']
+            lines += ['    ~^1:[01]:1$ 1;']
         lines += ['}']
     for kind in ('files', 'queries'):
         lines += ['map "$server_name:$uri" $hdn_probe_' + kind + '_exempt {', '    default 0;']

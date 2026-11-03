@@ -7,6 +7,7 @@
 <p class="u-mt10"><strong><?= $escape($banDetails['count']) ?> matches</strong>;
 threshold <?= $escape($banDetails['maxretry']) ?> in <?= $escape($banDetails['findtime']) ?> seconds.
 Duration at trigger: <?= empty($banDetails['duration_days']) ? 'permanent' : $escape($banDetails['duration_days']) . ' days' ?>.</p>
+<?php if (isset($banDetails['min_distinct_paths'])): ?><p>Minimum different paths: <?= $escape($banDetails['min_distinct_paths']) ?>. Missing static assets: <?= !empty($banDetails['exclude_static']) ? 'excluded' : 'counted' ?>.</p><?php endif; ?>
 <p>Last <?= count($banDetails['samples']) ?> matching requests (UTC):</p>
 <ul>
 <?php foreach ($banDetails['samples'] as $sample): ?>

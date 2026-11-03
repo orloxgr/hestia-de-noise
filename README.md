@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.8.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.9.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -56,7 +56,17 @@ There is no mandatory observation period.
 - Independent selected-PHP and suspicious-query 404 counters: 2 strikes in
   60 seconds and a 3-day ban by default, editable lists and domain exceptions.
 - Optional general 404 bans: 10 final 404 responses within 5 minutes, for 3 days.
-  The threshold, window and duration have separate panel controls.
+  By default, exclude missing images, CSS, JS, maps, fonts, media and PDFs, and
+  require at least 3 different URL paths. All controls are editable; existing
+  thresholds, durations and active bans are preserved during upgrade.
+- **General → Protect webmail HTTP hosts:** optional User-Agent and private-file
+  protection through native mail includes. Does not change SMTP/IMAP or webmail login.
+- **General → Detailed rate-limit messages in error logs:** off by default;
+  expected rejections use notice level while Activity keeps recording them.
+- Log readers and upgrades support Nginx worker-owned logs after rotation.
+  Activity reports unavailable data without displaying a misleading zero.
+- Last successful maintenance and failures are shown without an extra service
+  or background status polling.
 - **Cron:** preview, apply and restore spread schedules for existing WordPress
   jobs through native Hestia cron management, with readable intervals and
   expandable exact schedule details.
@@ -393,8 +403,8 @@ The native firewall ban backend supports **IPv4**. IPv6 probes still receive the
 HTTP rejection, but are counted as unsupported for firewall bans. Domain-only
 Nginx bans support **IPv4 and IPv6**. There is no automatic change
 to SSH, panel, mail ports, the existing Fail2ban jails or recidive policy. Ordinary
-unselected 404s and missing static files trigger bans only when general 404
-counting is enabled. Denied User-Agents and crawler rate limits do not count as
+unselected 404s trigger bans only when general 404 counting is enabled. Missing
+static assets are excluded by default. Denied User-Agents and crawler rate limits do not count as
 404s. Loopback, local server addresses and the explicit never-ban list
 are excluded from automatic bans, along with native Hestia IP exclusions; no administrator public IP is inserted
 automatically. Bans use Nginx's configured client address, not arbitrary
@@ -403,8 +413,8 @@ forwarded headers. Never-ban entries do not bypass request filtering.
 Firewall additions/removals are processed in resumable batches, up to 100
 operations and approximately ten seconds of work per synchronization. Pending
 work and native failures are visible in IP bans; large queues can take more than
-one sync. The table displays the latest 100 active/pending entries; this is a
-display limit, not a total ban cap. Hestia stores individual IPv4 rules in this
+one sync. Active and completed IP lists are paginated, 50 rows per page; this is
+a display limit, not a total ban cap. Hestia stores individual IPv4 rules in this
 backend; IPset scaling and native IPv6 enforcement remain planned.
 
 The installer adds only addon-owned code, domain includes, one HTTP-context

@@ -129,6 +129,15 @@ class NativeNginxTests(unittest.TestCase):
         self.assertEqual(self.request(agent='Crawler', host='observe.test'), 200)
         self.assertEqual(self.request(agent='Crawler', host='off.test'), 200)
 
+    def test_expected_rejections_use_notice_and_remain_in_activity(self):
+        results=[self.request('/wp-login.php',method='POST',source='127.3.8.1') for _ in range(3)]
+        self.assertEqual(results,[200,200,429])
+        time.sleep(.02)
+        rows=[line for line in (self.directory/'logs/error.log').read_text().splitlines()
+              if 'limiting requests' in line and '127.3.8.1' in line]
+        self.assertTrue(rows);self.assertTrue(all('[notice]' in row for row in rows))
+        self.assertIn(' login REJECTED 429 enforce',(self.directory/'matches.log').read_text())
+
     def test_selected_php_probes_preserve_existing_files_and_domain_exceptions(self):
         before = Origin.hits
         self.assertEqual(self.request('/auth.php'), 404)

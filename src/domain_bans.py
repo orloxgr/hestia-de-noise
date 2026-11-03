@@ -19,7 +19,7 @@ CATEGORIES = {'domain-file': 'missing_files', 'domain-query': 'suspicious_querie
 
 def eligible(policy, sites):
     preferences = policy['domain_bans']['sites']
-    return {site['key']: site for site in sites if site.get('supported') and not site.get('suspended')
+    return {site['key']: site for site in sites if site.get('kind') != 'mail' and site.get('supported') and not site.get('suspended')
             and site_mode(policy, site) == 'enforce' and any(preferences.get(site['key'], {}).values())}
 
 
@@ -164,6 +164,10 @@ def synchronize(policy, sites, state, native, now=None):
             rule = settings[category]
             if not now-rule['findtime'] <= stamp <= now+5 or exempt(ip):
                 continue
+            if reason == 'domain-404':
+                if not not_found.countable(rule, path):
+                    continue
+                event_token = token('n', not_found.normal_path(path))
             address = str(ip)
             if db.execute('SELECT ip FROM domain_bans WHERE site=? AND ip=?', (key, address)).fetchone():
                 continue
@@ -171,9 +175,12 @@ def synchronize(policy, sites, state, native, now=None):
                                 (key, address, reason, event_token, stamp))
             ban_evidence.remember(db, 'domain', strike.lastrowid, address, key, reason, stamp, path, method)
             expression = 'COUNT(DISTINCT token)' if reason == 'domain-file' else 'COUNT(*)'
-            count = db.execute('SELECT '+expression+' FROM domain_strikes WHERE site=? AND ip=? AND reason=? AND stamp>=?',
-                               (key, address, reason, now-rule['findtime'])).fetchone()[0]
-            if count >= rule['maxretry']:
+            if reason == 'domain-404':expression += ',COUNT(DISTINCT token)'
+            counts = db.execute('SELECT '+expression+' FROM domain_strikes WHERE site=? AND ip=? AND reason=? AND stamp>=?',
+                                (key, address, reason, now-rule['findtime'])).fetchone()
+            count = counts[0]
+            diverse = reason != 'domain-404' or counts[1] >= rule['min_distinct_paths']
+            if count >= rule['maxretry'] and diverse:
                 duration = rule['duration_days']
                 evidence = ban_evidence.capture(db, address, reason, rule, count, now, site=key)
                 db.execute('INSERT OR REPLACE INTO domain_bans (site,ip,reason,created,expires) VALUES (?,?,?,?,?)',

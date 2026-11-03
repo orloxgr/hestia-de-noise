@@ -1,7 +1,7 @@
 <h2 class="u-mb20">Activity</h2>
 <?php $activity = $data['activity'] ?? []; ?>
-<p class="u-mb10">Matched requests · last 15 minutes · <?= $escape($activity['total'] ?? 0) ?> in the bounded log sample</p>
 <?php if (!empty($activity['available'])): ?>
+<p class="u-mb10">Matched requests · last 15 minutes · <?= $escape($activity['total']) ?> in the bounded log sample</p>
 <table class="table"><thead><tr><th>Domain</th><th>Rule</th><th>Outcome</th><th>Requests</th></tr></thead><tbody>
 <?php foreach ($activity['rows'] ?? [] as $row): ?><tr>
 <td><?= $escape($row['domain']) ?></td><td><?= $escape($row['rule']) ?></td>

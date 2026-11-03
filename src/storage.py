@@ -6,8 +6,41 @@ import os
 from pathlib import Path
 import secrets
 import stat
+import re
+from functools import lru_cache
 
 from policy import MARKER
+
+
+@lru_cache(maxsize=1)
+def log_uids():
+    """Nginx USR1 assigns open logs to its configured worker, not root."""
+    import pwd
+    config = read('/etc/nginx/nginx.conf')
+    users = re.findall(rb'^\s*user\s+[\'\"]?([A-Za-z0-9_-]+)[\'\"]?(?:\s+[A-Za-z0-9_-]+)?\s*;', config or b'', re.M)
+    if len(users) > 1:
+        raise ValueError('Ambiguous Nginx worker user')
+    return {0, pwd.getpwnam(users[0].decode('ascii')).pw_uid} if users else {0}
+
+
+def check_log(fd):
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid not in log_uids() or info.st_mode & 0o022:
+        raise ValueError('Refusing an untrusted Nginx log')
+    return info
+
+
+def log_stream(path):
+    """Pin the root-controlled directory and refuse links/FIFOs/writable logs."""
+    with parent(path) as directory:
+        fd = os.open(Path(path).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    stream = os.fdopen(fd, 'rb')
+    try:
+        check_log(stream.fileno())
+    except Exception:
+        stream.close()
+        raise
+    return stream
 
 
 @contextmanager

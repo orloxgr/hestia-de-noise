@@ -11,11 +11,24 @@ import re
 import stat
 import storage
 import ban_evidence
+from urllib.parse import unquote
 
 LOG_ROOT = Path('/var/log/apache2/domains')
 READ_LIMIT = 2 * 1024 * 1024
 FILE_LIMIT = 256 * 1024
 LINE = re.compile(rb'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) ((?:[^"\\\s]|\\.)+) [^"\r\n]+" 404 (?:[0-9]+|-) ')
+
+ASSETS = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svg|ico|bmp|tiff?|apng|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
+
+
+def normal_path(path):
+    return unquote(ban_evidence.path_only(path))
+
+
+def countable(rule, path):
+    # Legacy records without a URL cannot prove that an asset was excluded.
+    path = normal_path(path)
+    return bool(path) and not (rule['exclude_static'] and ASSETS.search(path))
 
 
 def events(db, sites, namespace):

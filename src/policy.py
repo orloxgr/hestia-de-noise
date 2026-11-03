@@ -7,16 +7,19 @@ from urllib.parse import quote, unquote
 import probe_rules
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.8.0'
+VERSION = '0.9.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
 CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'ClaudeBot', 'Amazonbot', 'Reflectionbot', 'GPTBot',
-                  'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'YisouSpider']
+                  'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'YisouSpider',
+                  'ElevenlabsCrawler', 'CCBot']
+SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 7, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 8, 'mode': 'observe', 'agents': [], 'scanners': False,
+           'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
            'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
            'filters': [], 'static': [], 'static_exceptions': {},
@@ -24,7 +27,8 @@ DEFAULT = {'schema': 7, 'mode': 'observe', 'agents': [], 'scanners': False,
            'bans': {'enabled': False, 'private_files': True, 'repositories': True,
                     'maxretry': 1, 'findtime': 300, 'duration_days': 0,
                     'ignore_ips': [], 'targets': [],
-                    'any_404': {'enabled': False, 'maxretry': 10, 'findtime': 300, 'duration_days': 3},
+                    'any_404': {'enabled': False, 'maxretry': 10, 'findtime': 300, 'duration_days': 3,
+                                'exclude_static': True, 'min_distinct_paths': 3},
                     'missing_files': {'enabled': False, 'maxretry': 2, 'findtime': 60,
                                       'duration_days': 3, 'paths': list(probe_rules.FILES)},
                     'suspicious_queries': {'enabled': False, 'maxretry': 2, 'findtime': 60,
@@ -33,6 +37,7 @@ DEFAULT = {'schema': 7, 'mode': 'observe', 'agents': [], 'scanners': False,
            'probe_exceptions': {'files': {}, 'queries': {}},
            'domain_bans': {'allow_users': True, 'sites': {}}}
 LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
+V7_KEYS = set(DEFAULT) - {'log_rejections', 'mail_protection'}
 PRIVATE_PATTERNS = [
     ('private-file', r'(?:^|/)\.env(?:[./]|$)'),
     ('repository', r'(?:^|/)\.(?:git|svn|hg)(?:/|$)'),
@@ -74,6 +79,9 @@ def validate(raw):
     if not isinstance(raw, dict):
         raise ValueError('Unsupported policy format')
     data = copy.deepcopy(raw)
+    if type(data.get('schema')) is int and 1 <= data['schema'] < 8:
+        data.pop('log_rejections', None)
+        data.pop('mail_protection', None)
     if data.get('schema') == 1 and set(data) == LEGACY_KEYS:
         data.update(schema=2, filters=[], static=[])
     if data.get('schema') == 2 and set(data) == LEGACY_KEYS | {'filters', 'static'}:
@@ -86,14 +94,14 @@ def validate(raw):
         data.update(schema=4, tool_agents=[entry for entry in previous if entry.strip().lower() in tools],
                     agents=[entry for entry in previous if entry.strip().lower() not in tools],
                     tool_agents_enabled=True, agents_enabled=True, bans={key: copy.deepcopy(value) for key, value in DEFAULT['bans'].items() if key not in ('missing_files', 'suspicious_queries', 'any_404')})
-    if data.get('schema') == 4 and set(data) == set(DEFAULT) - {'probe_exceptions', 'domain_bans'}:
+    if data.get('schema') == 4 and set(data) == V7_KEYS - {'probe_exceptions', 'domain_bans'}:
         if not isinstance(data.get('bans'), dict):
             raise ValueError('Invalid saved automatic-ban settings')
         data['bans'].update({key: copy.deepcopy(DEFAULT['bans'][key]) for key in ('missing_files', 'suspicious_queries')})
         data.update(schema=5, probe_exceptions={'files': {}, 'queries': {}})
-    if data.get('schema') == 5 and set(data) == set(DEFAULT) - {'domain_bans'}:
+    if data.get('schema') == 5 and set(data) == V7_KEYS - {'domain_bans'}:
         data.update(schema=6, domain_bans=copy.deepcopy(DEFAULT['domain_bans']))
-    if data.get('schema') == 6 and set(data) == set(DEFAULT):
+    if data.get('schema') == 6 and set(data) == V7_KEYS:
         if not isinstance(data.get('bans'), dict) or not isinstance(data.get('domain_bans'), dict):
             raise ValueError('Invalid saved automatic-ban settings')
         data['bans']['any_404'] = copy.deepcopy(DEFAULT['bans']['any_404'])
@@ -107,11 +115,21 @@ def validate(raw):
         if isinstance(paths, list) and probe_rules.is_previous_preset(paths):
             data['bans']['missing_files']['paths'] = list(probe_rules.FILES)
         data['schema'] = 7
-    if data.get('schema') != 7 or set(data) != set(DEFAULT):
+    if data.get('schema') == 7 and set(data) == V7_KEYS:
+        rule = data.get('bans', {}).get('any_404')
+        if not isinstance(rule, dict):
+            raise ValueError('Invalid saved general 404 controls')
+        rule.setdefault('exclude_static', True)
+        rule.setdefault('min_distinct_paths', 3)
+        paths = data['bans'].get('missing_files', {}).get('paths')
+        if isinstance(paths, list) and probe_rules.is_previous_preset(paths):
+            data['bans']['missing_files']['paths'] = list(probe_rules.FILES)
+        data.update(schema=8, log_rejections=False, mail_protection=False)
+    if data.get('schema') != 8 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
-    if any(type(data[key]) is not bool for key in ('tool_agents_enabled', 'agents_enabled')):
+    if any(type(data[key]) is not bool for key in ('tool_agents_enabled', 'agents_enabled', 'log_rejections', 'mail_protection')):
         raise ValueError('Invalid User-Agent list switch')
     for field in ('agents', 'tool_agents'):
         data[field] = validate_agents(data[field])
@@ -135,10 +153,12 @@ def validate(raw):
         raise ValueError('Never-ban entries must be IP addresses or CIDR networks') from error
     probe_rules.validate_settings(data, exception_path, target)
     rule = ban['any_404']
-    if (not isinstance(rule, dict) or set(rule) != {'enabled', 'maxretry', 'findtime', 'duration_days'}
+    if (not isinstance(rule, dict) or set(rule) != set(DEFAULT['bans']['any_404'])
             or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not 1 <= rule['maxretry'] <= 1000
             or type(rule['findtime']) is not int or not 30 <= rule['findtime'] <= 86400
-            or type(rule['duration_days']) is not int or not 0 <= rule['duration_days'] <= 3650):
+            or type(rule['duration_days']) is not int or not 0 <= rule['duration_days'] <= 3650
+            or type(rule['exclude_static']) is not bool or type(rule['min_distinct_paths']) is not int
+            or not 1 <= rule['min_distinct_paths'] <= 1000):
         raise ValueError('Invalid general 404 automatic-ban controls')
     delegation = data['domain_bans']
     if (not isinstance(delegation, dict) or set(delegation) != {'allow_users', 'sites'}
@@ -302,6 +322,8 @@ def scope_map(variable, rule, sites):
 
 
 def site_mode(policy, site):
+    if site.get('kind') == 'mail' and not policy['mail_protection']:
+        return 'off'
     return policy['overrides'].get(site['key'], policy['mode']) if not site.get('suspended') else 'off'
 
 
@@ -341,7 +363,8 @@ def global_config(policy, sites, domain_blocks=None):
     lines += scope_map('hdn_ban_site', policy['bans'], sites)
     lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_ban_signal" $hdn_direct_reject {',
               '    default 0;', '    ~^enforce:1:(private-file|repository)$ 1;', '}']
-    lines += probe_rules.compile_maps(policy, sites, pattern, exact_uri_pattern)
+    web_sites = [site for site in sites if site.get('kind') != 'mail']
+    lines += probe_rules.compile_maps(policy, web_sites, pattern, exact_uri_pattern)
     lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
     for site in sites:
         if site.get('supported', True) and not site.get('suspended'):
@@ -352,7 +375,7 @@ def global_config(policy, sites, domain_blocks=None):
     block_variables = []
     for index, rule in enumerate(policy['filters']):
         tag = 'hdn_f' + str(index)
-        lines += scope_map(tag + '_site', rule, sites)
+        lines += scope_map(tag + '_site', rule, web_sites)
         lines += ['map $uri $' + tag + '_path {', '    default 0;',
                   '    ' + pattern(path_pattern(rule['path'])) + ' 1;', '}']
         args = '(?:^|&)(?:' + '|'.join(parameter_pattern(x) for x in rule['parameters']) + ')(?:=|&|$)'
@@ -369,7 +392,7 @@ def global_config(policy, sites, domain_blocks=None):
     static = []
     for index, rule in enumerate(policy['static']):
         tag = 'hdn_s' + str(index)
-        lines += scope_map(tag + '_site', rule, sites)
+        lines += scope_map(tag + '_site', rule, web_sites)
         regex = '^' + re.escape(rule['path']) + '.*\\.(?:' + '|'.join(rule['extensions']) + ')$'
         lines += ['map "$hdn_mode:$' + tag + '_site:$hdn_static_exempt:$request_method:$uri" $' + tag + '_candidate {', '    default "";',
                   '    ' + pattern('^(observe|enforce):1:0:(GET|HEAD):' + regex[1:]) + ' static-' + rule['id'] + ';', '}']
@@ -420,6 +443,13 @@ def site_config(policy, site, document_root=None):
     lines = [MARKER, 'set $hdn_mode ' + mode + ';']
     if mode == 'enforce':
         lines += ['if ($hdn_domain_blocked) { return 403; }']
+    if site.get('kind') == 'mail':
+        if mode == 'enforce':
+            lines += ['if ($hdn_direct_reject) { return 403; }', 'if ($hdn_block) { return 403; }']
+        lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']
+        if policy['bans']['enabled']:
+            lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_bans if=$hdn_autoban_log;']
+        return '\n'.join(lines) + '\n'
     local = policy['domain_bans']['sites'].get(site['key'], {})
     if mode != 'off' and ((policy['bans']['enabled'] and policy['bans']['missing_files']['enabled']) or local.get('missing_files')):
         if not document_root or not re.fullmatch(r'/[A-Za-z0-9_./-]+', document_root) or '..' in document_root.split('/'):
@@ -446,7 +476,8 @@ def site_config(policy, site, document_root=None):
         if rule['action'] == 'limit' and applies(rule, site):
             lines.append('limit_req zone=hdn_f' + str(index) + ((' burst=' + str(rule['burst']) + ' nodelay') if rule['burst'] else '') + ';')
     if any(policy[key]['enabled'] for key in ('login', 'xmlrpc')) or rate_rules:
-        lines += ['limit_req_status 429;', 'limit_req_dry_run ' + ('off' if mode == 'enforce' else 'on') + ';']
+        lines += ['limit_req_status 429;', 'limit_req_dry_run ' + ('off' if mode == 'enforce' else 'on') + ';',
+                  'limit_req_log_level ' + ('error' if policy['log_rejections'] else 'notice') + ';']
     lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']
     if policy['bans']['enabled']:
         lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_bans if=$hdn_autoban_log;']

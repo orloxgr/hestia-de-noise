@@ -1,4 +1,4 @@
-# Presets — 0.6.0
+# Presets — 0.9.0
 
 ## Scanner tools
 
@@ -41,12 +41,19 @@ SemrushBot
 DotBot
 BLEXBot
 YisouSpider
+ElevenlabsCrawler
+CCBot
 ```
 
 These are collection, search, training or SEO-analysis crawlers, not inherently malicious
 services. Use the group only when that traffic is unwanted. Googlebot, Bingbot,
 Applebot, social-preview and user-requested retrieval agents are not in either
 blocklist. Custom entries still apply literally.
+
+**Add optional search crawlers** separately suggests `LinkupBot`,
+`meta-webindexer`, `PetalBot` and `Baiduspider`. Review before saving: blocking
+these names can reduce visibility in their services. Suggestions do not change
+existing blocklists automatically.
 
 ## Paths and request budgets
 
@@ -56,9 +63,12 @@ when enabled. Its two separate 404 groups default to 2 strikes in 60 seconds
 and a 3-day ban. PHP strikes require distinct selected nonexistent paths;
 query strikes require selected parameters and explicit secret-target matches.
 The complete editable PHP list is [src/php-probes.txt](src/php-probes.txt).
-The separate optional general 404 rule counts unselected 404s and missing static
-files, defaulting to 10 responses within 300 seconds and a 3-day ban. Repeated
-URLs count. User-Agent blocks and exceeded crawler/login budgets do not count
+The separate optional general 404 rule defaults to 10 responses within 300
+seconds and a 3-day ban. Missing images, CSS, JS, maps, fonts, media and PDF files
+are excluded by default, and at least 3 different URL paths must be requested.
+Both controls are editable. Repeated URLs count toward the request threshold;
+query strings do not create different paths. Explicit security probes use their
+own counter. User-Agent blocks and exceeded crawler/login budgets do not count
 as 404s. The counting window, duration,
 trigger domains and never-ban networks are editable in the panel.
 

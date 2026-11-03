@@ -67,7 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 7, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 8, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+                'log_rejections' => isset($_POST['log_rejections']), 'mail_protection' => isset($_POST['mail_protection']),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
                 'scanners' => isset($_POST['scanners'])];
@@ -96,6 +97,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $submitted['bans']['suspicious_queries']['parameters'] = $list($_POST['bans_suspicious_queries_parameters'] ?? '', true);
             $submitted['bans']['any_404'] = ['enabled' => isset($_POST['bans_any_404_enabled']),
+                'exclude_static' => isset($_POST['bans_any_404_exclude_static']),
+                'min_distinct_paths' => filter_var($_POST['bans_any_404_min_distinct_paths'] ?? '', FILTER_VALIDATE_INT),
                 'maxretry' => filter_var($_POST['bans_any_404_maxretry'] ?? '', FILTER_VALIDATE_INT),
                 'findtime' => filter_var($_POST['bans_any_404_findtime'] ?? '', FILTER_VALIDATE_INT),
                 'duration_days' => filter_var($_POST['bans_any_404_duration_days'] ?? '', FILTER_VALIDATE_INT)];

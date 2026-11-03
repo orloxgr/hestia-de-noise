@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import stat
 import time
+import storage
 
 LOG = Path('/var/log/hestia-de-noise/matches.log')
 MAX_BYTES = 2 * 1024 * 1024
@@ -19,20 +20,17 @@ def summary(domains, now=None):
     truncated = False
     for path in (LOG.with_name(LOG.name + '.1'), LOG):
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with storage.log_stream(path) as stream:
+                info = os.fstat(stream.fileno())
+                offset = max(0, info.st_size - MAX_BYTES)
+                stream.seek(offset)
+                if offset:
+                    stream.readline()
+                    truncated = True
+                body = stream.read(MAX_BYTES)
+                scanned += len(body)
         except FileNotFoundError:
             continue
-        with os.fdopen(fd, 'rb') as stream:
-            info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
-                raise ValueError('Refusing an untrusted activity log')
-            offset = max(0, info.st_size - MAX_BYTES)
-            stream.seek(offset)
-            if offset:
-                stream.readline()
-                truncated = True
-            body = stream.read(MAX_BYTES)
-            scanned += len(body)
         for line in body.decode(errors='replace').splitlines():
             fields = line.split()
             if len(fields) == 4:  # Older endpoint-only rate-limit record.

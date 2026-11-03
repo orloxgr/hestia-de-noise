@@ -30,5 +30,9 @@ RULES = {
         {'key': 'directory_filters', 'title': 'VLM directory filters',
          'description': 'All paths · vlm_listing_tag, vlm_listing_category, vlm_listing_distance · 30/minute/crawler/domain',
          'rules': [filtered('vlm_listing_filters', ['vlm_listing_tag', 'vlm_listing_category', 'vlm_listing_distance'])]},
+        {'key': 'directory_routes', 'title': 'VLM place / route filters',
+         'description': 'All paths · place and route filter parameters · 30/minute/crawler/domain',
+         'rules': [filtered('vlm_place_route_filters', ['vlm_place_type', 'vlm_place_distance',
+                   'vlm_route_type', 'vlm_route_distance', 'vlm_route_difficulty', 'vlm_route_duration_band'])]},
     ],
 }

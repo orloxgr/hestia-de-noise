@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+- Fix Activity, automatic-ban event reading and installer upgrades after Nginx
+  reopens logs under its configured worker user. Keep root-controlled directories,
+  regular-file checks, no-follow opens and protection against writable logs.
+- Show unavailable Activity without a zero request count. Record the last
+  successful maintenance and failures from the complete synchronization pipeline.
+- Add missing-static-asset exclusion and minimum different-path controls for
+  general 404 bans, shared by global/domain scopes and early/native log sources.
+  Enable these guardrails on upgrade while retaining thresholds and active bans.
+- Add a detailed rate-limit error-log switch; expected rejections use notice
+  level by default, retaining Activity and genuine error reporting.
+- Add 26 literal PHP probe suggestions, training crawlers and a separate optional
+  search-crawler preset. Preserve custom lists and enabled states.
+- Add an optional VLM place/route filter preset and webmail HTTP protection using
+  existing native includes, without modifying templates or SMTP/IMAP settings.
+
 ## 0.8.0
 
 - Page global and domain IP lists in SQLite, 50 records at a time, with stable

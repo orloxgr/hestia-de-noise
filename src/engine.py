@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, FILTER_AGENTS,
+from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, SEARCH_AGENTS, FILTER_AGENTS,
                     account, domain, validate, site_mode, global_config, site_config)
 import activity
 import auto_bans
@@ -40,9 +40,9 @@ def hestia(command, *args):
     return json.loads(run(str(HESTIA / 'bin' / command), *args, 'json'))
 
 
-def config_paths(owner, name):
+def config_paths(owner, name, kind='web'):
     account(owner); domain(name)
-    directory = Path('/home') / owner / 'conf/web' / name
+    directory = Path('/home') / owner / ('conf/mail' if kind == 'mail' else 'conf/web') / name
     return [directory / 'nginx.conf_hdn', directory / 'nginx.ssl.conf_hdn']
 
 
@@ -50,7 +50,7 @@ def managed_path(value):
     path = Path(value)
     if path == GLOBAL:
         return path
-    match = re.fullmatch(r'/home/([^/]+)/conf/web/([^/]+)/nginx\.(?:ssl\.)?conf_hdn', str(path))
+    match = re.fullmatch(r'/home/([^/]+)/conf/(?:web|mail)/([^/]+)/nginx\.(?:ssl\.)?conf_hdn', str(path))
     if not match:
         raise ValueError('Invalid managed path in transaction')
     account(match[1]); domain(match[2])
@@ -66,7 +66,7 @@ def inspect_site(site):
     if not site['template']:
         site['reason'] = 'No Nginx proxy template'
         return site
-    for destination in config_paths(site['owner'], site['domain']):
+    for destination in config_paths(site['owner'], site.get('mail_domain', site['domain']), site.get('kind', 'web')):
         base = destination.with_name(destination.name.removesuffix('_hdn'))
         try:
             raw = storage.read(base)
@@ -76,6 +76,12 @@ def inspect_site(site):
                     return site
                 continue
             text = raw.decode('utf-8')
+            if site.get('kind') == 'mail':
+                names = re.findall(r'^\s*server_name\s+([^;]+);', text, re.M)
+                expected = ['webmail.' + site['mail_domain'], 'mail.' + site['mail_domain']]
+                if len(names) != 1 or names[0].split()[0] != site['domain'] or any(name not in expected for name in names[0].split()):
+                    site['reason'] = 'Unsupported webmail server names; kept unchanged'
+                    return site
             roots = set(re.findall(r'^\s*root\s+(/[A-Za-z0-9_./-]+)\s*;', text, re.M))
             if len(roots) == 1:
                 site['roots'][str(destination)] = roots.pop()
@@ -84,7 +90,7 @@ def inspect_site(site):
             if include not in text and quoted not in text:
                 site['reason'] = 'Template has no native per-domain include point'
                 return site
-            if re.search(r'^\s*limit_req(?:_dry_run|_status)?\s', text, re.M):
+            if re.search(r'^\s*limit_req(?:_dry_run|_status|_log_level)?\s', text, re.M):
                 site['reason'] = 'Template already sets request limits; kept unchanged'
                 return site
             # Independently managed snippets may define these directives too.
@@ -93,7 +99,7 @@ def inspect_site(site):
                 if sibling.name == destination.name:
                     continue
                 fragment = storage.read_hestia_include(sibling)
-                if fragment and re.search(rb'^\s*limit_req(?:_dry_run|_status)?\s', fragment, re.M):
+                if fragment and re.search(rb'^\s*limit_req(?:_dry_run|_status|_log_level)?\s', fragment, re.M):
                     site['reason'] = 'Another domain include defines request limits; kept unchanged'
                     return site
             storage.owned(destination)
@@ -116,6 +122,32 @@ def collect():
                                       'template': row.get('PROXY', ''),
                                       'aliases': row.get('ALIAS', ''),
                                       'suspended': user.get('SUSPENDED') == 'yes' or row.get('SUSPENDED') == 'yes'}))
+        # Existing native mail include points; no SMTP/IMAP or template edits.
+        mail_root = Path('/home') / owner / 'conf/mail'
+        if mail_root.is_dir():
+            for directory in sorted(mail_root.iterdir()):
+                if not directory.is_dir() or directory.is_symlink():
+                    continue
+                name = directory.name
+                try:
+                    domain(name)
+                    raw = storage.read(directory / 'nginx.conf')
+                except (OSError, ValueError):
+                    continue  # Optional discovery must not disable web protection.
+                if raw is None:
+                    continue
+                names = re.findall(rb'^\s*server_name\s+([^;]+);', raw, re.M)
+                if len(names) != 1:
+                    continue
+                try:
+                    host = names[0].split()[0].decode('ascii')
+                except (UnicodeError, IndexError):
+                    continue
+                if host not in ('webmail.' + name, 'mail.' + name) or any(site['key'] == owner + '/' + host for site in sites):
+                    continue
+                sites.append(inspect_site({'key': owner + '/' + host, 'owner': owner, 'domain': host,
+                    'mail_domain': name, 'kind': 'mail', 'template': 'native-webmail',
+                    'aliases': names[0].decode('ascii'), 'suspended': user.get('SUSPENDED') == 'yes'}))
     return sites
 
 
@@ -218,7 +250,7 @@ def apply(policy, sites, remove=False):
     if not remove:
         desired[str(GLOBAL)] = global_config(policy, sites, domain_blocks)
         for site in sites:
-            if site['supported']:
+            if site['supported'] and (site.get('kind') != 'mail' or policy['mail_protection']):
                 for path in site['paths']:
                     desired[path] = site_config(policy, site, site.get('roots', {}).get(path))
     manifest = load('manifest.json', [])
@@ -261,6 +293,31 @@ def apply(policy, sites, remove=False):
             'supported_sites': sum(s['supported'] for s in sites)}
 
 
+def synchronize(policy, sites, remove=False, disable_wordpress=False):
+    health = copy.deepcopy(load('maintenance.json', {}))
+    health.update(last_attempt=time.time(), error='')
+    try:
+        if remove:
+            auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+        else:
+            domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+        result = apply(policy, sites, remove=remove)
+        if disable_wordpress and wordpress.read_json(STATE, wordpress.RECEIPT) is not None:
+            wordpress.apply(STATE, {**wordpress.settings(STATE), 'enabled': False}, run)
+        if not remove:
+            bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
+            if bans.get('error'):
+                raise RuntimeError('HTTP rules synchronized; automatic firewall bans failed: ' + bans['error'])
+            result['bans'] = {key: value for key, value in bans.items() if key != 'rows'}
+        health.update(last_success=time.time(), error='')
+    except Exception as error:
+        health['error'] = str(error)[-4000:]
+        storage.replace(STATE / 'maintenance.json', storage.json_bytes(health), 0o600)
+        raise
+    storage.replace(STATE / 'maintenance.json', storage.json_bytes(health), 0o600)
+    return result
+
+
 def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     listing = listing or {}
     rows = []
@@ -269,7 +326,7 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
             continue
         rows.append({**{key: site[key] for key in ('key', 'owner', 'domain', 'template', 'aliases',
                                                    'suspended', 'supported', 'reason')},
-                     'mode': site_mode(policy, site),
+                     'kind': site.get('kind', 'web'), 'mode': site_mode(policy, site),
                      'override': policy['overrides'].get(site['key'], 'inherit')})
     try:
         metrics = activity.summary({row['domain'] for row in rows})
@@ -298,14 +355,18 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
             wordpress_status = wordpress.snapshot(STATE, run, live=wordpress_live, page=listing.get('wordpress_page', 1))
         except (OSError, ValueError) as error:
             wordpress_status = {'settings': wordpress.DEFAULT, 'loaded': wordpress_live, 'error': str(error)}
+    maintenance = load('maintenance.json', {}) if owner is None else {}
+    if maintenance.get('last_success'):
+        maintenance['stale'] = time.time() - maintenance['last_success'] > 180
     return {'ok': True, 'version': VERSION, 'policy': policy if owner is None else {'mode': policy['mode']},
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
             'domain_bans': scoped,
             'history': ban_history.settings(STATE),
+            'maintenance': maintenance,
             'wordpress': wordpress_status,
             'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
-            'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS,
+            'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'search_crawlers': SEARCH_AGENTS,
                         'filter_agents': FILTER_AGENTS, 'rules': RULES,
                         'probe_files': probe_rules.FILES, 'probe_queries': probe_rules.QUERY_TARGETS,
                         'probe_parameters': probe_rules.QUERY_PARAMETERS} if owner is None else {}}
@@ -366,7 +427,7 @@ def dispatch(request):
         preferences = request.get('preferences')
         if not isinstance(preferences, dict) or not preferences or len(preferences) > 10000:
             raise ValueError('Select existing domain automatic-ban settings')
-        known = {site['key']: site for site in sites}
+        known = {site['key']: site for site in sites if site.get('kind') != 'mail'}
         for key, flags in preferences.items():
             if (key not in known or (not (admin and owner == request['actor']) and known[key]['owner'] != owner)):
                 raise PermissionError('This domain does not belong to the selected account')
@@ -401,12 +462,17 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') in (6, 7):
+        if incoming.get('schema') in (6, 7, 8):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
             incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
-                'sites': previous['domain_bans']['sites'] if incoming.get('schema') == 7 else {}}}
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8) else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
+        if incoming.get('schema') != 8:
+            for key in ('log_rejections', 'mail_protection'):
+                policy[key] = previous[key]
+            for key in ('exclude_static', 'min_distinct_paths'):
+                policy['bans']['any_404'][key] = previous['bans']['any_404'][key]
         if incoming.get('schema') in (1, 2, 3, 4, 5, 6):
             policy['bans']['any_404'] = previous['bans']['any_404']
         if incoming.get('schema') == 6:
@@ -448,11 +514,7 @@ def dispatch(request):
         if wordpress.read_json(STATE, wordpress.RECEIPT) is not None:
             wordpress.apply(STATE, {**wordpress.settings(STATE), 'enabled': False}, run)
     elif action == 'sync':
-        domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
-        apply(policy, sites)
-        result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
-        if result.get('error'):
-            raise RuntimeError('HTTP rules synchronized; automatic firewall bans failed: ' + result['error'])
+        synchronize(policy, sites)
     elif action == 'unban':
         auto_bans.unban(STATE, auto_bans.Native(HESTIA, run), request.get('ips'))
         result = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run), read_events=False)
@@ -479,18 +541,7 @@ def main():
             if action == ['disable']:
                 policy['mode'] = 'off'; policy['overrides'] = {}
             if action != ['status']:
-                if action == ['remove-rules']:
-                    auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run))
-                else:
-                    domain_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
-                result = apply(policy, sites, remove=action == ['remove-rules'])
-                if action == ['disable'] and wordpress.read_json(STATE, wordpress.RECEIPT) is not None:
-                    wordpress.apply(STATE, {**wordpress.settings(STATE), 'enabled': False}, run)
-                if action != ['remove-rules']:
-                    bans = auto_bans.synchronize(policy, sites, STATE, auto_bans.Native(HESTIA, run))
-                    if bans.get('error'):
-                        raise RuntimeError('HTTP rules synchronized; automatic firewall bans failed: ' + bans['error'])
-                    result['bans'] = {key: value for key, value in bans.items() if key != 'rows'}
+                result = synchronize(policy, sites, remove=action == ['remove-rules'], disable_wordpress=action == ['disable'])
             else:
                 result = snapshot(policy, sites)
         else:

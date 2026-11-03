@@ -9,6 +9,7 @@
 <?php if (!$canDomainEdit): ?><p class="u-mb20">Editing is disabled by the administrator.</p><?php endif; ?>
 <form method="post"><?php $fields('domain_bans_save'); ?>
 <?php foreach ($data['sites'] ?? [] as $site):
+    if (($site['kind'] ?? 'web') === 'mail') continue;
     $preferences = $scopedBans['preferences'][$site['key']] ?? [];
     $available = $site['supported'] && !$site['suspended']; $editableSites += (int)$available; ?>
 <div class="box-collapse u-mb10"><div class="box-collapse-content">

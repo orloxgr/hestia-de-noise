@@ -29,6 +29,21 @@ class Forms(html.parser.HTMLParser):
 
 @unittest.skipUnless(shutil.which('php'), 'PHP CLI for server-rendered panel components')
 class BanPanelTests(unittest.TestCase):
+    def test_unavailable_activity_does_not_display_a_zero_measurement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'activity.php'
+            source.write_text('''<?php
+                $data=['activity'=>['available'=>false,'error'=>'<untrusted>']];$isAdmin=true;
+                $escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+                require $argv[1].'/panel/activity.php';
+            ''')
+            r=subprocess.run(['php',str(source),str(ROOT)],capture_output=True,text=True,timeout=5)
+        self.assertEqual(r.returncode,0,r.stderr)
+        self.assertIn('Activity is unavailable.',r.stdout)
+        self.assertNotIn('0 in the bounded',r.stdout)
+        self.assertNotIn('Matched requests',r.stdout)
+        self.assertIn('&lt;untrusted&gt;',r.stdout)
+
     def render(self, view, scope):
         data = dict(policy=copy.deepcopy(DEFAULT),sites=[],history={'days':30},bans={},domain_bans={})
         meta=dict(page=2,pages=4,total=177,per_page=50,view=view)

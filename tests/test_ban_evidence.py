@@ -42,7 +42,7 @@ class EvidenceLifecycleTests(unittest.TestCase):
         for item in self.patches: item.start()
         self.policy = copy.deepcopy(DEFAULT); self.policy['mode'] = 'enforce'
         self.policy['bans']['enabled'] = True
-        self.policy['bans']['any_404'].update(enabled=True, maxretry=2, findtime=300)
+        self.policy['bans']['any_404'].update(enabled=True, maxretry=2, findtime=300, exclude_static=False, min_distinct_paths=1)
         self.sites = [dict(domain='one.test', key='alice/one.test', owner='alice', supported=True),
                       dict(domain='two.test', key='bob/two.test', owner='bob', supported=True)]
         self.native = FakeNative()
@@ -110,11 +110,11 @@ class EvidenceLifecycleTests(unittest.TestCase):
             db.execute("INSERT INTO strikes VALUES ('198.51.100.10','one.test','not-found',1000,'-')")
 
     def test_evidence_is_bounded_and_legacy_lines_do_not_disable_bans(self):
-        self.policy['bans']['any_404']['maxretry']=12
+        self.policy['bans']['any_404']['maxretry']=11
         with self.log.open('a') as stream:
             stream.write('1000 198.51.100.9 one.test not-found -\n')
         for i in range(11):self.event(1000+i/100,'one.test','/file'+str(i)+'?secret=private')
         details=self.sync()['rows'][0]['diagnostics']
-        self.assertEqual(details['count'],12)
+        self.assertEqual(details['count'],11)
         self.assertEqual(len(details['samples']),ban_evidence.SAMPLE_LIMIT)
         self.assertNotIn('private',json.dumps(details))

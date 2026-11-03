@@ -30,6 +30,7 @@ class General404Tests(unittest.TestCase):
         for item in self.patches: item.start()
         self.policy = copy.deepcopy(DEFAULT); self.policy['mode'] = 'enforce'
         self.policy['bans']['enabled'] = True; self.policy['bans']['any_404']['enabled'] = True
+        self.policy['bans']['any_404'].update(exclude_static=False, min_distinct_paths=1)
         self.sites = [dict(domain=name+'.test', key=owner+'/'+name+'.test', owner=owner,
                            supported=True, suspended=False) for name, owner in [('one','alice'),('two','bob')]]
         self.native = FakeNative()
@@ -79,7 +80,7 @@ class General404Tests(unittest.TestCase):
     def test_early_rejections_and_native_origin_404s_share_one_threshold(self):
         for _ in range(5): self.event()
         with self.log.open('a') as out:
-            for _ in range(5): out.write('1000 198.51.100.7 one.test not-found -\n')
+            for _ in range(5): out.write('{"v":1,"ts":"1000","ip":"198.51.100.7","domain":"one.test","reason":"not-found","token":"-","path":"/missing","method":"GET"}\n')
         self.assertEqual(self.sync()['active'], 1)
 
     def test_owner_scope_accepts_ipv6_and_cannot_block_another_domain(self):

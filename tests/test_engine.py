@@ -97,6 +97,9 @@ class TransactionTests(unittest.TestCase):
 
 
 class AuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch.object(engine.ban_history, 'settings', return_value={'days': 30}))
+
     def test_stale_v6_save_preserves_general_404_and_domain_switches(self):
         incoming=json.loads((Path(__file__).parent/'fixtures/policy-v6.json').read_text())
         incoming['domain_bans']['allow_users']=False
@@ -117,6 +120,7 @@ class AuthorizationTests(unittest.TestCase):
                 patch.object(engine, 'load', return_value=DEFAULT), \
                 patch.object(engine, 'collect', return_value=[]), \
                 patch.object(engine, 'apply'), \
+                patch.object(engine.storage, 'replace'), \
                 patch.object(engine.auto_bans, 'synchronize', return_value={'error': 'native failure'}):
             with self.assertRaisesRegex(RuntimeError, 'automatic firewall bans failed: native failure'):
                 engine.dispatch({'actor': 'admin', 'action': 'sync'})

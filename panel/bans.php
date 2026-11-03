@@ -43,7 +43,10 @@
                'duration_days' => ['Ban duration (days; 0 = permanent)', 0, 3650, 3]] as $setting => [$label, $minimum, $maximum, $default]): ?>
 <label class="form-label u-block u-mb10"><?= $escape($label) ?><input form="hdn-settings" class="form-control" type="number" name="bans_any_404_<?= $setting ?>" min="<?= $minimum ?>" max="<?= $maximum ?>" value="<?= $escape($notFound[$setting] ?? $default) ?>" required></label>
 <?php endforeach; ?>
-<p class="u-mb20">Count final HTTP 404 responses per IP across selected domains, including repeated URLs and missing assets. Other status codes do not count. Selected PHP probes retain their separate stricter counter.</p>
+<label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_any_404_exclude_static" <?= !empty($notFound['exclude_static']) ? 'checked' : '' ?> title="Do not count missing images, CSS, JavaScript, source maps, fonts, media or PDF files toward the general 404 ban. Explicit security probes keep their own counter."> Exclude missing static assets from general 404 bans</label>
+<label class="form-label u-block u-mb10">Minimum different URL paths
+<input form="hdn-settings" class="form-control" type="number" name="bans_any_404_min_distinct_paths" min="1" max="1000" value="<?= $escape($notFound['min_distinct_paths'] ?? 3) ?>" required title="Require this many different URL paths as well as the request threshold within the counting window. Query strings do not create different paths. Set 1 to allow repeated requests to one path."></label>
+<p class="u-mb20">Both limits must be reached. Counts apply per IP across selected web domains. Other status codes do not count. Explicit security probes retain their separate stricter counters. Existing bans are preserved.</p>
 <?php if (!empty($data['sites'])): ?>
 <h3 class="u-mb10">Probe exceptions by domain</h3>
 <label class="form-label" for="hdn-probe-domain">Domain</label>
@@ -68,6 +71,8 @@
 <textarea form="hdn-settings" class="form-control u-mb20" id="bans-ignore" name="bans_ignore_ips" rows="4" spellcheck="false"><?= $escape(implode("\n", $ban['ignore_ips'] ?? [])) ?></textarea>
 <p class="u-mb20">Never-ban entries bypass automatic IP bans only. Unselected 404s count only when general 404 bans are enabled. Crawler limits and User-Agent blocks do not count as 404s. Observe/Off domains do not trigger bans. Native IPv6 firewall bans are unavailable in this backend.</p>
 <h3 class="u-mb10">Ban status</h3>
+<?php $maintenance = $data['maintenance'] ?? []; ?>
+<p class="u-mb10">Last successful maintenance: <?= !empty($maintenance['last_success']) ? $escape(gmdate('Y-m-d H:i:s', (int)$maintenance['last_success']) . ' UTC') : 'Not recorded yet' ?></p>
 <form method="post" class="u-mb20"><?php $fields('history_settings_save'); ?>
 <label class="form-label" for="history-days">History retention (days)</label>
 <input class="form-control u-mb10" id="history-days" name="history_days" type="number" min="1" max="3650" required value="<?= $escape($data['history']['days'] ?? 30) ?>" title="Completed ban history is automatically removed after this many days during existing maintenance. Active bans and their evidence remain available.">

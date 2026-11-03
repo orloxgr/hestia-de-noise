@@ -102,8 +102,11 @@ def capture(db, address, reason, rule, count, now, site=None):
                       ('domain' if site is not None else 'global', *args, SAMPLE_LIMIT)).fetchall()
     samples = [dict(at=r[0], domain=r[1].split('/', 1)[1] if site is not None else r[1],
                     reason=r[2], path=path_only(r[3]), method=method_only(r[4])) for r in reversed(rows)]
-    return json.dumps(dict(v=1, count=count, maxretry=rule['maxretry'], findtime=rule['findtime'],
-                           duration_days=rule['duration_days'], samples=samples), separators=(',', ':'))
+    details = dict(v=1, count=count, maxretry=rule['maxretry'], findtime=rule['findtime'],
+                   duration_days=rule['duration_days'], samples=samples)
+    if reason in ('not-found', 'domain-404'):
+        details.update(min_distinct_paths=rule['min_distinct_paths'], exclude_static=rule['exclude_static'])
+    return json.dumps(details, separators=(',', ':'))
 
 
 def decoded(raw):

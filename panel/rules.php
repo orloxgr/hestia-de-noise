@@ -29,7 +29,7 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
         <?php endif; ?>
         <label class="form-label u-block u-mt10">Domains (empty selection means all domains)
         <select form="hdn-settings" class="form-select" name="<?= $field('targets') ?>[]" multiple size="4">
-            <?php $known = []; foreach ($data['sites'] ?? [] as $site): $known[] = $site['key']; ?>
+            <?php $known = []; foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') === 'mail') continue; $known[] = $site['key']; ?>
             <option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $targets, true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
             <?php endforeach; foreach (array_diff($targets, $known) as $old): ?>
             <option value="<?= $escape($old) ?>" selected><?= $escape($old) ?> (unavailable)</option>
@@ -47,7 +47,7 @@ foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filte
             : 'Return 404 for missing files in selected directories. Existing files keep their current routing.' ?></p>
         <?php foreach ($data['presets']['rules'][$module] ?? [] as $preset): ?>
         <div class="u-mb10">
-            <button type="button" class="button button-secondary" data-hdn-add="<?= $module ?>" data-hdn-rule-preset="<?= $escape($preset['key']) ?>"><?= $escape($preset['title']) ?></button>
+            <button type="button" class="button button-secondary" data-hdn-add="<?= $module ?>" data-hdn-rule-preset="<?= $escape($preset['key']) ?>" title="<?= $escape($preset['description']) ?>"><?= $escape($preset['title']) ?></button>
             <p class="u-mt10"><?= $escape($preset['description']) ?></p>
         </div>
         <?php endforeach; ?>

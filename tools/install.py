@@ -93,12 +93,10 @@ def prepare_logs():
     directory(LOGS)
     for filename in ('matches.log', 'maintenance.log', 'ban-events.log'):
         with storage.parent(LOGS / filename) as descriptor:
-            log = os.open(filename, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
+            log = os.open(filename, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
                           0o640, dir_fd=descriptor)
             try:
-                info = os.fstat(log)
-                if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
-                    raise ValueError('Unexpected addon log file')
+                storage.check_log(log)
             finally:
                 os.close(log)
 
