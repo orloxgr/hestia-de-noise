@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0
+
+- Expand the literal missing-PHP preset from 219 to 265 paths. Upgrade an exact
+  previous bundled list, including schema-9 policies; retain edited lists,
+  exceptions, thresholds, enabled states, existing bans and all other choices.
+  Existing files continue through their normal routing.
+- Add ibou-search to the separate optional search-crawler suggestion. Add a
+  per-filter-rule button to merge those crawler names without changing global
+  blocklists, the rule's domains, action, rate or existing names.
+- Add on-demand robots.txt directive previews for individual filtered-URL rules,
+  scoped domain labels, validation and copy controls. These are suggestions for
+  URLs that should not be indexed; existing robots.txt files are never rewritten.
+- Retain webmail's explicit enable control and general-404 static exclusions.
+  No new runtime scripts, collectors, scheduled tasks or shared user quotas.
+
 ## 0.10.0
 
 - Add an administrator User enumeration tab with independent REST user-list,

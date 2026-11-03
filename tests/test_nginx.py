@@ -149,6 +149,23 @@ class NativeNginxTests(unittest.TestCase):
         self.assertEqual(self.request('/auth.php', host='observe.test'), 200)
         self.assertEqual(self.request('/auth.php', host='off.test'), 200)
 
+    def test_expanded_php_probes_stop_before_origin_but_existing_files_still_route(self):
+        paths = ['/wp-content/module.php', '/wp-content/data.php',
+                 '/wp-admin/maint/config.php', '/wp-includes/SimplePie/write.php']
+        for path in paths:
+            with self.subTest(path=path):
+                before = Origin.hits
+                self.assertEqual(self.request(path), 404)
+                self.assertEqual(Origin.hits, before)
+        created = self.directory / 'wp-content/module.php'
+        created.write_text('legitimate application')
+        try:
+            self.assertEqual(self.request('/wp-content/module.php'), 200)
+            self.assertEqual(self.request('/wp-content/data.php', host='observe.test'), 200)
+            self.assertEqual(self.request('/wp-content/data.php', host='off.test'), 200)
+        finally:
+            created.unlink()
+
     def test_secret_queries_encoded_variants_and_file_manager_exception(self):
         for path in ['/?file=/etc/passwd', '/?path=../../etc/shadow',
                      '/?file=%2fetc%2fpasswd', '/?file=%252fetc%252fpasswd',

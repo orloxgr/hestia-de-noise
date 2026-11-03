@@ -1,4 +1,4 @@
-# Presets — 0.9.0
+# Presets — 0.11.0
 
 ## Scanner tools
 
@@ -51,9 +51,14 @@ Applebot, social-preview and user-requested retrieval agents are not in either
 blocklist. Custom entries still apply literally.
 
 **Add optional search crawlers** separately suggests `LinkupBot`,
-`meta-webindexer`, `PetalBot` and `Baiduspider`. Review before saving: blocking
+`meta-webindexer`, `PetalBot`, `Baiduspider` and `ibou-search`. Review before saving: blocking
 these names can reduce visibility in their services. Suggestions do not change
 existing blocklists automatically.
+
+For a narrower policy, use **Filtered URLs → Add optional search crawlers to
+this rule**. This adds the same names to that rule only and preserves its
+domains, action, rate, switch and other names. It does not create a global
+User-Agent block. Review and Save & Apply.
 
 ## Paths and request budgets
 
@@ -63,6 +68,10 @@ when enabled. Its two separate 404 groups default to 2 strikes in 60 seconds
 and a 3-day ban. PHP strikes require distinct selected nonexistent paths;
 query strikes require selected parameters and explicit secret-target matches.
 The complete editable PHP list is [src/php-probes.txt](src/php-probes.txt).
+It contains 265 literal paths. Version 0.11.0 adds 46 missing-file probe
+suggestions; exact prior bundled lists expand automatically, while edited lists
+stay unchanged. Existing files, domain exceptions and configured ban thresholds
+retain their behavior.
 The separate optional general 404 rule defaults to 10 responses within 300
 seconds and a 3-day ban. Missing images, CSS, JS, maps, fonts, media and PDF files
 are excluded by default, and at least 3 different URL paths must be requested.
@@ -105,6 +114,19 @@ Applebot, Amazonbot, Reflectionbot, Googlebot and Bingbot as editable candidates
 This limits only the configured filter combinations; ordinary indexable pages
 remain outside that rule. No query values or URLs are rewritten, and no
 `robots.txt`, sitemap or canonical setting is changed.
+
+Each filter rule also has **Preview robots.txt suggestions** and a copy control.
+These generate Disallow directives from its path prefix and parameter names,
+with the selected domain scope shown beside the preview. Use them only if those
+filtered URLs should stay out of search. Merge into the appropriate existing
+User-agent groups, including any more-specific crawler groups; these directives
+are not a complete robots.txt file. The preview neither saves a rule nor writes
+any domain file. Fix malformed internal language links in the originating site
+rather than applying a global URL rewrite across unrelated domains.
+
+Google's [faceted navigation guidance](https://developers.google.com/crawling/docs/faceted-navigation)
+explains when preventing crawling can save resources and when filtered URLs
+should remain discoverable. Do not disallow filters needed for indexing.
 
 Aliases use the canonical domain's budget. Different crawlers and domains have
 independent budgets. Multiple rules can apply; all applicable limits must pass.

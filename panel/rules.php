@@ -15,6 +15,7 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
             <textarea form="hdn-settings" class="form-control" name="<?= $field('parameters') ?>" rows="3" required><?= $escape(implode("\n", $rule['parameters'])) ?></textarea></label>
         <label class="form-label u-block u-mt10">Crawler names (one literal substring per line)
             <textarea form="hdn-settings" class="form-control" name="<?= $field('agents') ?>" rows="4" required><?= $escape(implode("\n", $rule['agents'])) ?></textarea></label>
+        <button type="button" class="button button-secondary u-mt10" data-hdn-filter-agents title="Append the optional search crawler names to this rule only. Keep its current action, rate, domains and other crawler names. Does not add a global User-Agent block.">Add optional search crawlers to this rule</button>
         <label class="form-label u-block u-mt10">Action <select form="hdn-settings" class="form-select" name="<?= $field('rule_action') ?>">
             <option value="limit" <?= $rule['action'] === 'limit' ? 'selected' : '' ?>>Rate limit</option>
             <option value="block" <?= $rule['action'] === 'block' ? 'selected' : '' ?>>Block matching crawlers on these URLs</option>
@@ -35,6 +36,9 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
             <option value="<?= $escape($old) ?>" selected><?= $escape($old) ?> (unavailable)</option>
             <?php endforeach; ?>
         </select></label>
+        <?php if ($filter): ?>
+        <button type="button" class="button button-secondary u-mt10" data-hdn-robots title="Preview robots.txt directives for this rule's path and parameter names. This only prepares text for review; it does not write a website file or save this rule. Use only when these filtered URLs should stay out of search.">Preview robots.txt suggestions</button>
+        <?php endif; ?>
         <button type="button" class="button button-secondary u-mt10" data-hdn-remove>Remove rule</button>
     </div>
     <?php
@@ -56,6 +60,17 @@ foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filte
         <?php foreach (is_array($policy[$module] ?? null) ? $policy[$module] : [] as $index => $rule) { $renderRule($module, $index, $rule); } ?>
         </div>
         <button type="button" class="button button-secondary" data-hdn-add="<?= $module ?>">Add rule</button>
+        <?php if ($module === 'filters'): ?>
+        <div id="hdn-robots-preview" class="u-mt20" hidden>
+            <h3 class="u-mb10">Robots.txt suggestions</h3>
+            <p id="hdn-robots-scope" class="u-mb10"></p>
+            <p class="u-mb10">Use only for filtered URLs that should not appear in search. Merge these directives into the appropriate existing User-agent groups in each selected site's robots.txt, including any specific crawler groups. Review existing rules first. No website files are changed here.</p>
+            <label class="form-label" for="hdn-robots-text">Suggested directives</label>
+            <textarea id="hdn-robots-text" class="form-control" rows="8" readonly spellcheck="false" title="Preview only. These lines are not submitted by Save & Apply and do not change robots.txt."></textarea>
+            <button type="button" class="button button-secondary u-mt10" id="hdn-robots-copy" title="Copy the reviewed directives to the clipboard. Nothing is installed or written to any domain.">Copy suggestions</button>
+            <p id="hdn-robots-message" class="u-mt10" role="status"></p>
+        </div>
+        <?php endif; ?>
         <?php if ($module === 'static' && !empty($data['sites'])): ?>
         <h3 class="u-mt20 u-mb10">File exceptions by domain</h3>
         <label class="form-label" for="hdn-exception-domain">Domain</label>

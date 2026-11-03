@@ -18,7 +18,8 @@ def is_previous_preset(paths):
     """Upgrade unchanged bundled lists, preserving custom lists."""
     return (all(isinstance(value, str) for value in paths) and
             hashlib.sha256('\n'.join(sorted(paths)).encode()).hexdigest() in
-            {'67568236cc1dbad6c373062fb4a361ec9c2ad20e8c13026371c2e81855b1cd67',
+            {'8c0d5ef9de2ee5814ef00179557bb611f311d6bda0e7cdbeba3d3600cbd10dce',
+             '67568236cc1dbad6c373062fb4a361ec9c2ad20e8c13026371c2e81855b1cd67',
              '667fd8e9488d0313098dd34c5582edf1c95ee02b11cda209b38ecf23a6f48830'})
 
 QUERY_PARAMETERS = ['file', 'path', 'page', 'include', 'download_file', 'src',

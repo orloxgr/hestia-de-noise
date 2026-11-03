@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.10.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.11.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -61,6 +61,9 @@ There is no mandatory observation period.
 - **Filtered URL crawling:** match a path, parameter names and crawler names;
   limit or block them on selected domains. The rate budget is per crawler and
   domain across all IPs, aliases and matching URL combinations.
+  Add optional search-crawler names to an individual rule without a global
+  block. Preview/copy robots.txt directives when those filtered URLs should
+  stay out of search; the addon does not write robots.txt files.
 - **Missing static files:** select a directory and file extensions; return 404
   before PHP for missing files. Existing files keep their current routing.
 - **Activity:** last 15 minutes of matched, observed and blocked requests by
@@ -153,7 +156,17 @@ After Git finishes successfully, apply the update:
 python3 /usr/local/src/hestia-de-noise/tools/install.py
 ```
 
-Version 0.10.0 adds the User enumeration tab and a two-row tab layout. Existing
+Version 0.11.0 expands the selected missing-PHP preset from 219 to 265 paths.
+An exact previous bundled list is upgraded automatically; edited lists are
+retained. To merge suggestions into an edited list, use **IP bans → Add suggested
+PHP files**, then review and **Save & Apply**. Existing exceptions, limits and
+ban state are retained. Optional crawler additions and webmail protection remain
+operator choices; the update does not enable them. In **Filtered URLs**, use
+**Add optional search crawlers to this rule** for scoped limits, or **Preview
+robots.txt suggestions** for text to review and merge into existing crawler
+groups. There are no automatic robots.txt or website-content changes.
+
+Version 0.10.0 added the User enumeration tab and a two-row tab layout. Existing
 settings, ban history and thresholds are retained; enumeration protection stays
 off until enabled in the panel. Refresh Hestia with **Ctrl+F5** after updating.
 

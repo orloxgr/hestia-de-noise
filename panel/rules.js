@@ -47,7 +47,53 @@
         message.textContent = 'Added ' + rules.length + ' rule(s). Review domains, then Save & Apply.';
     }));
     document.addEventListener('click', event => {
+        const addAgents = event.target.closest('[data-hdn-filter-agents]');
+        if (addAgents) {
+            const field = addAgents.closest('.hdn-rule').querySelector('[name$="[agents]"]');
+            const agents = JSON.parse(document.getElementById('hdn-agent-presets').textContent).search_crawlers || [];
+            const lines = field.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+            agents.forEach(agent => { if (!lines.some(line => line.toLowerCase() === agent.toLowerCase())) lines.push(agent); });
+            if (lines.length > 40) {
+                document.getElementById('hdn-filters-message').textContent = 'Use at most 40 crawler names per rule. Your list was kept unchanged.';
+                return;
+            }
+            field.value = lines.join('\n');
+            document.getElementById('hdn-filters-message').textContent = 'Added crawler names to this rule only. Review domains, action and rate, then Save & Apply.';
+        }
+        const robots = event.target.closest('[data-hdn-robots]');
+        if (robots) {
+            const row = robots.closest('.hdn-rule');
+            const prefix = row.querySelector('[name$="[path]"]').value.trim();
+            const parameters = [...new Set(row.querySelector('[name$="[parameters]"]').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean))];
+            const message = document.getElementById('hdn-filters-message');
+            const preview = document.getElementById('hdn-robots-preview');
+            // Only render literal path prefixes and valid parameter names.
+            if (!/^\/[A-Za-z0-9_./~-]*$/.test(prefix) || prefix.length > 250 || prefix.split('/').includes('..') || prefix.includes('//') ||
+                !parameters.length || parameters.length > 20 || parameters.some(name => !/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name))) {
+                preview.hidden = true;
+                message.textContent = 'Use a literal URL path and valid parameter names before generating robots.txt suggestions.';
+                return;
+            }
+            const selected = [...row.querySelector('select[name$="[targets][]"]').selectedOptions].map(option => option.textContent.trim());
+            document.getElementById('hdn-robots-scope').textContent = selected.length ? 'Selected domains: ' + selected.join(', ') : 'Scope: all domains. Apply these suggestions only to sites that actually use these parameters.';
+            document.getElementById('hdn-robots-text').value = '# Merge into the appropriate existing User-agent groups.\n' +
+                parameters.map(name => 'Disallow: ' + prefix + '*?*' + name + '=').join('\n') + '\n';
+            document.getElementById('hdn-robots-message').textContent = 'Preview generated. No robots.txt file was changed.';
+            message.textContent = '';
+            preview.hidden = false;
+        }
         const button = event.target.closest('[data-hdn-remove]');
         if (button) button.closest('.hdn-rule').remove();
+    });
+    document.getElementById('hdn-robots-copy')?.addEventListener('click', async () => {
+        const field = document.getElementById('hdn-robots-text');
+        const message = document.getElementById('hdn-robots-message');
+        try {
+            await navigator.clipboard.writeText(field.value);
+            message.textContent = 'Copied. Merge into the appropriate existing User-agent groups after review.';
+        } catch (_) {
+            field.focus(); field.select();
+            message.textContent = 'Text selected. Press Ctrl+C to copy.';
+        }
     });
 })();

@@ -54,8 +54,9 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <textarea form="hdn-settings" class="form-control u-mb10" rows="7" id="<?= $field ?>" name="<?= $field ?>" maxlength="32500" spellcheck="false"><?= $escape(implode("\n", $policy[$field] ?? [])) ?></textarea>
     <button type="button" class="button button-secondary u-mb20" data-hdn-preset="<?= $preset ?>" data-hdn-agent-field="<?= $field ?>"><?= $escape($button) ?></button>
     <?php endforeach; ?>
-    <button type="button" class="button button-secondary u-mb10" data-hdn-preset="search_crawlers" data-hdn-agent-field="agents" title="Append LinkupBot, meta-webindexer, PetalBot and Baiduspider to the crawler blocklist. Review before saving: blocking search crawlers can reduce visibility in their services.">Add optional search crawlers</button>
+    <button type="button" class="button button-secondary u-mb10" data-hdn-preset="search_crawlers" data-hdn-agent-field="agents" title="Append LinkupBot, meta-webindexer, PetalBot, Baiduspider and ibou-search to the crawler blocklist. Review before saving: blocking search crawlers can reduce visibility in their services.">Add optional search crawlers</button>
     <p>Search crawlers are a separate optional list suggestion. No new crawler is blocked until added and saved.</p>
+    <p class="u-mt10">To limit these crawlers only on filtered URLs, add their names inside a Filtered URLs rule instead of this global blocklist.</p>
 <?php elseif ($key === 'endpoints'): ?>
     <h2 class="u-mb20">Endpoint rate limits</h2>
     <?php foreach (['login' => 'WordPress login — POST /wp-login.php', 'xmlrpc' => 'WordPress XML-RPC — POST /xmlrpc.php'] as $endpoint => $name): ?>

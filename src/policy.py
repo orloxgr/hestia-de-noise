@@ -8,7 +8,7 @@ import probe_rules
 import enumeration
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.10.0'
+VERSION = '0.11.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -16,7 +16,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
                   'ClaudeBot', 'Amazonbot', 'Reflectionbot', 'GPTBot',
                   'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'YisouSpider',
                   'ElevenlabsCrawler', 'CCBot']
-SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider']
+SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
 DEFAULT = {'schema': 9, 'mode': 'observe', 'agents': [], 'scanners': False,
@@ -157,6 +157,10 @@ def validate(raw):
     except ValueError as error:
         raise ValueError('Never-ban entries must be IP addresses or CIDR networks') from error
     probe_rules.validate_settings(data, exception_path, target)
+    # Expand only an exact prior bundled list, including current-schema policies.
+    # An edited list remains the administrator's choice; the panel can merge it.
+    if probe_rules.is_previous_preset(ban['missing_files']['paths']):
+        ban['missing_files']['paths'] = list(probe_rules.FILES)
     rule = ban['any_404']
     if (not isinstance(rule, dict) or set(rule) != set(DEFAULT['bans']['any_404'])
             or type(rule['enabled']) is not bool or type(rule['maxretry']) is not int or not 1 <= rule['maxretry'] <= 1000

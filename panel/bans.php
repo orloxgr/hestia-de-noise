@@ -29,7 +29,7 @@
 <?php endif; ?>
 <label class="form-label" for="bans-<?= $key ?>-list"><?= $escape($label) ?></label>
 <textarea form="hdn-settings" class="form-control u-mb10" id="bans-<?= $key ?>-list" name="bans_<?= $key ?>_list" rows="7" spellcheck="false" maxlength="128000"><?= $escape(implode("\n", $rule[$field] ?? [])) ?></textarea>
-<button type="button" class="button button-secondary u-mb10" data-hdn-probe-preset="<?= $preset ?>" data-hdn-probe-field="bans-<?= $key ?>-list">Add suggested list</button>
+<button type="button" class="button button-secondary u-mb10" data-hdn-probe-preset="<?= $preset ?>" data-hdn-probe-field="bans-<?= $key ?>-list" title="Merge bundled suggestions into this list without removing custom entries or changing thresholds, exceptions or enabled switches. Review, then Save &amp; Apply."><?= $key === 'missing_files' ? 'Add suggested PHP files' : 'Add suggested query targets' ?></button>
 <p><?= $key === 'missing_files'
     ? 'Only selected nonexistent PHP files are rejected with 404. Existing files retain normal routing. Count distinct paths per IP across all domains.'
     : 'Match selected parameter names and complete secret file arguments, traversal to listed targets or PHP filter resource arguments, including encoded forms. Reject matches with 404 and count requests per IP across domains. Search parameters, ordinary relative paths and parameter names alone do not match the suggested rules.' ?></p>

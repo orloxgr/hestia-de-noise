@@ -1,6 +1,6 @@
 # Delivery status
 
-## Available in 0.10.0
+## Available in 0.11.0
 
 | Area | Delivered |
 | --- | --- |
@@ -8,7 +8,8 @@
 | Request filtering | Login/XML-RPC limits, private paths, scoped filtered-URL budgets and missing-static-file rules |
 | Exceptions | Per-domain modes and exact static-file exceptions, one path per line |
 | Firewall bans | Optional native Hestia IPv4 bans, first-request trigger, editable duration/count/window/scope, exclusions, expiry and unban |
-| PHP probes | 219 editable exact paths, nonexistent-file 404s and distinct-path counters across domains |
+| PHP probes | 265 editable exact paths, nonexistent-file 404s and distinct-path counters across domains |
+| Crawling suggestions | Optional search-crawler insertion per filter rule and on-demand robots.txt directive previews without website-file changes |
 | General 404s | Optional 10 responses / 5 minutes / 3-day bans; missing-static exclusion and minimum distinct paths, globally or per domain |
 | Ban evidence | Query-free paths/methods/times and the trigger-time threshold/window, in global and scoped ban details |
 | WordPress logins | Native Fail2ban controls, three-stage durations, on-demand status and scoped unban; requires WP fail2ban |
