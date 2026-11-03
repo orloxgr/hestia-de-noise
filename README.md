@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.13.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.13.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -67,11 +67,14 @@ There is no mandatory observation period.
 - **Analyze logs:** administrator-triggered review of one/all web domains over
   30 minutes, 6 hours or 24 hours. Suggestions distinguish site faults, possible
   crawl spaces, known probes and traffic requiring investigation. They do not
-  create rules or bans. Read coverage and resource limits are shown explicitly.
+  create rules or bans. Ordinary image/icon requests are excluded from findings;
+  traffic totals still include them. Concrete next steps and domain-specific
+  filter candidates help review each finding. Read coverage is shown explicitly.
 - **Missing static files:** select a directory and file extensions; return 404
   before PHP for missing files. Existing files keep their current routing.
 - **Activity:** last 15 minutes of matched, observed and blocked requests by
-  domain and rule, from complete on-demand reviews of available retained addon logs.
+  domain, rule and full declared User-Agent, from complete on-demand reviews of
+  available retained addon logs. Older records show Not recorded for the agent.
 - **IP bans:** optional first-probe native Hestia firewall bans, permanent or
   timed, with editable trigger count/window, domain scope, never-ban networks
   and selected/all unban controls.
@@ -421,10 +424,26 @@ Opening the panel fetches job metadata rather than rescanning logs. Completed,
 failed and cancelled reports older than the selected history retention are
 removed when a new review starts; active work is never removed by that cleanup.
 
-Query values, raw client IPs and raw User-Agents are not returned or retained in
-reports. Distinct client/combination counts use one-way digests in private
+Filtered-URL review reports do not return or retain query values, raw client IPs
+or raw User-Agents. Distinct client/combination counts use one-way digests in private
 aggregation. Sensitive path segments remain redacted with distinct hash labels.
 Unsaved protection-rule edits survive report updates and page navigation.
+Resuming a report restores its time window/domain/verification selection unless
+the operator has already edited the review controls. Ordinary image/icon paths
+are omitted from findings, including missing images; total record counts retain
+them. Explicit secret-probe evidence is kept even when its path ends in an image
+extension. Script, stylesheet and other non-image faults remain diagnostic.
+Recommendations favor site repairs before a crawler rule. Optional filter
+candidates contain only the finding's own domain, path, parameter names and
+observed crawler names; they never create a rule, choose a rate or ban visitors.
+
+Activity's existing conditional native Nginx log now also stores the full declared
+User-Agent with JSON escaping. Both grouped counts and individual events show it.
+Legacy records have no agent and display Not recorded; an empty header displays
+Not sent. Activity records still omit client IPs, URLs, query strings, cookies and
+request bodies. Agents are untrusted client claims and are escaped in the panel.
+The same trusted-log access, owner scope, rotation and report retention apply;
+no extra collector, periodic scan or per-request script is installed.
 Native access-log records are not total incoming traffic or proof of PHP work:
 early blocks/cache HITs may be absent and layered logs may duplicate records.
 Timing/cache information is shown only when already recorded; no logging

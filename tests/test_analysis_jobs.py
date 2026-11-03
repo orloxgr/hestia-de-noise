@@ -33,6 +33,7 @@ class Jobs(unittest.TestCase):
         value = analysis_jobs.status(self.root, job, 'admin')
         self.assertEqual(value['state'], 'complete')
         self.assertEqual(value['analysis']['domains'], 0)
+        self.assertEqual(value['selection'], dict(target='all', minutes=17, verify_google=False))
         self.assertFalse((self.root / 'operation.lock').exists())
         self.assertEqual((path / 'result.json').stat().st_mode & 0o777, 0o600)
 

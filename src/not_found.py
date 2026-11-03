@@ -17,7 +17,7 @@ from urllib.parse import unquote
 LOG_ROOT = Path('/var/log/apache2/domains')
 LINE = re.compile(rb'^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) ((?:[^"\\\s]|\\.)+) [^"\r\n]+" 404 (?:[0-9]+|-) ')
 
-ASSETS = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svg|ico|bmp|tiff?|apng|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
+ASSETS = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svgz?|ico|bmp|tiff?|apng|jxl|heic|heif|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
 
 
 def normal_path(path):

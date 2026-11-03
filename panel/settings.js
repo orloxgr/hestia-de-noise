@@ -9,6 +9,10 @@
         const output = document.getElementById(prefix + '-output');
         const storageKey = 'hdn-review:' + location.pathname + ':' + actionPrefix + ':' + (scanForm.dataset?.hdnContext || '');
         let job = null, active = false, generation = 0;
+        let restoreSelection = true;
+        const selectionEdited = () => { restoreSelection = false; };
+        scanForm.addEventListener('input', selectionEdited);
+        scanForm.addEventListener('change', selectionEdited);
         try { job = sessionStorage.getItem(storageKey); } catch (_) { /* Storage is optional. */ }
         const remember = id => { job = id; try { sessionStorage.setItem(storageKey, id); } catch (_) {} };
         const request = async (action, page = 1, initial = false) => {
@@ -33,6 +37,18 @@
         };
         const display = value => {
             const current = value.job;
+            if (restoreSelection && current.selection) {
+                const fields = [
+                    ['[name="analysis_minutes"]', 'value', String(current.selection.minutes)],
+                    ['[name="analysis_target"]', 'value', current.selection.target],
+                    ['[name="analysis_verify_google"]', 'checked', current.selection.verify_google]
+                ];
+                fields.forEach(([selector, property, setting]) => {
+                    const field = scanForm.querySelector(selector);
+                    if (field) field[property] = setting;
+                });
+                restoreSelection = false;
+            }
             if (current.id) remember(current.id);
             active = ['queued', 'running'].includes(current.state);
             cancel.hidden = !active;
@@ -77,6 +93,7 @@
         };
         scanForm.addEventListener('submit', event => {
             event.preventDefault();
+            restoreSelection = false;
             return observe(!job || !active);
         });
         cancel.addEventListener('click', async () => {

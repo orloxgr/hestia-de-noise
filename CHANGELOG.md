@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.1 · 2026-11-04
+
+- Exclude ordinary image/icon requests from log-review findings, including 404s and slow/error responses. Retain honest traffic totals and explicit secret-probe evidence; existing ban settings are unchanged.
+- Recognize SVGZ, JPEG XL and HEIC/HEIF images in the existing optional static-file exclusion for general 404 bans.
+- Give each finding concrete next steps. Crawl-space candidates show the original domain, path, parameter names and observed crawler names for an optional domain-specific rule, without inventing a rate or applying protection.
+- Restore a resumed review's actual time window, domain and Google verification choice without overwriting edits made for the next review.
+- Record the full declared User-Agent in the existing conditional native Activity log using JSON escaping. Show it in grouped counts and event pages; older records remain readable and say Not recorded. No extra collector or request-time script is added.
+- Align the installer/panel version with the release metadata.
+
 ## 0.13.0 · 2026-11-04
 
 - Complete log and Activity reviews run as root-private, low-priority background jobs with progress, cancellation and resumption. New reviews queue without discarding work; panel sessions are released while work continues.

@@ -1,5 +1,6 @@
 import copy
 import datetime
+import json
 import os
 from pathlib import Path
 import sys
@@ -46,6 +47,20 @@ class General404Tests(unittest.TestCase):
 
     def sync(self, now=1001):
         return auto_bans.synchronize(self.policy, self.sites, self.root, self.native, now)
+
+    def test_static_exclusion_protects_images_in_native_and_early_global_and_domain_counters(self):
+        self.policy['bans']['any_404']['exclude_static'] = True
+        self.policy['domain_bans']['sites'] = {'alice/one.test':dict(missing_files=False,suspicious_queries=False,any_404=True)}
+        for suffix in ('jpg', 'png', 'webp', 'svgz', 'jxl', 'heic', 'heif'):
+            for index in range(20):
+                self.event(request=f'GET /uploads/missing{index}.{suffix} HTTP/1.1')
+        with self.log.open('a') as out:
+            for index in range(20):
+                out.write(json.dumps(dict(v=1,ts='1000',ip='198.51.100.7',domain='one.test',reason='not-found',
+                    token='-',path=f'/uploads/early{index}.webp',method='GET'))+'\n')
+        self.assertEqual(self.sync()['active'], 0)
+        domain_bans.synchronize(self.policy,self.sites,self.root,self.native,1001)
+        self.assertEqual(domain_bans.desired(self.policy,self.sites,self.root,1001), {})
 
     def test_ten_final_404s_across_domains_ban_once_and_expire_in_three_days(self):
         for _ in range(9): self.event()

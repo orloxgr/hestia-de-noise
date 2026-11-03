@@ -8,7 +8,7 @@ import probe_rules
 import enumeration
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.12.1'
+VERSION = '0.13.1'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -425,8 +425,9 @@ def global_config(policy, sites, domain_blocks=None):
               'map $hdn_match $hdn_block {', '    default 0;', '    private-file 1;',
               '    agent 1;', '    ~^filter-block- 1;', '}',
               'map "$hdn_mode:$hdn_static_candidate" $hdn_static_reject {', '    default 0;', '    ~^enforce:static- 1;', '}',
-              # Separate observation log: no IP, URI, query, header or agent.
-              'log_format hdn "$time_iso8601 $server_name $hdn_match $limit_req_status $status $hdn_mode";',
+              # The JSON-escaped User-Agent follows the legacy fields, separated
+              # by a tab. Never record IPs, URLs, queries or other headers here.
+              'log_format hdn escape=json \'$time_iso8601 $server_name $hdn_match $limit_req_status $status $hdn_mode\\t"$http_user_agent"\';',
               'map "$hdn_mode:$hdn_match:$limit_req_status" $hdn_log {',
               '    default 0;', '    ~^(observe|enforce):[^:]+: 1;',
               '    ~^(observe|enforce):.*:(REJECTED|REJECTED_DRY_RUN|DELAYED_DRY_RUN)$ 1;', '}',

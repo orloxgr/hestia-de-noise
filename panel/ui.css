@@ -33,3 +33,4 @@
 .hdn-analysis { padding-bottom: 20px; border-bottom: 1px solid currentColor; }
 .hdn-analysis-finding { padding: 12px; border: 1px solid currentColor; border-radius: 4px; }
 .hdn-analysis p, .hdn-analysis code, .hdn-analysis td { overflow-wrap: anywhere; white-space: normal; }
+.hdn-activity-agent { max-width: 30rem; overflow-wrap: anywhere; white-space: normal; }

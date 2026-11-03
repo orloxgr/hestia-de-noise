@@ -353,8 +353,18 @@ class NativeNginxTests(unittest.TestCase):
         text = (self.directory / 'matches.log').read_text()
         self.assertIn('enforce.test', text)
         self.assertNotIn('synthetic-sensitive-value', text)
-        self.assertNotIn('Crawler', text)
+        self.assertIn('Crawler', text)
         self.assertNotIn('127.0.0.1', text)
+
+    def test_activity_retains_the_exact_agent_with_native_json_escaping(self):
+        import json
+        agent = 'Crawler "<script>" \\ marker'
+        self.assertEqual(self.request('/?token=do-not-log-this', agent=agent), 403)
+        time.sleep(.02)
+        rows = (self.directory / 'matches.log').read_text().splitlines()
+        recorded = [json.loads(line.partition('\t')[2]) for line in rows if '\t' in line]
+        self.assertIn(agent, recorded)
+        self.assertNotIn('do-not-log-this', '\n'.join(rows))
 
 
 if __name__ == '__main__':

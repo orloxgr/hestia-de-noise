@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -11,6 +12,22 @@ import activity
 
 @unittest.skipUnless(os.name == 'posix' and os.geteuid() == 0, 'Requires Linux root-owned log fixture')
 class ActivityTests(unittest.TestCase):
+    def test_json_escaped_full_agents_preserve_scope_and_old_record_compatibility(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / 'matches.log'; stamp = '2026-01-01T00:00:00+00:00'
+            agent = 'Crawler "quoted" \\bot\tnew\nline <script>alert(1)</script>'
+            line = f'{stamp} own.test agent - 403 enforce\t' + json.dumps(agent) + '\n'
+            log.write_text(line * 2 + f'{stamp} own.test agent - 403 enforce\n' +
+                           f'{stamp} own.test login - 200 observe\t""\n' +
+                           f'{stamp} other.test agent - 403 enforce\t"Private other agent"\n')
+            with patch.object(activity, 'LOG', log):
+                report = activity.summary({'own.test'}, 1767225601)
+            self.assertEqual(report['total'], 4)
+            row = next(row for row in report['rows'] if row['agent'] == agent)
+            self.assertEqual(row['count'], 2)
+            self.assertEqual({row['agent'] for row in report['recent']}, {None, '', agent})
+            self.assertNotIn('Private other agent', json.dumps(report))
+
     def test_new_404_probe_categories_are_blocked_only_in_enforce(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / 'matches.log'; stamp = '2026-01-01T00:00:00+00:00'

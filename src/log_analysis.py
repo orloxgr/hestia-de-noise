@@ -34,7 +34,8 @@ with urlopen(sys.argv[1], timeout=None) as response:
 sys.stdout.buffer.write(data)
 '''
 COMBINED = re.compile(r'^([^ ]+) \S+ \S+ \[([^\]]+)\] "((?:\\.|[^"\\])*)" (\d{3}) \S+ "(?:\\.|[^"\\])*" "((?:\\.|[^"\\])*)"(.*)$')
-ASSET = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svg|ico|bmp|tiff?|apng|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
+ASSET = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svgz?|ico|bmp|tiff?|apng|jxl|heic|heif|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
+IMAGE = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svgz?|ico|bmp|tiff?|apng|jxl|heic|heif)$', re.I)
 SECRET_PATH = re.compile(r'(?:^|/)\.(?:env(?:[./]|$)|git(?:/|$)|svn(?:/|$)|hg(?:/|$))|/(?:etc/(?:passwd|shadow)|proc/self/(?:environ|cmdline)|var/run/secrets/kubernetes.io/serviceaccount)(?:/|$)', re.I)
 TECHNICAL = {'ver', 'v', 'fbclid', 'gclid', 'msclkid', '_', 'cachebuster', 'rest_route', 'format'}
 SENSITIVE = {'key', 'token', 'nonce', '_wpnonce', 'password', 'pass', 'email', 'login', 'auth', 'signature',
@@ -156,12 +157,35 @@ def new_group(site, path, names):
                 timing_count=0, request_seconds=0, upstream_count=0, upstream_seconds=0, cache=Counter())
 
 
+def recommendations(group, title):
+    """Actionable, domain-scoped guidance. Never an executable protection rule."""
+    if group['secret']:
+        return [dict(title='Review Private-file protection', detail='Check General and IP bans for this domain, including saved exceptions. Retain the existing protection; this report does not change it.')]
+    if title == 'Many combinations of URL parameters':
+        return [
+            dict(title='Fix crawl space at the site', detail='Keep useful filter landing pages indexable. For disposable combinations, correct generated links and the site canonical/noindex policy. Review robots.txt separately if these URLs should not be crawled.'),
+            dict(title='Optional Filtered URLs rule', detail='Use the candidate below only if crawling still needs a limit. Select the crawlers and an acceptable rate after reviewing this domain. Observed crawler names are claims, not verified identities. Leave normal browser traffic out of the rule.')]
+    if title == 'Repeated locale-looking URL segment':
+        return [dict(title='Correct language links', detail='Check the language switcher, translated menus, sitemap and canonical URLs. Remove the duplicate language segment at its source. If a redirect is needed, verify its destination and apply it only on this domain.')]
+    if title == 'Repeated missing static asset':
+        return [dict(title='Repair the referenced asset', detail='Restore the missing script, stylesheet, font or document, or correct its generated URL and stale HTML references. Do not add the visitors to an IP-ban rule.')]
+    if title == 'Repeated server-error responses':
+        return [dict(title='Inspect application errors', detail='Check this domain\'s Apache/PHP error logs at the recorded times. Diagnose the failing plugin, application or upstream before changing timeouts or traffic rules.')]
+    if title == 'Recorded slow request timings':
+        return [dict(title='Measure the origin work', detail='Compare recorded upstream timings, cache state, PHP workers and slow database queries for this route. Optimize the responsible site component before choosing a crawler limit.')]
+    if title == 'Repeated PHP-path 404 responses':
+        return [dict(title='Review the missing-PHP list', detail='Check whether the route belongs to the application. Only after confirming it is an unwanted probe, consider adding the literal path in IP bans → selected missing PHP files, scoped to this domain. Keep legitimate virtual routes out.')]
+    return [dict(title='Inspect the route before filtering', detail='Identify the responsible plugin, visitors and integrations on this domain. Preserve functional REST, AJAX and cart requests. Frequency alone does not justify a block.')]
+
+
 def findings(groups, persist=False):
     result = []
     for group in groups.values():
         count, path = group['count'], group['path']
         missing = group['statuses'].get('404', 0)
         asset = bool(ASSET.search(path))
+        if IMAGE.search(unquote(unquote(path))) and not group['secret']:
+            continue
         kind = title = advice = None
         if group['secret']:
             kind, title = 'security', 'Known secret-file probe signature'
@@ -200,7 +224,11 @@ def findings(groups, persist=False):
                            mean_request_ms=round(group['request_seconds'] / group['timing_count'] * 1000, 2) if group['timing_count'] else None,
                            upstream_time_samples=group['upstream_count'],
                            mean_upstream_ms=round(group['upstream_seconds'] / group['upstream_count'] * 1000, 2) if group['upstream_count'] else None,
-                           cache=dict(group['cache'])))
+                           cache=dict(group['cache']), recommendations=recommendations(group, title)))
+        if title == 'Many combinations of URL parameters':
+            suggestion['filter_candidate'] = dict(target=group['site'], domain=group['domain'],
+                path=path, parameters=group['parameters'],
+                observed_crawlers=[name for name in group['agents'] if name != 'Other / browser-like (unverified)'])
         if persist:
             groups.suggest(suggestion)
         else:
@@ -217,7 +245,7 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
     started = time.monotonic(); cutoff = now - minutes * 60
     ranges, verification = (google_ranges(state, now) if verify_google else ([], 'Not requested; crawler names are unverified claims'))
     seen, groups, coverage, files = set(), Groups(report_path), [], []
-    totals = Counter(); errors = []; bytes_read = 0; group_dropped = False
+    totals = Counter(image_records_excluded=0); errors = []; bytes_read = 0; group_dropped = False
     salt = os.urandom(16); date_cache = {}
     try:
         for site in chosen:
@@ -298,7 +326,15 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
                         continue
                     records += 1; totals['requests'] += 1; totals['status_' + status] += 1
                     if progress: progress(dict(records=totals['requests'], bytes=bytes_read, files_done=index, files_total=len(files), domain=site['domain']))
-                    if ASSET.search(path_only) and status != '404':
+                    decoded_path = unquote(unquote(path_only))
+                    if IMAGE.search(decoded_path):
+                        # Preserve positive secret-probe evidence even when the
+                        # requested filename happens to have an image extension.
+                        names, combination, secret_query = params(target_url)
+                        if not SECRET_PATH.search(decoded_path) and not secret_query:
+                            totals['image_records_excluded'] += 1
+                            continue
+                    elif ASSET.search(path_only) and status != '404':
                         continue  # Keep totals; aggregate diagnostic routes rather than successful assets.
                     names, combination, secret_query = params(target_url)
                     key = (site['key'], path_only, tuple(names))

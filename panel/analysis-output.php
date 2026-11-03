@@ -7,6 +7,7 @@
 Records: <?= $escape($analysis['totals']['requests'] ?? 0) ?> · Domains: <?= $escape($analysis['domains']) ?> ·
 <?= $escape(round($analysis['bytes_read'] / 1048576, 2)) ?> MiB read · <?= $escape($analysis['elapsed_seconds']) ?> sec.</p>
 <p class="u-mb10"><?= $escape($analysis['totals']['unparsed'] ?? 0) ?> malformed lines and <?= $escape($analysis['totals']['incomplete_lines'] ?? 0) ?> incomplete trailing lines skipped.</p>
+<?php if (isset($analysis['totals']['image_records_excluded'])): ?><p class="u-mb10">Image requests are excluded from findings, including missing images and icons. <?= $escape($analysis['totals']['image_records_excluded']) ?> image records remain included in the traffic totals. Known secret-file probes are reported separately.</p><?php endif; ?>
 <p class="u-mb10">Showing <?= $escape(count($analysis['findings'])) ?> of <?= $escape($analysis['findings_total']) ?> review findings. All findings are available through the report pages. These are diagnostic suggestions, not legitimacy verdicts.</p>
 <p class="u-mb10"><?= $escape($analysis['verification']) ?>. Verification uses the address already recorded by the server; proxy address configuration can affect the result.</p>
 <p class="u-mb10"><?= $escape($analysis['note']) ?> Layered logs may contain duplicate records. All available numbered rotations, including gzip/bzip2/xz files, are considered for the selected interval. Missing timing/cache fields are not inferred.</p>
@@ -27,6 +28,18 @@ distinct clients: <?= $escape($finding['clients']) ?> · parameter combinations:
 Upstream timing: <?= $finding['mean_upstream_ms'] === null ? 'not recorded' : $escape($finding['mean_upstream_ms'] . ' ms mean, ' . $finding['upstream_time_samples'] . ' recorded samples') ?>.
 Cache: <?= $finding['cache'] ? $escape(implode(' · ', array_map(static fn($key, $count) => $key . ': ' . $count, array_keys($finding['cache']), $finding['cache']))) : 'not recorded' ?>.</p>
 <p><?= $escape($finding['advice']) ?></p>
+<?php if (!empty($finding['recommendations'])): ?>
+<h5 class="u-mt10 u-mb10">Suggested next steps · <?= $escape($finding['domain']) ?></h5>
+<ol><?php foreach ($finding['recommendations'] as $step): ?><li class="u-mb10"><strong><?= $escape($step['title']) ?></strong> — <?= $escape($step['detail']) ?></li><?php endforeach; ?></ol>
+<?php endif; ?>
+<?php if (!empty($finding['filter_candidate'])): $candidate = $finding['filter_candidate']; ?>
+<p class="u-mt10 u-mb10"><strong>Filter candidate for review</strong> · No rule has been created.</p>
+<p>Domain: <code><?= $escape($candidate['domain']) ?></code><br>
+Path: <code><?= $escape($candidate['path']) ?></code><br>
+Parameter names: <code><?= $escape(implode(', ', $candidate['parameters'])) ?></code><br>
+Observed crawler names: <code><?= $escape($candidate['observed_crawlers'] ? implode(', ', $candidate['observed_crawlers']) : 'None identified') ?></code></p>
+<p>Review these fields in Filtered URLs below. Choose the crawler names, action and rate yourself; apply only to this domain. A 404 or IP ban is not suggested by this finding.</p>
+<?php endif; ?>
 </article>
 <?php endforeach; ?>
 <?php if (($analysis['pages'] ?? 1) > 1): ?>

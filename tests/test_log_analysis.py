@@ -119,14 +119,52 @@ class ScanTests(unittest.TestCase):
         for private in ('SECRET_VALUE', 'private-1', '198.51.100.1', 'MyPrivateAgentXYZ'):
             self.assertNotIn(private, text)
 
-    def test_missing_assets_and_php_404s_are_not_labeled_malicious(self):
+    def test_missing_images_are_excluded_but_scripts_and_php_routes_remain_diagnostic(self):
         for _ in range(7):
             self.record('/uploads/logo.jpg', 404)
+            self.record('/assets/app.js', 404)
             self.record('/virtual.php', 404)
         rows = {row['path']: row for row in self.scan()['findings']}
-        self.assertEqual(rows['/uploads/logo.jpg']['kind'], 'site')
+        self.assertNotIn('/uploads/logo.jpg', rows)
+        self.assertEqual(rows['/assets/app.js']['kind'], 'site')
         self.assertIn('virtual PHP route', rows['/virtual.php']['advice'])
         self.assertEqual(rows['/virtual.php']['kind'], 'investigate')
+
+    def test_image_formats_icons_encoded_suffixes_and_server_errors_do_not_become_findings(self):
+        images = ['/apple-touch-icon.png', '/photo.JPG?size=1', '/photo.jxl', '/a%2Ewebp', '/a.svgz', '/a.heif']
+        for image in images:
+            for _ in range(100): self.record(image, 404, extra=' rt=3.000')
+            for _ in range(5): self.record(image, 503)
+        result = self.scan()
+        self.assertEqual(result['findings'], [])
+        self.assertEqual(result['totals']['requests'], 630)
+        self.assertEqual(result['totals']['image_records_excluded'], 630)
+        self.assertEqual(result['coverage'][0]['records'], 630)
+
+    def test_image_suffix_does_not_hide_an_explicit_secret_probe(self):
+        self.record('/.git/icon.png', 403)
+        self.record('/icon.png?file=../../etc/passwd', 404)
+        rows = self.scan()['findings']
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row['kind'] == 'security' for row in rows))
+
+    def test_filter_candidate_keeps_domain_path_and_names_without_a_ban_or_invented_rate(self):
+        for i in range(35): self.record('/catalog/?season='+str(i)+'&token=PRIVATE', agent='Applebot')
+        row = self.scan()['findings'][0]
+        self.assertEqual(row['filter_candidate'], dict(target='alice/one.test', domain='one.test',
+            path='/catalog/', parameters=['season'], observed_crawlers=['Applebot']))
+        self.assertEqual(len(row['recommendations']), 2)
+        self.assertIn('site', row['recommendations'][0]['title'])
+        self.assertNotIn('PRIVATE', json.dumps(row))
+        self.assertFalse({'rate', 'action', 'ban'} & set(row['filter_candidate']))
+
+    def test_locale_and_server_errors_recommend_site_repairs_not_crawler_rules(self):
+        for i in range(35): self.record('/en/en/catalog/?season='+str(i))
+        for _ in range(5): self.record('/broken', 500)
+        rows = {row['path']: row for row in self.scan()['findings']}
+        self.assertEqual(rows['/en/en/catalog/']['recommendations'][0]['title'], 'Correct language links')
+        self.assertEqual(rows['/broken']['recommendations'][0]['title'], 'Inspect application errors')
+        self.assertTrue(all('filter_candidate' not in row for row in rows.values()))
 
     def test_explicit_security_signature_is_separate_from_generic_high_volume(self):
         self.record('/.git/config', 403)

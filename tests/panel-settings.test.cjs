@@ -13,10 +13,15 @@ function fixture(replies, {action = null, remembered = null, activity = false} =
     const progress = {textContent: ''};
     const cancel = {hidden: true, addEventListener: (_, fn) => {handlers.cancel = fn;}};
     const output = {replaceChildren: (...nodes) => {updated = nodes[0] === 'report';}, addEventListener: (_, fn) => {handlers.page = fn;}};
+    const fields = {
+        '[name="analysis_minutes"]': {value:'30'},
+        '[name="analysis_target"]': {value:'all'},
+        '[name="analysis_verify_google"]': {checked:false}
+    };
     const form = {action: {toString: () => '[object HTMLInputElement]'},
         getAttribute: () => action,
-        querySelector: selector => selector.startsWith('button') ? button : {value: 'csrf-token'},
-        addEventListener: (_, fn) => {handlers.submit = fn;}};
+        querySelector: selector => selector.startsWith('button') ? button : (fields[selector] || {value: 'csrf-token'}),
+        addEventListener: (event, fn) => {handlers[event] = fn;}};
     const nodes = {[activity ? 'hdn-activity-scan' : 'hdn-log-scan']: form,
         [activity ? 'hdn-activity-progress' : 'hdn-analysis-progress']: progress,
         [activity ? 'hdn-activity-cancel' : 'hdn-analysis-cancel']: cancel,
@@ -38,7 +43,7 @@ function fixture(replies, {action = null, remembered = null, activity = false} =
         DOMParser: class {parseFromString() {return {getElementById: () => ({childNodes: ['report']})};}}
     });
     if (!remembered) requests.shift(); // Initial status lookup is not a new scan.
-    return {handlers, requests, button, progress, updated: () => updated,
+    return {handlers, requests, button, progress, fields, updated: () => updated,
         submit: () => handlers.submit({preventDefault() {}})};
 }
 const queued = {ok: true, job: {id: 'one', state: 'queued'}};
@@ -78,6 +83,24 @@ test('failed worker is not presented as a completed review', async () => {
 test('reload resumes the existing job without starting a second one', async () => {
     const f = fixture([done],{remembered:'one'}); await new Promise(resolve=>setImmediate(resolve));
     assert.equal(f.requests.length,1); assert.equal(f.requests[0].options.body.fields.get('action'),'log_scan_status'); assert.equal(f.updated(),true);
+});
+
+test('restoring a review also restores its time window, domain and verification selection', async () => {
+    const value = {...done, job:{...done.job, selection:{minutes:360,target:'alice/one.test',verify_google:true}}};
+    const f = fixture([value], {remembered:'one'}); await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.fields['[name="analysis_minutes"]'].value, '360');
+    assert.equal(f.fields['[name="analysis_target"]'].value, 'alice/one.test');
+    assert.equal(f.fields['[name="analysis_verify_google"]'].checked, true);
+});
+
+test('restored report and pagination never overwrite a newly edited review selection', async () => {
+    const value = {...done, job:{...done.job, selection:{minutes:360,target:'alice/one.test',verify_google:true}}};
+    const f = fixture([value,value], {remembered:'one'});
+    f.fields['[name="analysis_minutes"]'].value='1440'; f.handlers.input();
+    await new Promise(resolve=>setImmediate(resolve));
+    await f.handlers.page({target:{closest:()=>({dataset:{hdnAnalysisPage:'2'}})}});
+    assert.equal(f.fields['[name="analysis_minutes"]'].value,'1440');
+    assert.equal(f.fields['[name="analysis_target"]'].value,'all');
 });
 test('pagination exposes remaining findings without policy changes', async () => {
     const f = fixture([queued,done,done]); await f.submit(); await f.handlers.page({target:{closest:()=>({dataset:{hdnAnalysisPage:'2'}})}});

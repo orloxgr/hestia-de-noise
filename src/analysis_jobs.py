@@ -124,7 +124,8 @@ def status(state, job, actor, page=1, kind="scan", owner=None):
             value = (dict(state='cancelled', progress=value.get('progress', {})) if (path / 'cancel.json').exists() else
                      dict(state='failed', error='The review process stopped before completing. Start a new review.', progress=value.get('progress', {})))
             write(path, 'status.json', value)
-    result = {'id': job, **value}
+    request = read(path, 'request.json')
+    result = {'id': job, **value, 'selection': {key: request[key] for key in ('target', 'minutes', 'verify_google')}}
     if value['state'] == 'complete':
         analysis = read(path, 'result.json')
         # Display pages only; the complete report remains available on disk.
