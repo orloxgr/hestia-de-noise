@@ -58,6 +58,7 @@ $error = '';
 $message = '';
 $submitted = null;
 $wordpressResult = null;
+$analysisResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['domain_bans_save', 'history_clear'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
@@ -147,6 +148,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
+        } elseif ($request['action'] === 'log_scan') {
+            $request['target'] = $_POST['analysis_target'] ?? '';
+            $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
+            $request['verify_google'] = isset($_POST['analysis_verify_google']);
         } elseif ($request['action'] === 'history_clear') {
             $request['scope'] = $_POST['history_scope'] ?? '';
         } elseif ($request['action'] === 'history_settings_save') {
@@ -184,14 +189,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save'], true)) {
+        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $result = $bridge($request);
             if (isset($result['wordpress'])) $wordpressResult = $result['wordpress'];
+            if ($request['action'] === 'log_scan' && !empty($result['ok'])) $analysisResult = $result['analysis'] ?? null;
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
             elseif ($request['action'] === 'history_clear') $message = 'Completed ban history cleared. Active bans and strike counters are unchanged.';
             elseif ($request['action'] === 'history_settings_save') $message = 'History retention saved.';
+            elseif ($request['action'] === 'log_scan') $message = 'Log review completed. Suggestions only; no protection settings or bans were changed.';
             elseif (str_starts_with($request['action'], 'wordpress_')) $message = match ($request['action']) {
                 'wordpress_save' => 'WordPress login protection applied through Fail2ban.',
                 'wordpress_unban' => 'Selected WordPress IP bans removed.',
@@ -209,6 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 $data = $bridge($statusRequest);
 if ($wordpressResult !== null) $data['wordpress'] = $wordpressResult;
+if ($isAdmin && $analysisResult !== null) $data['analysis'] = $analysisResult;
 if (empty($data['ok'])) $error = $error ?: ($data['error'] ?? 'Could not load De-Noise.');
 // When impersonating a user, render the user's scope even for an admin session.
 if (!$isAdmin) $data['sites'] = array_values(array_filter($data['sites'] ?? [], static fn($site) => $site['owner'] === $owner));

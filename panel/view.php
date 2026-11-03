@@ -17,7 +17,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 </div></div></div>
 <div class="container" id="hdn-container"><div class="form-container form-container-wide">
 <h1 class="u-mb20">De-Noise</h1>
-<?php if ($error !== ''): ?><div class="alert alert-danger u-mb20" role="alert"><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($isAdmin ? $error : 'De-Noise is temporarily unavailable. Contact the administrator.') ?></pre></div>
+<?php if ($error !== ''): ?><div id="hdn-request-error" class="alert alert-danger u-mb20" role="alert"><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($isAdmin ? $error : 'De-Noise is temporarily unavailable. Contact the administrator.') ?></pre></div>
 <?php elseif ($message !== ''): ?><div class="alert alert-success u-mb20" role="status"><p><?= $escape($message) ?></p></div><?php endif; ?>
 <?php if ($isAdmin && $error === '' && !empty($data['bans']['error'])): ?><div class="alert alert-danger u-mb20" role="alert"><p>Automatic firewall bans need attention:</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($data['bans']['error']) ?></pre></div><?php endif; ?>
 <?php if ($isAdmin && (!empty($data['maintenance']['error']) || !empty($data['maintenance']['stale']))): ?>

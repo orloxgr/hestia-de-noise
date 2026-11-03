@@ -1,4 +1,4 @@
-# Presets — 0.11.0
+# Presets — 0.12.0
 
 ## Scanner tools
 
@@ -97,11 +97,9 @@ public pages are not generally blocked. There is no blanket browser/bot rule.
 
 ## Filtered URL examples
 
-The panel provides **Product listing filters** for `min_price`, `max_price` and
-`orderby`, and **VLM directory filters** for `vlm_listing_tag`,
-`vlm_listing_category` and `vlm_listing_distance`. Both use path `/` to cover
-localized listing routes and an editable 30/minute/crawler/domain limit, burst 5.
-Choose the applicable domains before saving; an empty selection means all.
+Filtered-URL suggestions now come from **Analyze logs** for selected domains,
+not application-specific insertion presets. Older saved rules remain unchanged.
+The following are examples, not recommended universal rules or thresholds:
 
 | Listing type | Path | Parameter names |
 | --- | --- | --- |
@@ -109,9 +107,9 @@ Choose the applicable domains before saving; an empty selection means all.
 | Directory listing | `/directory/` | `listing_tag`, `listing_category`, `listing_distance` |
 | Localized listings using the same parameters | `/` on selected domains | The exact parameter names used by that application |
 
-The add-rule form starts at 30 requests/minute/crawler/domain, burst 5, with
-Applebot, Amazonbot, Reflectionbot, Googlebot and Bingbot as editable candidates.
-This limits only the configured filter combinations; ordinary indexable pages
+The add-rule form starts disabled with no preselected parameter names, crawler
+names or rate. Choose these deliberately after reviewing the site and log sample.
+An enabled rule limits only the configured filter combinations; ordinary indexable pages
 remain outside that rule. No query values or URLs are rewritten, and no
 `robots.txt`, sitemap or canonical setting is changed.
 

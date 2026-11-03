@@ -1,5 +1,35 @@
 (() => {
     'use strict';
+    document.getElementById('hdn-log-scan')?.addEventListener('submit', async event => {
+        event.preventDefault();
+        const button = event.target.querySelector('button[type="submit"]');
+        const progress = document.getElementById('hdn-analysis-progress');
+        const original = button.textContent;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 20000);
+        button.disabled = true;
+        button.textContent = 'Analyzing available logs…';
+        progress.textContent = 'Review running. Unsaved rule edits stay on this page.';
+        try {
+            const response = await fetch(event.target.action || location.href, {
+                method: 'POST', body: new FormData(event.target), credentials: 'same-origin', signal: controller.signal
+            });
+            const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+            const error = page.getElementById('hdn-request-error');
+            const output = page.getElementById('hdn-analysis-output');
+            if (!response.ok || error || !output) throw new Error(error?.textContent.trim() || 'Review could not complete. Check the session and retry.');
+            // Replace only the escaped report fragment, preserving every rule
+            // field and unsaved switch in the existing settings form.
+            document.getElementById('hdn-analysis-output').replaceChildren(...[...output.childNodes].map(node => document.importNode(node, true)));
+            progress.textContent = 'Review completed. Protection settings and unsaved rule edits are unchanged.';
+        } catch (error) {
+            progress.textContent = error.name === 'AbortError' ? 'Review timed out. Protection settings and rule edits are unchanged.' : error.message;
+        } finally {
+            clearTimeout(timeout);
+            button.disabled = false;
+            button.textContent = original;
+        }
+    });
     const presets = JSON.parse(document.getElementById('hdn-agent-presets').textContent);
     const probePresets = JSON.parse(document.getElementById('hdn-probe-presets').textContent);
     document.querySelectorAll('[data-hdn-probe-preset]').forEach(button => button.addEventListener('click', () => {

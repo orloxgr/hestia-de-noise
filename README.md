@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.11.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.12.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -64,6 +64,10 @@ There is no mandatory observation period.
   Add optional search-crawler names to an individual rule without a global
   block. Preview/copy robots.txt directives when those filtered URLs should
   stay out of search; the addon does not write robots.txt files.
+- **Analyze logs:** administrator-triggered review of one/all web domains over
+  30 minutes, 6 hours or 24 hours. Suggestions distinguish site faults, possible
+  crawl spaces, known probes and traffic requiring investigation. They do not
+  create rules or bans. Read coverage and resource limits are shown explicitly.
 - **Missing static files:** select a directory and file extensions; return 404
   before PHP for missing files. Existing files keep their current routing.
 - **Activity:** last 15 minutes of matched, observed and blocked requests by
@@ -155,6 +159,13 @@ After Git finishes successfully, apply the update:
 ```bash
 python3 /usr/local/src/hestia-de-noise/tools/install.py
 ```
+
+Version 0.12.0 adds **Filtered URLs → Analyze logs** and removes the generic
+insertion buttons for application-specific listing/filter presets. Saved rules
+are not removed, disabled or retuned. Review them explicitly if they were only
+temporary overload protection. New manual rules start disabled and require
+parameter names, crawler names and a chosen rate. Analysis runs only on request
+and changes no protection settings, bans, robots.txt or website files.
 
 Version 0.11.0 expands the selected missing-PHP preset from 219 to 265 paths.
 An exact previous bundled list is upgraded automatically; edited lists are
@@ -371,14 +382,52 @@ inside the panel; narrow screens scroll only the table.
 
 ## Add a filtered-URL rule
 
-1. Open **Filtered URLs → Filtered URL crawling**.
-2. Click **Product listing filters** or **VLM directory filters**.
-3. Select the domains. An empty selection means all domains.
-4. Review the prefilled rate and parameter names, then **Save & Apply**.
+1. Open **Filtered URLs** and choose a domain and time window under **Analyze logs**.
+2. Review the evidence and coverage. A suggestion is not a legitimacy verdict.
+3. Fix application links, missing assets or expensive work in the site when that
+   is the appropriate remedy. Manage unwanted filter crawling separately from
+   security probes; do not convert valid pages into 404s.
+4. If a protection rule is still appropriate, click **Add rule**, select domains,
+   parameter names, declared crawler names and an explicitly chosen rate/action.
+   New rules start disabled. An empty domain selection means all web domains.
+5. Enable only the reviewed rule and **Save & Apply**.
 
-For another URL pattern use **Add rule**. All presets remain editable. Ordinary
+Existing rules remain editable. Ordinary
 URLs without the selected parameter names and visitors without the selected
 crawler names do not match the rule.
+
+### Log-analysis limits and privacy
+
+The administrator may review one known web domain or up to 500 web domains.
+The review reads only current and previous uncompressed native access logs in
+the standard Apache/Nginx log directories, with trusted-owner/no-follow checks
+and shared-inode deduplication. It uses a separate nonblocking scan lock and
+lower process priority; no new collector, request-time script or scheduled task
+is installed. The review bypasses protection/recovery transactions and never
+modifies policy, ban evidence/counters, firewall rules or website files.
+
+Each review has a 64-MiB read and 8-second processing budget, 600 route groups,
+256 distinct clients/combinations per group and at most 20 displayed findings.
+Partial, unavailable and malformed-log coverage is explicit; there is no claim
+that a zero-result sample proves safety. Native records are not total incoming
+requests or proof of PHP work: early blocks/cache HITs can be absent, and layered
+logs can duplicate records. Request/upstream timing and cache state are shown
+only for explicit `rt=`, `urt=` and `cache=` fields, if already present; no logging
+configuration is changed to collect them.
+
+Query values, IPs and raw User-Agents are not returned or retained in reports.
+Tracking/authentication values are excluded from filter-diversity suggestions;
+only bounded in-memory digests are used for distinct combinations/clients.
+Reports are returned for the current page and are not saved as scan history.
+The panel refreshes only the report after a review, preserving unsaved rule edits.
+
+Optional Googlebot verification downloads only Google's public common-crawler
+CIDRs, with a hard two-second downloader timeout and root-private 24-hour cache
+at `/var/lib/hestia-de-noise/google-common-crawlers.json`. No visitor data is sent
+to Google and no per-request DNS lookup occurs. A source-range match is not a
+verdict that the requested URL is useful or harmless. Missing/failed verification
+stays unconfirmed. Verification depends on the address already recorded in logs;
+incorrect proxy/client-IP configuration affects its usefulness.
 
 ## Enable missing-static-file protection
 

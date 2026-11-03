@@ -30,3 +30,6 @@
 .hdn-ban-details ul { padding-left: 1.2rem; }
 .hdn-ban-details li { margin-bottom: .6rem; overflow-wrap: anywhere; }
 .hdn-ban-details code { white-space: normal; overflow-wrap: anywhere; }
+.hdn-analysis { padding-bottom: 20px; border-bottom: 1px solid currentColor; }
+.hdn-analysis-finding { padding: 12px; border: 1px solid currentColor; border-radius: 4px; }
+.hdn-analysis p, .hdn-analysis code, .hdn-analysis td { overflow-wrap: anywhere; white-space: normal; }

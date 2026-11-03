@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.0
+
+- Add an administrator-triggered native-log review in Filtered URLs, scoped to
+  one domain or all web domains, with 30-minute, 6-hour and 24-hour windows.
+  Report actual patterns, HTTP statuses, declared agents, burst/diversity counts
+  and explicit read coverage; never apply a rule, return a new 404 or ban an IP.
+- Separate site faults, crawl-space candidates, known probe signatures and
+  diagnostic traffic. Missing assets, virtual PHP routes, REST/AJAX and ordinary
+  high activity are not classified as malicious solely from frequency or 404s.
+- Bound each scan to 64 MiB and an 8-second processing budget with limited route
+  groups/distinct counters. Use a separate nonblocking scan lock, lower process
+  priority, no maintenance hook and no protection/recovery transaction lock.
+- Add optional Googlebot source-range verification from Google's public CIDRs,
+  with a bounded download and private 24-hour cache. No client IPs or logs are
+  sent out; unavailable verification leaves claims unconfirmed and does not fail
+  the review. Do not infer timing/cache measurements absent from native logs.
+- Remove application-specific filtered-URL insertion presets. Preserve saved
+  rules unchanged. New manual rules start disabled with empty parameters,
+  crawler names and rate, requiring an explicit operator choice.
+
 ## 0.11.0
 
 - Expand the literal missing-PHP preset from 219 to 265 paths. Upgrade an exact

@@ -46,6 +46,7 @@ $renderRule = static function (string $module, $index, array $rule) use ($escape
 foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filtered URL crawling' : 'Missing static files'] : ['filters' => 'Filtered URL crawling', 'static' => 'Missing static files'] as $module => $title): ?>
 <section class="u-mb20">
     <h2 class="u-mb20"><?= $escape($title) ?></h2>
+        <?php if ($module === 'filters') require $install . '/panel/log-analysis.php'; ?>
         <p class="u-mb10"><?= $module === 'filters'
             ? 'Match selected crawler names, a URL path and query parameter names. Ordinary visitors and unmatched URLs keep their current routing.'
             : 'Return 404 for missing files in selected directories. Existing files keep their current routing.' ?></p>
@@ -91,7 +92,7 @@ foreach (isset($ruleModule) ? [$ruleModule => $ruleModule === 'filters' ? 'Filte
 </section>
 <template id="hdn-<?= $module ?>-template">
 <?php $renderRule($module, '__INDEX__', $module === 'filters'
-    ? ['id' => '__ID__', 'enabled' => true, 'path' => '/shop/', 'parameters' => ['min_price', 'max_price', 'orderby'], 'agents' => $data['presets']['filter_agents'] ?? [], 'action' => 'limit', 'rate' => 30, 'burst' => 5, 'targets' => []]
+    ? ['id' => '__ID__', 'enabled' => false, 'path' => '/', 'parameters' => [], 'agents' => [], 'action' => 'limit', 'rate' => '', 'burst' => 0, 'targets' => []]
     : ['id' => '__ID__', 'enabled' => true, 'path' => '/wp-content/', 'extensions' => ['map'], 'targets' => []]); ?>
 </template>
 <?php endforeach; ?>

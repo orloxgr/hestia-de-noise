@@ -21,6 +21,7 @@ import cron_spread
 import domain_bans
 import wordpress
 import enumeration
+import log_analysis
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -404,6 +405,14 @@ def authorize(request):
 def dispatch(request):
     if not isinstance(request, dict):
         raise ValueError('Expected a JSON object')
+    if request.get('action') == 'log_scan':
+        admin, owner = authorize(request)
+        if not admin or owner != request['actor']:
+            raise PermissionError('Log analysis requires the administrator context')
+        if set(request) - {'actor', 'owner', 'action', 'target', 'minutes', 'verify_google', 'listing'}:
+            raise ValueError('Only log-analysis selections can be submitted')
+        return {'ok': True, 'analysis': log_analysis.review(collect(), request.get('target'),
+                request.get('minutes'), STATE, request.get('verify_google', False))}
     admin, owner = authorize(request)
     action = request.get('action')
     policy = validate(load('policy.json', DEFAULT))
@@ -546,6 +555,16 @@ def dispatch(request):
 def main():
     if os.geteuid() != 0:
         raise PermissionError('Invoke this command as root or through the Hestia panel')
+    request = None
+    if not sys.argv[1:]:
+        raw = sys.stdin.buffer.read(1048577)
+        if len(raw) > 1048576:
+            raise ValueError('Request too large')
+        request = json.loads(raw)
+        # An explicit read-only review has its own nonblocking scan lock. It
+        # must not hold the protection/recovery lock or run mutation recovery.
+        if isinstance(request, dict) and request.get('action') == 'log_scan':
+            return dispatch(request)
     with locked():
         recover()
         wordpress.recover(STATE, run)
@@ -562,8 +581,5 @@ def main():
             else:
                 result = snapshot(policy, sites)
         else:
-            raw = sys.stdin.buffer.read(1048577)
-            if len(raw) > 1048576:
-                raise ValueError('Request too large')
-            result = dispatch(json.loads(raw))
+            result = dispatch(request)
     return {'ok': True, **result}
