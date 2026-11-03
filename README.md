@@ -5,27 +5,40 @@ Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
 
-Run these two commands in the server's root SSH session:
+Run the following steps in the server's root SSH session:
 
-1. Clone:
+1. **Get the code. Choose one command:**
+
+   For a **new installation**, clone the repository:
 
    ```bash
    git clone https://github.com/orloxgr/hestia-de-noise.git /usr/local/src/hestia-de-noise
    ```
 
-2. Install:
+   To **update an existing checkout**, pull instead:
+
+   ```bash
+   git -C /usr/local/src/hestia-de-noise pull --ff-only
+   ```
+
+   Wait for Git to finish successfully before continuing.
+
+2. **Install or apply the update:**
 
    ```bash
    python3 /usr/local/src/hestia-de-noise/tools/install.py
    ```
 
+   Pulling the code alone does not apply the update; run the installer too.
+
 3. Refresh Hestia and open **Plugins → De-Noise** as administrator.
 
-4. In **General**, select **Enforce** and enable **Private-file protection**.
+4. For a **new installation**, in **General**, select **Enforce** and enable **Private-file protection**.
    In **User-Agents**, click **Add scanner tools**, then **Save & Apply**.
    **Add bulk / AI crawlers** is optional.
 
-Installation starts in **Observe with an empty blocklist**; it blocks nothing.
+New installations start in **Observe with an empty blocklist**; they block nothing.
+Updates preserve the existing settings.
 Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
@@ -92,8 +105,15 @@ See [ROADMAP.md](ROADMAP.md) for completed and remaining work.
 
 ## Updates
 
+Run these commands separately. First, download the latest code:
+
 ```bash
 git -C /usr/local/src/hestia-de-noise pull --ff-only
+```
+
+After Git finishes successfully, apply the update:
+
+```bash
 python3 /usr/local/src/hestia-de-noise/tools/install.py
 ```
 
