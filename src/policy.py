@@ -5,9 +5,10 @@ import ipaddress
 import re
 from urllib.parse import quote, unquote
 import probe_rules
+import enumeration
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.9.0'
+VERSION = '0.10.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -18,7 +19,8 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 8, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 9, 'mode': 'observe', 'agents': [], 'scanners': False,
+           'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
            'xmlrpc': {'enabled': False, 'rate': 10, 'burst': 3}, 'overrides': {},
@@ -37,7 +39,7 @@ DEFAULT = {'schema': 8, 'mode': 'observe', 'agents': [], 'scanners': False,
            'probe_exceptions': {'files': {}, 'queries': {}},
            'domain_bans': {'allow_users': True, 'sites': {}}}
 LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
-V7_KEYS = set(DEFAULT) - {'log_rejections', 'mail_protection'}
+V7_KEYS = set(DEFAULT) - {'log_rejections', 'mail_protection', 'enumeration'}
 PRIVATE_PATTERNS = [
     ('private-file', r'(?:^|/)\.env(?:[./]|$)'),
     ('repository', r'(?:^|/)\.(?:git|svn|hg)(?:/|$)'),
@@ -125,8 +127,11 @@ def validate(raw):
         if isinstance(paths, list) and probe_rules.is_previous_preset(paths):
             data['bans']['missing_files']['paths'] = list(probe_rules.FILES)
         data.update(schema=8, log_rejections=False, mail_protection=False)
-    if data.get('schema') != 8 or set(data) != set(DEFAULT):
+    if data.get('schema') == 8 and set(data) == set(DEFAULT) - {'enumeration'}:
+        data.update(schema=9, enumeration=copy.deepcopy(enumeration.SETTINGS))
+    if data.get('schema') != 9 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
+    enumeration.validate(data['enumeration'], target)
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
     if any(type(data[key]) is not bool for key in ('tool_agents_enabled', 'agents_enabled', 'log_rejections', 'mail_protection')):
@@ -364,6 +369,7 @@ def global_config(policy, sites, domain_blocks=None):
     lines += ['map "$hdn_mode:$hdn_ban_site:$hdn_ban_signal" $hdn_direct_reject {',
               '    default 0;', '    ~^enforce:1:(private-file|repository)$ 1;', '}']
     web_sites = [site for site in sites if site.get('kind') != 'mail']
+    lines += enumeration.compiled(policy, web_sites, pattern, parameter_pattern)
     lines += probe_rules.compile_maps(policy, web_sites, pattern, exact_uri_pattern)
     lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
     for site in sites:
@@ -401,11 +407,12 @@ def global_config(policy, sites, domain_blocks=None):
     for rule in policy['static']:
         label = 'static-' + rule['id']
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
-    lines += ['}', 'map "$hdn_direct_reject:$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label:$hdn_probe_query:$hdn_probe_file" $hdn_match_base {',
+    lines += ['}', 'map "$hdn_direct_reject:$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label:$hdn_probe_query:$hdn_probe_file:$hdn_enum_match" $hdn_match_base {',
               '    default "";', '    ' + pattern('^1:') + ' private-file;',
               '    ' + pattern('^[01]:1:') + ' private-file;',
               '    ' + pattern('^[01]:[01]:1:') + ' agent;']
-    lines += ['    ' + pattern(':q[0-9a-f]{16}:') + ' suspicious-query;', '    ' + pattern(':f[0-9a-f]{16}$') + ' missing-file;']
+    lines += ['    ' + pattern(':1$') + ' user-enumeration;',
+              '    ' + pattern(':q[0-9a-f]{16}:') + ' suspicious-query;', '    ' + pattern(':f[0-9a-f]{16}:') + ' missing-file;']
     for _, label in block_variables:
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
     for rule in policy['static']:
@@ -467,6 +474,8 @@ def site_config(policy, site, document_root=None):
         lines += ['if ($hdn_direct_reject) { return 403; }', 'if ($hdn_block) { return 403; }',
                   'if ($hdn_probe_query != "") { return 404; }', 'if ($hdn_probe_file != "") { return 404; }',
                   'if ($hdn_static_reject) { return 404; }']
+        if policy['enumeration']['enabled'] and site.get('enumeration_ready'):
+            lines.append('if ($hdn_enum_reject) { return 403; }')
     for key in ('login', 'xmlrpc'):
         if policy[key]['enabled']:
             burst = policy[key]['burst']

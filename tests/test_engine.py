@@ -145,6 +145,7 @@ class AuthorizationTests(unittest.TestCase):
         saved['bans']['missing_files'].update(enabled=True, maxretry=4)
         saved['probe_exceptions']['queries'] = {'alice/example.test': ['/manager.php']}
         incoming = copy.deepcopy(DEFAULT); incoming['schema'] = 4; incoming.pop('probe_exceptions'); incoming.pop('domain_bans')
+        incoming.pop('enumeration')
         for key in ('missing_files', 'suspicious_queries', 'any_404'): incoming['bans'].pop(key)
         with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
                 patch.object(engine, 'load', return_value=saved), \

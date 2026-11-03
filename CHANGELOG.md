@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0
+
+- Add an administrator User enumeration tab with independent REST user-list,
+  author-ID discovery and optional author-archive switches, selected/all-domain
+  scope, and hover help. Preserve existing modes and keep new protection off.
+- Reject credential-free enumeration at Nginx before PHP. Install a small owned
+  WordPress MU guard only for selected standard WordPress sites in Enforce, using
+  the hosting user's privileges. WordPress verifies authentication; spoofed
+  cookies/headers cannot bypass the guard. Preserve authenticated API/editor
+  operations, ordinary REST routes and password reset flows.
+- Journal companion/Nginx changes together, refuse unmanaged files/custom content
+  directories, preserve host scope for shared roots, and remove owned guards on
+  disable/uninstall. Avoid recurring helper processes for unchanged sites.
+- Record native enumeration rejections in existing Activity without adding ban
+  counters, shared quotas, log collectors or resident services. Clear the site's
+  native Nginx cache when enabling/changing protection on caching templates.
+- Arrange twelve administrator tabs in two equal full-width rows, six per row,
+  without a horizontal scrollbar. Keep native tab behavior and keyboard navigation.
+
 ## 0.9.0
 
 - Fix Activity, automatic-ban event reading and installer upgrades after Nginx

@@ -20,6 +20,7 @@ import probe_rules
 import cron_spread
 import domain_bans
 import wordpress
+import enumeration
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -228,7 +229,8 @@ def recover():
     restore(record)
     run('/usr/sbin/nginx', '-t')
     reload_nginx()
-    for name in ('policy.json', 'manifest.json', domain_bans.APPLIED):
+    enumeration.apply(record.get('enumeration_changes', []), reverse=True)
+    for name in ('policy.json', 'manifest.json', domain_bans.APPLIED, enumeration.MANIFEST):
         if name not in record:
             continue  # Recovery journals from an older installed generation.
         old = record[name]
@@ -246,6 +248,8 @@ def apply(policy, sites, remove=False):
         for kind in ('files', 'queries'):
             policy['probe_exceptions'][kind] = {key: paths for key, paths in policy['probe_exceptions'][kind].items() if key in known}
     desired = {}
+    sites, companion_manifest, companion_changes = enumeration.prepare(
+        policy, sites, load(enumeration.MANIFEST, {}), site_mode, remove=remove)
     domain_blocks = domain_bans.desired(policy, sites, STATE) if not remove else {}
     if not remove:
         desired[str(GLOBAL)] = global_config(policy, sites, domain_blocks)
@@ -270,17 +274,28 @@ def apply(policy, sites, remove=False):
     # crash after reload but before state commit restores the old policy too.
     record = {'schema': 1, 'before': before,
               'policy.json': load('policy.json', None), 'manifest.json': load('manifest.json', None),
-              domain_bans.APPLIED: load(domain_bans.APPLIED, None)}
+              domain_bans.APPLIED: load(domain_bans.APPLIED, None),
+              enumeration.MANIFEST: load(enumeration.MANIFEST, None),
+              'enumeration_changes': companion_changes}
     storage.replace(STATE / 'transaction.json', storage.json_bytes(record), 0o600)
     try:
+        enumeration.apply(companion_changes)
         for name, text in changes.items():
             storage.replace(name, None if text is None else text.encode())
         verify(desired)
         if changes:
             reload_nginx()
+        changed_roots = {row['root'] for row in companion_changes if row['after'] is not None}
+        for site in sites:
+            entry = companion_manifest.get(site['key'])
+            if entry and entry['root'] in changed_roots and site.get('template', '').startswith('caching'):
+                run(str(HESTIA / 'bin/v-purge-nginx-cache'), site['owner'], site['domain'])
+        for entry in companion_manifest.values():
+            entry['fingerprint'] = enumeration.fingerprint(entry['root'])
         storage.replace(STATE / 'manifest.json', storage.json_bytes(sorted(desired)), 0o600)
         storage.replace(STATE / 'policy.json', storage.json_bytes(policy), 0o600)
         storage.replace(STATE / domain_bans.APPLIED, storage.json_bytes(domain_blocks), 0o600)
+        storage.replace(STATE / enumeration.MANIFEST, storage.json_bytes(companion_manifest), 0o600)
         storage.replace(STATE / 'transaction.json', None)
     except Exception as error:
         try:
@@ -462,13 +477,15 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') in (6, 7, 8):
+        if incoming.get('schema') in (6, 7, 8, 9):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
             incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
-                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8) else {}}}
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9) else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
-        if incoming.get('schema') != 8:
+        if incoming.get('schema') != 9:
+            policy['enumeration'] = previous['enumeration']
+        if incoming.get('schema') not in (8, 9):
             for key in ('log_rejections', 'mail_protection'):
                 policy[key] = previous[key]
             for key in ('exclude_static', 'min_distinct_paths'):

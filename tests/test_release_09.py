@@ -30,12 +30,13 @@ class UpgradeTests(unittest.TestCase):
     def test_v7_keeps_custom_limits_lists_and_adds_guardrails_without_new_blocks(self):
         old = copy.deepcopy(DEFAULT)
         old.update(schema=7)
+        old.pop('enumeration')
         old.pop('mail_protection'); old.pop('log_rejections')
         old['bans']['any_404'] = dict(enabled=True, maxretry=30, findtime=300, duration_days=3)
         old['agents'] = ['CustomBot']
         old['bans']['missing_files']['paths'] = ['/custom.php']
         new = validate(old)
-        self.assertEqual(new['schema'], 8)
+        self.assertEqual(new['schema'], 9)
         self.assertEqual(new['agents'], ['CustomBot'])
         self.assertEqual(new['bans']['missing_files']['paths'], ['/custom.php'])
         self.assertEqual(new['bans']['any_404'], {**old['bans']['any_404'], 'exclude_static':True, 'min_distinct_paths':3})
@@ -49,6 +50,7 @@ class UpgradeTests(unittest.TestCase):
         saved['bans']['any_404']['min_distinct_paths']=7
         saved['domain_bans']['sites']={'alice/one.test':dict(missing_files=True,suspicious_queries=False,any_404=False)}
         old=copy.deepcopy(DEFAULT);old.update(schema=7)
+        old.pop('enumeration')
         for key in ('mail_protection','log_rejections'):old.pop(key)
         for key in ('exclude_static','min_distinct_paths'):old['bans']['any_404'].pop(key)
         with patch.object(engine,'authorize',return_value=(True,'admin')), patch.object(engine,'load',return_value=saved), \

@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.9.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.10.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -48,6 +48,10 @@ There is no mandatory observation period.
 - Separate Scanner tools and Crawlers blocklists, each with its own switch.
   One literal, case-insensitive User-Agent substring per line.
 - Optional POST login and XML-RPC rate limits, with editable rate and burst.
+- **User enumeration:** optional protection for public WordPress REST user
+  lists/numeric profiles, the `rest_route` variant, and author-ID discovery.
+  A separate optional switch covers public author archives. Authenticated
+  requests retain WordPress's normal permissions; other REST routes remain available.
 - **WordPress logins:** administrator controls for the existing Fail2ban
   service: enable, failed-attempt threshold/window, three-stage ban durations,
   on-demand status and selected/all WordPress unban.
@@ -86,8 +90,10 @@ There is no mandatory observation period.
 - **Domain bans:** owners can switch on additional automatic bans for their own
   domains. These use Nginx, support IPv4/IPv6 and do not block other domains.
 - Hestia's native tabs: General, User-Agents, Endpoints, Filtered URLs, Static
-  files, IP bans, Domain bans, WordPress logins, Cron, Domains and Activity. Tabs stay on one row,
-  scrolling horizontally on small screens. Domain bans and Cron have separate
+  files, IP bans, Domain bans, User enumeration, WordPress logins, Cron, Domains
+  and Activity. Administrator tabs occupy two full-width rows of six, without
+  horizontal scrolling. Small screens use three columns to keep labels readable.
+  Domain bans and Cron have separate
   save/apply controls.
 - All accounts and domains in the administrator's view; bulk mode changes and
   per-domain Off / Observe / Enforce / Inherit. Users see only their own Domain
@@ -103,6 +109,36 @@ custom endpoint rules remain planned. This is a request filter, not a full WAF.
 See [PRESETS.md](PRESETS.md) for the lists and rule examples.
 See [ROADMAP.md](ROADMAP.md) for completed and remaining work.
 
+## User-enumeration protection
+
+Open **Plugins → De-Noise → User enumeration**, enable the feature, choose its
+switches and domain scope, then **Save & Apply**. Empty domain selection means all
+supported WordPress sites and their aliases. The feature starts **off**, including
+after an upgrade. Domain Off / Observe / Enforce modes still apply.
+
+Nginx rejects matching requests without WordPress credentials before PHP. In
+Enforce, the addon also installs one owned file,
+`wp-content/mu-plugins/hestia-de-noise-user-enumeration.php`, as the site's Hestia
+owner. That small companion uses WordPress's authentication result: a fabricated
+cookie or Authorization header cannot unlock the user list. Login, password reset,
+`/users/me`, editor operations and unrelated REST routes keep their normal behavior.
+No account/domain quotas or automatic bans are introduced by this feature.
+
+Disable, Off, Observe and uninstall remove the owned companion when it is no
+longer required. Existing plugins and `wp-config.php` are not modified. WordPress
+is never bootstrapped as root. The existing journal covers website-file and Nginx
+changes together; unchanged maintenance does not launch website helper processes.
+Enabling or changing this protection also purges the selected native Nginx cache
+when the domain uses a `caching`/`caching-*` proxy template.
+
+Only standard WordPress installations at the configured document root with the
+standard `wp-content/mu-plugins` directory are supported. Non-WordPress HTML/PHP
+sites are skipped; custom content directories report an error. Shared document
+roots are scoped by domain and aliases. Custom authentication and cache templates
+need their own compatibility checks. The archive switch is off by default because
+blocking author pages can affect author-page SEO. Article bylines, feeds and old
+indexed names are not rewritten.
+
 ## Updates
 
 Run these commands separately. First, download the latest code:
@@ -116,6 +152,10 @@ After Git finishes successfully, apply the update:
 ```bash
 python3 /usr/local/src/hestia-de-noise/tools/install.py
 ```
+
+Version 0.10.0 adds the User enumeration tab and a two-row tab layout. Existing
+settings, ban history and thresholds are retained; enumeration protection stays
+off until enabled in the panel. Refresh Hestia with **Ctrl+F5** after updating.
 
 Updates preserve the saved policy and domain exceptions. Version 0.2.0 expands
 the existing private-file preset if it was already enabled. It does not insert

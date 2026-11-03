@@ -5,8 +5,9 @@
 #hdn-container > .form-container { min-width: 0; width: 100%; }
 #hdn-tabs { min-width: 0; max-width: 100%; }
 #hdn-save[hidden] { display: none; }
-#hdn-tabs > .tabs-items { flex-wrap: nowrap; gap: 0; max-width: 100%; overflow-x: auto; }
-#hdn-tabs > .tabs-items > .tabs-item { flex: 0 0 auto; margin-right: 0; padding: 10px 8px; font-size: 13px; white-space: nowrap; }
+#hdn-tabs > .tabs-items { display: grid; grid-template-columns: repeat(var(--hdn-tab-columns), minmax(0, 1fr)); gap: 0; width: 100%; max-width: 100%; overflow: visible; }
+#hdn-tabs > .tabs-items > .tabs-item { min-width: 0; width: 100%; margin: 0; padding: 12px 6px; font-size: 13px; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+#hdn-tabs > .tabs-items > .tabs-item:last-child:nth-child(odd) { grid-column: span 2; }
 #hdn-panel-cron { min-width: 0; }
 #hdn-panel-cron .hdn-cron-table-wrap { max-width: 100%; overflow-x: auto; }
 #hdn-panel-cron .hdn-cron-table { width: 100%; table-layout: fixed; }
@@ -19,6 +20,7 @@
 #hdn-panel-domain-bans td { overflow-wrap: anywhere; }
 #hdn-panel-domain-bans .box-collapse-content { padding: 14px 20px; }
 @media (max-width: 640px) {
+    #hdn-tabs.hdn-admin-tabs > .tabs-items { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     #hdn-panel-cron .hdn-cron-table { min-width: 570px; }
 }
 .hdn-wp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; }

@@ -3,7 +3,7 @@ require $root . '/web/templates/header.php';
 $panel = top_panel($headerOwner, $TAB);
 $tabs = $isAdmin ? ['general' => 'General', 'agents' => 'User-Agents', 'endpoints' => 'Endpoints',
     'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans', 'domain-bans' => 'Domain bans',
-    'wordpress' => 'WordPress logins', 'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'domains' => 'Domains', 'activity' => 'Activity'];
+    'enumeration' => 'User enumeration', 'wordpress' => 'WordPress logins', 'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'domains' => 'Domains', 'activity' => 'Activity'];
 $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs);
 ?>
 <script>document.title = 'De-Noise';</script>
@@ -24,8 +24,8 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 <div class="alert alert-danger u-mb20" role="alert"><p>Automatic maintenance needs attention.<?= !empty($data['maintenance']['stale']) ? ' No successful run in the last 3 minutes.' : '' ?></p><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape($data['maintenance']['error'] ?? '') ?></pre></div>
 <?php endif; ?>
 <?php if ($isAdmin): ?><form method="post" id="hdn-settings"><?php $fields('save'); ?></form><?php endif; ?>
-<div class="tabs js-tabs" id="hdn-tabs">
-<div class="tabs-items" role="tablist" aria-label="De-Noise sections">
+<div class="tabs js-tabs<?= $isAdmin ? ' hdn-admin-tabs' : '' ?>" id="hdn-tabs">
+<div class="tabs-items" role="tablist" aria-label="De-Noise sections" style="--hdn-tab-columns:<?= (int)ceil(count($tabs) / 2) ?>">
 <?php foreach ($tabs as $key => $label): ?>
 <button type="button" class="tabs-item" id="hdn-tab-<?= $key ?>" data-hdn-tab="<?= $key ?>" role="tab" tabindex="<?= $key === $activeTab ? '0' : '-1' ?>" aria-selected="<?= $key === $activeTab ? 'true' : 'false' ?>" aria-controls="hdn-panel-<?= $key ?>"><?= $escape($label) ?></button>
 <?php endforeach; ?></div>
@@ -72,6 +72,8 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <?php require $install . '/panel/bans.php'; ?>
 <?php elseif ($key === 'wordpress'): ?>
     <?php require $install . '/panel/wordpress.php'; ?>
+<?php elseif ($key === 'enumeration'): ?>
+    <?php require $install . '/panel/enumeration.php'; ?>
 <?php elseif ($key === 'cron'): ?>
     <?php require $install . '/panel/cron.php'; ?>
 <?php elseif ($key === 'domain-bans'): ?>

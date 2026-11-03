@@ -82,7 +82,7 @@ def preflight():
         raise ValueError('This release targets Ubuntu with HestiaCP')
     if not (engine.HESTIA / 'web/inc/main.php').is_file():
         raise ValueError('An existing HestiaCP installation is required')
-    for file in (SOURCE / 'panel').glob('*.php'):
+    for file in [*(SOURCE / 'panel').glob('*.php'), *(SOURCE / 'wordpress').glob('*.php')]:
         engine.run(str(engine.HESTIA / 'php/bin/php'), '-l', str(file))
     engine.run('/usr/sbin/nginx', '-t')
     # Nginx rejects unsupported directives during the candidate validation.
@@ -117,7 +117,7 @@ def install():
         # complete code generation when the current pointer changes.
         stage = BASE / 'releases' / ('release-' + secrets.token_hex(10))
         stage.mkdir(mode=0o755)
-        for name in ('src', 'panel', 'config'):
+        for name in ('src', 'panel', 'config', 'wordpress'):
             for item in (SOURCE / name).rglob('*'):
                 if item.is_symlink():
                     raise ValueError('Source symlinks are not supported')

@@ -30,10 +30,13 @@
             }
         });
         button.addEventListener('keydown', event => {
-            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
             event.preventDefault();
+            const columns = getComputedStyle(button.parentElement).gridTemplateColumns.split(' ').length;
+            const step = event.key === 'ArrowUp' ? -columns : event.key === 'ArrowDown' ? columns :
+                event.key === 'ArrowLeft' ? -1 : 1;
             const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 :
-                (tabs.indexOf(button) + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length;
+                (tabs.indexOf(button) + step + tabs.length) % tabs.length;
             tabs[index].click();
         });
     });
