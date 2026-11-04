@@ -119,6 +119,30 @@ class ScanTests(unittest.TestCase):
         for private in ('SECRET_VALUE', 'private-1', '198.51.100.1', 'MyPrivateAgentXYZ'):
             self.assertNotIn(private, text)
 
+    def test_exact_ultracache_transport_arguments_do_not_create_filter_candidates(self):
+        for i in range(65):
+            self.record('/?ultracache_revalidate=1&ultracache_rt=private-'+str(i)+'&ultracache_rv='+str(i)+'&ultracache_bucket=webp')
+        result = self.scan()
+        self.assertEqual(result['findings'], [])
+        self.assertEqual(result['totals']['requests'], 65)
+        self.assertNotIn('private-', json.dumps(result))
+
+    def test_cache_transport_cannot_hide_real_filters_or_a_secret_probe(self):
+        for i in range(35):
+            self.record('/catalog/?season='+str(i)+'&ultracache_rt=private-'+str(i))
+        self.record('/?file=../../etc/passwd&ultracache_revalidate=1', 404)
+        rows = self.scan()['findings']
+        self.assertEqual([row['kind'] for row in rows], ['security', 'crawl'])
+        self.assertEqual(rows[1]['parameters'], ['season'])
+        self.assertEqual(rows[1]['combinations'], 35)
+
+    def test_cache_transport_is_not_a_blanket_prefix_or_error_exemption(self):
+        for i in range(35):self.record('/?ultracache_custom_filter='+str(i))
+        for _ in range(5):self.record('/broken?ultracache_revalidate=1', 503)
+        rows = {row['path']:row for row in self.scan()['findings']}
+        self.assertEqual(rows['/']['kind'], 'crawl')
+        self.assertEqual(rows['/broken']['title'], 'Repeated server-error responses')
+
     def test_missing_images_are_excluded_but_scripts_and_php_routes_remain_diagnostic(self):
         for _ in range(7):
             self.record('/uploads/logo.jpg', 404)

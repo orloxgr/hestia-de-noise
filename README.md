@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.13.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.13.2.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -436,6 +436,11 @@ extension. Script, stylesheet and other non-image faults remain diagnostic.
 Recommendations favor site repairs before a crawler rule. Optional filter
 candidates contain only the finding's own domain, path, parameter names and
 observed crawler names; they never create a rule, choose a rate or ban visitors.
+Known UltraCache transport parameters (`ultracache_revalidate`, `ultracache_rt`,
+`ultracache_rv`, `ultracache_bucket`) do not inflate content-filter diversity.
+Records still count toward totals and error/slow-route/probe diagnostics. This
+does not authenticate a caller, trust arbitrary `ultracache_*` names or change
+request filtering, firewall rules or IP-ban counters.
 
 Activity's existing conditional native Nginx log now also stores the full declared
 User-Agent with JSON escaping. Both grouped counts and individual events show it.

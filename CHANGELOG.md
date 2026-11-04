@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.2 · 2026-11-04
+
+- Treat the four known UltraCache revalidation/bucket transport parameters as technical query arguments, avoiding misleading crawl-filter candidates from changing cache tokens.
+- Preserve real content-filter dimensions, all traffic totals and error/slow-route/secret-probe diagnostics. Parameter names do not authenticate a caller or exempt any request from protection; arbitrary UltraCache-prefixed names remain analyzable.
+
 ## 0.13.1 · 2026-11-04
 
 - Exclude ordinary image/icon requests from log-review findings, including 404s and slow/error responses. Retain honest traffic totals and explicit secret-probe evidence; existing ban settings are unchanged.

@@ -37,7 +37,10 @@ COMBINED = re.compile(r'^([^ ]+) \S+ \S+ \[([^\]]+)\] "((?:\\.|[^"\\])*)" (\d{3}
 ASSET = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svgz?|ico|bmp|tiff?|apng|jxl|heic|heif|css|m?js|map|woff2?|ttf|otf|eot|mp[34]|webm|ogg|wav|pdf)$', re.I)
 IMAGE = re.compile(r'\.(?:avif|webp|jpe?g|png|gif|svgz?|ico|bmp|tiff?|apng|jxl|heic|heif)$', re.I)
 SECRET_PATH = re.compile(r'(?:^|/)\.(?:env(?:[./]|$)|git(?:/|$)|svn(?:/|$)|hg(?:/|$))|/(?:etc/(?:passwd|shadow)|proc/self/(?:environ|cmdline)|var/run/secrets/kubernetes.io/serviceaccount)(?:/|$)', re.I)
-TECHNICAL = {'ver', 'v', 'fbclid', 'gclid', 'msclkid', '_', 'cachebuster', 'rest_route', 'format'}
+# These exact cache transport names are not content-filter dimensions. Their
+# presence does not authenticate the caller or exempt a request from analysis.
+TECHNICAL = {'ver', 'v', 'fbclid', 'gclid', 'msclkid', '_', 'cachebuster', 'rest_route', 'format',
+             'ultracache_revalidate', 'ultracache_rt', 'ultracache_rv', 'ultracache_bucket'}
 SENSITIVE = {'key', 'token', 'nonce', '_wpnonce', 'password', 'pass', 'email', 'login', 'auth', 'signature',
              'session', 'sessionid', 'sid', 'code', 'state', 'csrf', 'csrf_token', 'access_token',
              'refresh_token', 'api_key', 'api_token', 'action'}
@@ -98,7 +101,7 @@ def google_ranges(state, now):
         cached = json.loads(cached) if cached else None
         if cached and 0 <= now - cached['fetched'] < 86400:
             return networks(cached['data']), 'Cached published ranges (less than 24 hours old)'
-        # Bound DNS resolution too, using a disposable child with a hard timeout.
+        # Download only public ranges in an isolated child; no visitor data leaves.
         fetched = subprocess.run([sys.executable, '-I', '-c', FETCH, GOOGLE_URL],
                                  capture_output=True, timeout=None)
         if fetched.returncode:
@@ -389,7 +392,7 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
                     findings_database=report_path is not None, coverage=coverage, errors=errors,
                     unavailable_domains=sorted(selected_domains - seen_domains), group_limit_reached=group_dropped,
                     verification=verification, verified_google_requested=verify_google,
-                    note='Native log records are not total incoming traffic or PHP executions. Early blocks and cache HITs may be absent. Query values, client IPs and raw User-Agents are not returned or retained. No protection setting was changed.')
+                    note='Native log records are not total incoming traffic or PHP executions. Early blocks and cache HITs may be absent. Known UltraCache revalidation/bucket parameters do not count as content-filter diversity; this does not verify the caller or exempt errors, slow requests or secret probes. Query values, client IPs and raw User-Agents are not returned or retained. No protection setting was changed.')
     finally:
         groups.close()
 

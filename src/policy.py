@@ -8,7 +8,7 @@ import probe_rules
 import enumeration
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.13.1'
+VERSION = '0.13.2'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
