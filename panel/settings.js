@@ -7,6 +7,7 @@
         const cancel = document.getElementById(prefix + '-cancel');
         const progress = document.getElementById(prefix + '-progress');
         const output = document.getElementById(prefix + '-output');
+        const domainFilter = actionPrefix === 'activity' ? scanForm.querySelector('[name="activity_domain"]') : null;
         const storageKey = 'hdn-review:' + location.pathname + ':' + actionPrefix + ':' + (scanForm.dataset?.hdnContext || '');
         let job = null, active = false, generation = 0;
         let restoreSelection = true;
@@ -22,6 +23,7 @@
             body.set('tab', tab);
             if (job) body.set('analysis_job', job);
             body.set('analysis_page', page);
+            if (domainFilter) body.set('activity_domain', domainFilter.value);
             // Named input "action" must never shadow the form's URL attribute.
             const response = await fetch(scanForm.getAttribute('action') || location.href, {
                 method: 'POST', body, credentials: 'same-origin', headers: {'X-HDN-Analysis': '1'}
@@ -52,14 +54,20 @@
             if (current.id) remember(current.id);
             active = ['queued', 'running'].includes(current.state);
             cancel.hidden = !active;
-            if (value.report) {
+            if (value.report && (!domainFilter || !current.analysis || current.analysis.selected_domain === domainFilter.value)) {
                 const page = new DOMParser().parseFromString(value.report, 'text/html');
                 const report = page.getElementById(prefix + '-output');
                 if (!report) throw new Error('The panel returned an unexpected report.');
                 output.replaceChildren(...[...report.childNodes].map(node => document.importNode(node, true)));
+                if (domainFilter) output.querySelectorAll('time[data-hdn-time]').forEach(node => {
+                    const date = new Date(node.getAttribute('datetime'));
+                    if (!Number.isNaN(date.getTime())) node.textContent = date.toLocaleString(undefined, {timeZoneName:'short'});
+                });
             }
             if (current.state === 'idle') progress.textContent = '';
-            else if (current.state === 'complete') progress.textContent = 'Review completed. All available retained logs were processed; see coverage for missing or unreadable data. Unsaved rule edits are unchanged.';
+            else if (current.state === 'complete') progress.textContent = actionPrefix === 'activity'
+                ? 'Showing a saved Activity review. Its exact time range is shown below. Refresh activity reads a new window.'
+                : 'Review completed. All available retained logs were processed; see coverage for missing or unreadable data. Unsaved rule edits are unchanged.';
             else if (current.state === 'cancelled') progress.textContent = 'Review cancelled. Protection settings and unsaved edits are unchanged.';
             else if (current.state === 'failed') throw new Error(current.error || 'Review process failed.');
             else {
@@ -107,6 +115,11 @@
             const page = event.target.closest('[data-hdn-analysis-page]');
             if (!page || !job) return;
             try { display(await request(actionPrefix + '_status', Number(page.dataset.hdnAnalysisPage))); }
+            catch (error) { progress.textContent = error.message; }
+        });
+        if (domainFilter) domainFilter.addEventListener('change', async () => {
+            if (!job) return;
+            try { display(await request(actionPrefix + '_status', 1)); }
             catch (error) { progress.textContent = error.message; }
         });
         // Ask once for the last server-side job too: its start response may have

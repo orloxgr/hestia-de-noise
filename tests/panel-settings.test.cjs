@@ -12,11 +12,12 @@ function fixture(replies, {action = null, remembered = null, activity = false} =
     const button = {textContent: 'Analyze logs', disabled: false};
     const progress = {textContent: ''};
     const cancel = {hidden: true, addEventListener: (_, fn) => {handlers.cancel = fn;}};
-    const output = {replaceChildren: (...nodes) => {updated = nodes[0] === 'report';}, addEventListener: (_, fn) => {handlers.page = fn;}};
+    const output = {replaceChildren: (...nodes) => {updated = nodes[0] === 'report';}, querySelectorAll: () => [], addEventListener: (_, fn) => {handlers.page = fn;}};
     const fields = {
         '[name="analysis_minutes"]': {value:'30'},
         '[name="analysis_target"]': {value:'all'},
-        '[name="analysis_verify_google"]': {checked:false}
+        '[name="analysis_verify_google"]': {checked:false},
+        '[name="activity_domain"]': {value:'all',addEventListener: (_,fn) => {handlers.filter=fn;}}
     };
     const form = {action: {toString: () => '[object HTMLInputElement]'},
         getAttribute: () => action,
@@ -117,4 +118,24 @@ test('activity loads metadata without scanning and uses its own start/status end
     assert.equal(f.requests[1].options.body.fields.get('action'),'activity_status');
     assert.equal(f.requests[0].options.body.fields.get('tab'),'activity');
     assert.equal(f.updated(),true);
+});
+
+test('activity site filter and pagination query the saved report without starting a scan', async () => {
+    const f=fixture([queued,done,done,done],{activity:true});await f.submit();
+    f.fields['[name="activity_domain"]'].value='one.test';await f.handlers.filter();
+    await f.handlers.page({target:{closest:()=>({dataset:{hdnAnalysisPage:'2'}})}});
+    assert.equal(f.requests.filter(r=>r.options.body.fields.get('action')==='activity_start').length,1);
+    assert.equal(f.requests[2].options.body.fields.get('action'),'activity_status');
+    assert.equal(f.requests[2].options.body.fields.get('activity_domain'),'one.test');
+    assert.equal(f.requests[2].options.body.fields.get('analysis_page'),'1');
+    assert.equal(f.requests[3].options.body.fields.get('activity_domain'),'one.test');
+    assert.equal(f.requests[3].options.body.fields.get('analysis_page'),'2');
+    assert.match(f.progress.textContent,/saved Activity review/);
+});
+
+test('late activity response for another site never replaces the selected report', async () => {
+    const f=fixture([{...done,job:{...done.job,analysis:{selected_domain:'all'}}}],{remembered:'one',activity:true});
+    f.fields['[name="activity_domain"]'].value='one.test';
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.updated(),false);
 });

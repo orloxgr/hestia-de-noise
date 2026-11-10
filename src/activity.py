@@ -1,4 +1,4 @@
-"""Complete streamed reads of addon match logs, performed only when viewing the panel."""
+"""Complete streamed reads of addon match logs, explicitly requested by the viewer."""
 from datetime import datetime
 import os
 from pathlib import Path
@@ -88,5 +88,8 @@ def summary(domains, now=None, minutes=15, progress=None, cancelled=None, report
         'SELECT domain,rule,outcome,agent,COUNT(*) AS n FROM events GROUP BY domain,rule,outcome,agent ORDER BY n DESC,domain,rule,outcome,agent')]
     recent = [] if report_path is not None else [json.loads(row[0]) for row in connection.execute('SELECT payload FROM events ORDER BY stamp DESC')]
     connection.close()
-    return dict(available=True, window_minutes=minutes, sample_truncated=False, bytes_read=scanned,
+    return dict(available=True, window_minutes=minutes,
+                window_start=datetime.fromtimestamp(cutoff).astimezone().isoformat(timespec='seconds'),
+                window_end=datetime.fromtimestamp(now).astimezone().isoformat(timespec='seconds'),
+                sample_truncated=False, bytes_read=scanned,
                 total=total, rows=rows, recent=recent, findings_total=total, findings_database=report_path is not None)

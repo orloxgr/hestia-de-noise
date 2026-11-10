@@ -407,14 +407,15 @@ def dispatch(request):
     if request.get('action') in ('log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'):
         admin, owner = authorize(request)
         if request['action'].startswith('activity_'):
-            if set(request) - {'actor', 'owner', 'action', 'minutes', 'job', 'page', 'listing'}:
+            if set(request) - {'actor', 'owner', 'action', 'minutes', 'job', 'page', 'listing', 'domain'}:
                 raise ValueError('Only activity selections can be submitted')
             scope = None if admin and owner == request['actor'] else owner
             arguments = dict(kind='activity', owner=scope)
             if request['action'] == 'activity_start':
                 job = analysis_jobs.start(STATE, None, request['actor'], 'all', request.get('minutes'), **arguments)
             elif request['action'] == 'activity_status':
-                job = analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1), **arguments)
+                job = analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1),
+                                           domain=request.get('domain', 'all'), **arguments)
             else:
                 job = analysis_jobs.cancel(STATE, request.get('job'), request['actor'], **arguments)
             return {'ok': True, 'job': job}

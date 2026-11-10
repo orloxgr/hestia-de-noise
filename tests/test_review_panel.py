@@ -54,3 +54,19 @@ class ReviewPanelTests(unittest.TestCase):
         self.assertNotIn('<script>alert', body)
         self.assertNotIn('<form', body)
         self.assertIn('360 minutes', body)
+
+    def test_activity_groups_outcomes_and_shows_saved_absolute_window(self):
+        rows=[dict(domain='one.test',rule='filter-limit-one',agent='Mozilla/5.0 Applebot/0.1',outcome=outcome,count=count)
+              for outcome,count in (('blocked',105),('matched',75))]
+        body=self.render('activity-output.php',dict(window_minutes=15,total=180,rows=rows,findings=[],
+            window_start='2026-11-04T06:17:52+02:00',window_end='2026-11-04T06:32:52+02:00',selected_domain='one.test'))
+        self.assertEqual(body.count('Applebot (declared)'),1)
+        self.assertIn('2026-11-04T06:17:52+02:00',body)
+        self.assertIn('2026-11-04T06:32:52+02:00',body)
+        self.assertIn('Blocked by De-Noise',body)
+        self.assertIn('No block recorded',body)
+        self.assertIn('Filtered URL rate limit',body)
+        self.assertNotIn('last 15 minutes',body)
+        self.assertIn('does not by itself mean an IP ban',body)
+        self.assertIn('<strong>105</strong>',body)
+        self.assertIn('<strong>75</strong>',body)

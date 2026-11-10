@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0 · 2026-11-10
+
+- Add an Activity site filter for both grouped counts and all event pages. Filter the saved private report instead of rescanning logs or filtering only the visible page; preserve admin/owner job scope and parameterized SQL.
+- Show the exact saved review time range, including reports created before this version. Resumed reports no longer appear to represent a rolling last-N-minutes window; timestamps use the viewer's local browser formatting.
+- Separate blocked, no-recorded-block and observe-only totals. Combine outcomes into one summary row per site/rule/full User-Agent, retain full escaped agents in expandable details, and explain that a match is not proof of abuse, a block or an IP ban.
+- Preserve all protection settings, thresholds, bans and native request-time logging. This update adds no collector, periodic scan or per-request script.
+
 ## 0.13.2 · 2026-11-04
 
 - Treat the four known UltraCache revalidation/bucket transport parameters as technical query arguments, avoiding misleading crawl-filter candidates from changing cache tokens.

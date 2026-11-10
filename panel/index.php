@@ -172,6 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (in_array($request['action'], ['log_scan_status', 'log_scan_cancel', 'activity_status', 'activity_cancel'], true)) {
             $request['job'] = $_POST['analysis_job'] ?? '';
             $request['page'] = filter_var($_POST['analysis_page'] ?? 1, FILTER_VALIDATE_INT);
+            if ($request['action'] === 'activity_status') $request['domain'] = $_POST['activity_domain'] ?? 'all';
         } elseif ($request['action'] === 'history_clear') {
             $request['scope'] = $_POST['history_scope'] ?? '';
         } elseif ($request['action'] === 'history_settings_save') {

@@ -34,3 +34,15 @@
 .hdn-analysis-finding { padding: 12px; border: 1px solid currentColor; border-radius: 4px; }
 .hdn-analysis p, .hdn-analysis code, .hdn-analysis td { overflow-wrap: anywhere; white-space: normal; }
 .hdn-activity-agent { max-width: 30rem; overflow-wrap: anywhere; white-space: normal; }
+.hdn-activity-counts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.hdn-activity-counts>div { padding: 12px; border: 1px solid currentColor; border-radius: 4px; }
+.hdn-activity-counts strong { display: block; font-size: 24px; margin-bottom: 6px; }
+.hdn-activity-counts span { display: block; }
+.hdn-activity-agent-details summary { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.hdn-activity-agent-details>div { margin-top: 8px; white-space: normal; overflow-wrap: anywhere; }
+.hdn-activity-rule-id { display: block; opacity: .75; overflow-wrap: anywhere; margin-top: 4px; }
+#hdn-activity-output .hdn-table-scroll { max-width: 100%; overflow-x: auto; }
+#hdn-activity-output table { min-width: 760px; width: 100%; }
+#hdn-activity-output td, #hdn-activity-output th { text-align: left; vertical-align: top; padding: 8px 10px; }
+#hdn-activity-scan .form-select, #hdn-activity-scan .form-control { max-width: 30rem; }
+@media(max-width:700px) { .hdn-activity-counts { grid-template-columns: repeat(2,minmax(0,1fr)); } }

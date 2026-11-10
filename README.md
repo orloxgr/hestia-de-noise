@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.13.2.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.14.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -72,9 +72,12 @@ There is no mandatory observation period.
   filter candidates help review each finding. Read coverage is shown explicitly.
 - **Missing static files:** select a directory and file extensions; return 404
   before PHP for missing files. Existing files keep their current routing.
-- **Activity:** last 15 minutes of matched, observed and blocked requests by
-  domain, rule and full declared User-Agent, from complete on-demand reviews of
-  available retained addon logs. Older records show Not recorded for the agent.
+- **Activity:** saved on-demand reviews of rule-matching log records, with an
+  exact time range, separate blocked/no-recorded-block/observe counts and a site
+  filter covering both summaries and every event page. Changing the filter reads
+  the saved report without rescanning logs. Full declared User-Agents remain
+  available in expandable details; older records show Not recorded. This is not
+  all site traffic, and a rule match alone is not evidence of abuse or an IP ban.
 - **IP bans:** optional first-probe native Hestia firewall bans, permanent or
   timed, with editable trigger count/window, domain scope, never-ban networks
   and selected/all unban controls.
@@ -441,6 +444,21 @@ Known UltraCache transport parameters (`ultracache_revalidate`, `ultracache_rt`,
 Records still count toward totals and error/slow-route/probe diagnostics. This
 does not authenticate a caller, trust arbitrary `ultracache_*` names or change
 request filtering, firewall rules or IP-ban counters.
+
+Version 0.14.0 adds a **Site** filter in Activity. It applies to the entire saved
+report, including grouped totals and every event page, without starting a new
+scan. Users see only their own domains and scoped reports. Select **Refresh
+activity** when you want a new time window. A resumed report displays its exact
+saved date/time range, formatted in the browser's local timezone, rather than
+claiming to represent the current last 15 minutes.
+
+The summary separates **Blocked by De-Noise**, **No block recorded**, and
+**Observe only**. One grouped row shows these counts for each site, rule and full
+User-Agent. A rule match is not itself proof of an attack; a rejected request is
+not itself proof of an IP ban. The HTTP status remains visible separately.
+Recognized crawler names are compact display labels for client claims; open the
+User-Agent details to read the complete header. No identity is verified from a
+User-Agent string. Filtering and display changes do not modify protection rules.
 
 Activity's existing conditional native Nginx log now also stores the full declared
 User-Agent with JSON escaping. Both grouped counts and individual events show it.

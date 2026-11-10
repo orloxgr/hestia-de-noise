@@ -98,9 +98,11 @@ def start(state, sites, actor, target, minutes, verify_google=False, kind="scan"
     return {'id': job, 'state': 'queued', 'progress': {}}
 
 
-def status(state, job, actor, page=1, kind="scan", owner=None):
+def status(state, job, actor, page=1, kind="scan", owner=None, domain='all'):
     if type(page) is not int or page < 1:
         raise ValueError('Invalid report page')
+    if kind == 'activity' and (not isinstance(domain, str) or not domain):
+        raise ValueError('Select a site or all sites for Activity')
     if not job:
         if not isinstance(actor, str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_-]*', actor):
             raise PermissionError('Invalid administrator identity')
@@ -128,6 +130,18 @@ def status(state, job, actor, page=1, kind="scan", owner=None):
     result = {'id': job, **value, 'selection': {key: request[key] for key in ('target', 'minutes', 'verify_google')}}
     if value['state'] == 'complete':
         analysis = read(path, 'result.json')
+        if kind == 'activity':
+            from datetime import datetime
+            # This is a saved snapshot, not a new rolling "last N minutes" read.
+            end = request['requested_at']
+            analysis.setdefault('window_start', datetime.fromtimestamp(end - request['minutes'] * 60).astimezone().isoformat(timespec='seconds'))
+            analysis.setdefault('window_end', datetime.fromtimestamp(end).astimezone().isoformat(timespec='seconds'))
+            analysis['selected_domain'] = domain
+            analysis['review_total'] = analysis['total']
+            if domain != 'all':
+                analysis['rows'] = [row for row in analysis['rows'] if row['domain'] == domain]
+                analysis['total'] = sum(row['count'] for row in analysis['rows'])
+                analysis['findings_total'] = analysis['total']
         # Display pages only; the complete report remains available on disk.
         total = analysis['findings_total']
         pages = max(1, (total + 19) // 20)
@@ -142,13 +156,20 @@ def status(state, job, actor, page=1, kind="scan", owner=None):
                     raise ValueError('Untrusted analysis report database')
             connection = sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)
             try:
-                query = ('SELECT payload FROM events ORDER BY stamp DESC LIMIT ? OFFSET ?' if kind == 'activity' else
-                         'SELECT payload FROM findings ORDER BY rank,count DESC,site,path LIMIT ? OFFSET ?')
-                analysis['findings'] = [json.loads(row[0]) for row in connection.execute(query, (20, (page - 1) * 20))]
+                if kind == 'activity':
+                    query = 'SELECT payload FROM events' + (' WHERE domain = ?' if domain != 'all' else '') + ' ORDER BY stamp DESC LIMIT ? OFFSET ?'
+                    arguments = ((domain,) if domain != 'all' else ()) + (20, (page - 1) * 20)
+                else:
+                    query = 'SELECT payload FROM findings ORDER BY rank,count DESC,site,path LIMIT ? OFFSET ?'
+                    arguments = (20, (page - 1) * 20)
+                analysis['findings'] = [json.loads(row[0]) for row in connection.execute(query, arguments)]
             finally:
                 connection.close()
         else:
-            analysis['findings'] = analysis['findings'][(page - 1) * 20:page * 20]
+            findings = analysis.get('findings', analysis.get('recent', []))
+            if kind == 'activity' and domain != 'all':
+                findings = [row for row in findings if row['domain'] == domain]
+            analysis['findings'] = findings[(page - 1) * 20:page * 20]
         analysis['page'] = page
         analysis['pages'] = pages
         result['analysis'] = analysis
