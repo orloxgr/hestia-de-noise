@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0 · 2026-11-10
+
+- Add optional per-domain WordPress HTTP access gates for administrators and domain owners, with exact same-origin/Referer bypass, frontend handler exceptions, salted hashes and worker-readable private password files. Direct login GET/POST requests are challenged in Nginx before the backend; Observe/Off do not challenge. Existing protection remains unchanged until explicitly enabled.
+- Add independent domain country allow/deny policies, administration/entire-site scope and an explicit unknown-country choice. Native Nginx IPv4/IPv6 geo tables use one locally compiled GeoLite2 Country database; no per-visitor scripts, API calls or extra Nginx module. Preserve ACME certificate validation.
+- Add administrator database download/update controls, root-private central MaxMind credentials, weekly optional refresh and last-working-data retention on failure. Strip credentials from download redirects.
+- Keep access settings separate from the global policy, enforce domain ownership and CSRF, and journal settings and published password files together for rollback. Report existing independently managed authentication conflicts.
+- Record actual HTTP challenges/country denials and Observe candidates in Activity, without creating IP bans or logging authentication secrets.
+
 ## 0.14.0 · 2026-11-10
 
 - Add an Activity site filter for both grouped counts and all event pages. Filter the saved private report instead of rescanning logs or filtering only the visible page; preserve admin/owner job scope and parameterized SQL.

@@ -6,9 +6,10 @@ import re
 from urllib.parse import quote, unquote
 import probe_rules
 import enumeration
+import access_protection
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.14.0'
+VERSION = '0.15.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -332,11 +333,13 @@ def site_mode(policy, site):
     return policy['overrides'].get(site['key'], policy['mode']) if not site.get('suspended') else 'off'
 
 
-def global_config(policy, sites, domain_blocks=None):
+def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_path=None):
     policy = validate(policy)
     # Declare a safe mode even on a new server with no domains yet. Supported
     # virtual hosts set this changeable variable during their rewrite phase.
     lines = [MARKER]
+    lines += access_protection.compile_maps(access_settings or {'sites': {}},
+                                             [s for s in sites if site_mode(policy, s) != 'off'], pattern, geo_path)
     block_variables = []
     known = {site['key']: site for site in sites if site.get('supported', True) and not site.get('suspended')}
     for key, addresses in sorted((domain_blocks or {}).items()):
@@ -446,9 +449,10 @@ def global_config(policy, sites, domain_blocks=None):
     return '\n'.join(lines) + '\n'
 
 
-def site_config(policy, site, document_root=None):
+def site_config(policy, site, document_root=None, access_settings=None):
     mode = site_mode(policy, site)
     lines = [MARKER, 'set $hdn_mode ' + mode + ';']
+    lines += access_protection.site_lines(access_settings or {'sites': {}}, site, mode)
     if mode == 'enforce':
         lines += ['if ($hdn_domain_blocked) { return 403; }']
     if site.get('kind') == 'mail':

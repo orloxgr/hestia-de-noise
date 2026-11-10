@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import engine
+import access_protection
 from policy import DEFAULT, LEGACY_KEYS, MARKER
 
 
@@ -94,6 +95,47 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(self.domain_file.exists())
         self.assertFalse(self.global_file.exists())
         self.assertEqual(neighbor.read_text(), 'unrelated')
+
+    def test_http_password_and_settings_rollback_together_after_failed_nginx_validation(self):
+        directory = self.directory / 'access'; directory.mkdir()
+        entry = {**copy.deepcopy(access_protection.DEFAULT), 'enabled': True,
+                 'password_hash': '$6$salt$' + 'a' * 86}
+        settings = {'sites': {self.site['key']: entry}}
+        candidate = copy.deepcopy(DEFAULT); candidate['mode'] = 'enforce'
+        filename = directory / (access_protection.identifier(self.site['key']) + '.htpasswd')
+        with patch.object(access_protection, 'DIRECTORY', directory), patch.object(engine, 'verify'), \
+                patch.object(engine.storage, 'log_uids', return_value={0}), patch.object(engine, 'run', return_value=''):
+            engine.apply(candidate, [self.site], access=settings)
+            original = filename.read_bytes()
+            settings['sites'][self.site['key']]['password_hash'] = '$6$salt$' + 'b' * 86
+            with patch.object(engine, 'verify', side_effect=RuntimeError('candidate rejected')):
+                with self.assertRaisesRegex(RuntimeError, 'candidate rejected'):
+                    engine.apply(candidate, [self.site], access=settings)
+            self.assertEqual(filename.read_bytes(), original)
+            actual = json.loads((self.state / access_protection.SETTINGS).read_text())
+            self.assertEqual(actual['sites'][self.site['key']]['password_hash'], '$6$salt$' + 'a' * 86)
+            # Removing the gate deletes its published password file, retaining the saved hash privately.
+            actual['sites'][self.site['key']]['enabled'] = False
+            engine.apply(candidate, [self.site], access=actual)
+            self.assertFalse(filename.exists())
+
+    def test_country_database_survives_disabling_the_last_country_rule(self):
+        import country_database
+        import hashlib
+        content = b'# Managed by hestia-de-noise\n127.0.0.0/8 GR;\n'
+        metadata = {'sha256': hashlib.sha256(content).hexdigest(), 'networks': 1}
+        entry = copy.deepcopy(access_protection.DEFAULT)
+        entry['country'].update(enabled=True, countries=['US'])
+        settings = {'sites': {self.site['key']: entry}}
+        with patch.object(engine, 'verify'), patch.object(engine, 'run', return_value=''):
+            engine.apply(DEFAULT, [self.site], access=settings, geography=(content, metadata))
+            filename = country_database.path(self.state, metadata)
+            settings['sites'][self.site['key']]['country']['enabled'] = False
+            engine.apply(DEFAULT, [self.site], access=settings)
+            self.assertTrue(filename.is_file())
+            settings['sites'][self.site['key']]['country']['enabled'] = True
+            engine.apply(DEFAULT, [self.site], access=settings)
+            self.assertIn(str(filename), self.global_file.read_text())
 
 
 class AuthorizationTests(unittest.TestCase):

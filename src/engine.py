@@ -10,7 +10,7 @@ import sys
 import time
 
 from policy import (DEFAULT, VERSION, SCANNER_AGENTS, CRAWLER_AGENTS, SEARCH_AGENTS, FILTER_AGENTS,
-                    account, domain, validate, site_mode, global_config, site_config)
+                    account, domain, target, validate, site_mode, global_config, site_config)
 import activity
 import auto_bans
 import ban_history
@@ -23,6 +23,8 @@ import wordpress
 import enumeration
 import log_analysis
 import analysis_jobs
+import access_protection
+import country_database
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -52,6 +54,10 @@ def config_paths(owner, name, kind='web'):
 def managed_path(value):
     path = Path(value)
     if path == GLOBAL:
+        return path
+    if path.parent == access_protection.DIRECTORY and re.fullmatch(r'[0-9a-f]{24}\.htpasswd', path.name):
+        return path
+    if path.parent == STATE and re.fullmatch(r'country-[0-9a-f]{64}\.geo', path.name):
         return path
     match = re.fullmatch(r'/home/([^/]+)/conf/(?:web|mail)/([^/]+)/nginx\.(?:ssl\.)?conf_hdn', str(path))
     if not match:
@@ -178,6 +184,8 @@ def verify(paths):
     # included by the running distribution's Nginx configuration structure.
     dump = run('/usr/sbin/nginx', '-T')
     for path in paths:
+        if str(path).endswith('.htpasswd'):
+            continue  # Data read by Nginx workers, not a configuration include.
         if '# configuration file ' + str(path) + ':' not in dump:
             raise RuntimeError('Nginx does not load the expected include: ' + str(path))
 
@@ -214,13 +222,60 @@ def reload_nginx():
         time.sleep(.1)
 
 
+def replace_rule(path, text):
+    password = path.parent == access_protection.DIRECTORY and path.name.endswith('.htpasswd')
+    mode = 0o640 if password else (0o600 if path.name.endswith('.geo') else 0o644)
+    storage.replace(path, None if text is None else text.encode(), mode)
+    if password and text is not None:
+        import grp
+        import pwd
+        worker = next((uid for uid in storage.log_uids() if uid != 0), 0)
+        config = storage.read('/etc/nginx/nginx.conf') or b''
+        group = re.search(rb'^\s*user\s+[\'\"]?[A-Za-z0-9_-]+[\'\"]?\s+[\'\"]?([A-Za-z0-9_-]+)[\'\"]?\s*;', config, re.M)
+        gid = grp.getgrnam(group[1].decode()).gr_gid if group else pwd.getpwuid(worker).pw_gid
+        os.chown(path, 0, gid)
+
+
+def access_settings():
+    raw = storage.read(STATE / access_protection.SETTINGS) if STATE.exists() else None
+    return access_protection.validate(json.loads(raw) if raw else {'sites': {}}, target)
+
+
+def geo_metadata():
+    raw = storage.read(STATE / country_database.METADATA) if STATE.exists() else None
+    return json.loads(raw) if raw else {}
+
+
+def refresh_countries(policy, sites):
+    """Scheduled download only; serving requests never calls an external service."""
+    settings = access_settings()
+    if not any(settings['sites'].get(s['key'], {}).get('country', {}).get('enabled')
+               and site_mode(policy, s) != 'off' for s in sites):
+        return
+    raw = storage.read(STATE / country_database.CONFIG)
+    config = json.loads(raw) if raw else {}
+    metadata = geo_metadata()
+    if not config.get('automatic') or time.time() - metadata.get('last_attempt', metadata.get('updated', 0)) < 86400:
+        return
+    if not metadata.get('error') and time.time() - metadata.get('updated', 0) < 7 * 86400:
+        return
+    metadata['last_attempt'] = time.time()
+    try:
+        geography = country_database.download(config)
+        apply(policy, sites, geography=geography)
+    except Exception as error:
+        metadata['error'] = str(error)
+        # Keep the last working country data and rules, while exposing the failure.
+        storage.replace(STATE / country_database.METADATA, storage.json_bytes(metadata), 0o600)
+
+
 def restore(record):
     for name, text in record['before'].items():
         path = managed_path(name)
         if not path.parent.exists() and text is None:
             continue
         storage.owned(path)
-        storage.replace(path, None if text is None else text.encode())
+        replace_rule(path, text)
 
 
 def recover():
@@ -233,7 +288,8 @@ def recover():
     run('/usr/sbin/nginx', '-t')
     reload_nginx()
     enumeration.apply(record.get('enumeration_changes', []), reverse=True)
-    for name in ('policy.json', 'manifest.json', domain_bans.APPLIED, enumeration.MANIFEST):
+    for name in ('policy.json', 'manifest.json', domain_bans.APPLIED, enumeration.MANIFEST,
+                 access_protection.SETTINGS, country_database.METADATA):
         if name not in record:
             continue  # Recovery journals from an older installed generation.
         old = record[name]
@@ -241,8 +297,15 @@ def recover():
     storage.replace(STATE / 'transaction.json', None)
 
 
-def apply(policy, sites, remove=False):
+def apply(policy, sites, remove=False, access=None, geography=None):
     policy = validate(policy)
+    access = access_settings() if access is None else access_protection.validate(access, target)
+    metadata = geography[1] if geography else geo_metadata()
+    geo_path = country_database.path(STATE, metadata)
+    if geography:
+        # Immutable, validated data cache; an interrupted transaction may leave an
+        # unreferenced cache file, never partially replace the active database.
+        storage.replace(geo_path, geography[0], 0o600)
     if not remove:
         known = {site['key'] for site in sites}
         policy['overrides'] = {key: mode for key, mode in policy['overrides'].items() if key in known}
@@ -255,11 +318,34 @@ def apply(policy, sites, remove=False):
         policy, sites, load(enumeration.MANIFEST, {}), site_mode, remove=remove)
     domain_blocks = domain_bans.desired(policy, sites, STATE) if not remove else {}
     if not remove:
-        desired[str(GLOBAL)] = global_config(policy, sites, domain_blocks)
+        desired[str(GLOBAL)] = global_config(policy, sites, domain_blocks, access, geo_path)
         for site in sites:
             if site['supported'] and (site.get('kind') != 'mail' or policy['mail_protection']):
                 for path in site['paths']:
-                    desired[path] = site_config(policy, site, site.get('roots', {}).get(path))
+                    desired[path] = site_config(policy, site, site.get('roots', {}).get(path), access)
+                entry = access['sites'].get(site['key'])
+                if entry and entry['enabled'] and not site.get('suspended') and site_mode(policy, site) != 'off':
+                    for destination in site['paths']:
+                        base = Path(destination.removesuffix('_hdn'))
+                        fragments = [base, *(p for p in base.parent.glob(base.name + '_*') if str(p) != destination)]
+                        for fragment in fragments:
+                            content = storage.read_hestia_include(fragment)
+                            if content and re.search(rb'^\s*auth_basic(?:_user_file)?\s', content, re.M):
+                                raise ValueError('Existing HTTP authentication must be reconciled before enabling De-Noise access protection: ' + str(fragment))
+                    directory = access_protection.DIRECTORY
+                    if not directory.exists():
+                        directory.mkdir(mode=0o755)
+                    with storage.parent(directory / '.check'):
+                        pass
+                    filename = directory / (access_protection.identifier(site['key']) + '.htpasswd')
+                    desired[str(filename)] = '# Managed by hestia-de-noise\n' + entry['username'] + ':' + entry['password_hash'] + '\n'
+        if any(s.get('supported') and not s.get('suspended') and s.get('kind') != 'mail'
+               and site_mode(policy, s) != 'off'
+               and access['sites'].get(s['key'], {}).get('country', {}).get('enabled') for s in sites):
+            if not geo_path:
+                raise ValueError('Download the country database before enabling a country filter')
+            if not geo_path.is_file():
+                raise ValueError('Country database file is missing; download it again')
     manifest = load('manifest.json', [])
     old_paths = {str(managed_path(name)) for name in manifest}
     before, changes = {}, {}
@@ -279,12 +365,14 @@ def apply(policy, sites, remove=False):
               'policy.json': load('policy.json', None), 'manifest.json': load('manifest.json', None),
               domain_bans.APPLIED: load(domain_bans.APPLIED, None),
               enumeration.MANIFEST: load(enumeration.MANIFEST, None),
+              access_protection.SETTINGS: access_settings(),
+              country_database.METADATA: geo_metadata(),
               'enumeration_changes': companion_changes}
     storage.replace(STATE / 'transaction.json', storage.json_bytes(record), 0o600)
     try:
         enumeration.apply(companion_changes)
         for name, text in changes.items():
-            storage.replace(name, None if text is None else text.encode())
+            replace_rule(Path(name), text)
         verify(desired)
         if changes:
             reload_nginx()
@@ -299,6 +387,9 @@ def apply(policy, sites, remove=False):
         storage.replace(STATE / 'policy.json', storage.json_bytes(policy), 0o600)
         storage.replace(STATE / domain_bans.APPLIED, storage.json_bytes(domain_blocks), 0o600)
         storage.replace(STATE / enumeration.MANIFEST, storage.json_bytes(companion_manifest), 0o600)
+        storage.replace(STATE / access_protection.SETTINGS, storage.json_bytes(access), 0o600)
+        if geography:
+            storage.replace(STATE / country_database.METADATA, storage.json_bytes(metadata), 0o600)
         storage.replace(STATE / 'transaction.json', None)
     except Exception as error:
         try:
@@ -315,6 +406,8 @@ def synchronize(policy, sites, remove=False, disable_wordpress=False):
     health = copy.deepcopy(load('maintenance.json', {}))
     health.update(last_attempt=time.time(), error='')
     try:
+        if not remove:
+            refresh_countries(policy, sites)
         if remove:
             auto_bans.cleanup(policy, sites, STATE, auto_bans.Native(HESTIA, run, STATE))
         else:
@@ -360,6 +453,10 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     except (OSError, ValueError) as error:
         scoped = {'active': 0, 'pending': 0, 'rows': [], 'error': str(error)}
     visible_keys = {row['key'] for row in rows}
+    access = access_protection.public(access_settings(), visible_keys)
+    geography = country_database.status(STATE, storage.read) if STATE.exists() else {'available': False, 'configured': False}
+    if owner is not None:
+        geography = {k: v for k, v in geography.items() if k not in ('account_id', 'error')}
     scoped['preferences'] = {key: value for key, value in policy['domain_bans']['sites'].items() if key in visible_keys}
     scoped['can_edit'] = owner is None or policy['domain_bans']['allow_users']
     scoped['limits'] = {key: {name: policy['bans'][key][name] for name in ('maxretry', 'findtime', 'duration_days')}
@@ -377,6 +474,7 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
             'sites': rows, 'activity': metrics,
             'bans': ban_status,
             'domain_bans': scoped,
+            'access': access, 'geography': geography,
             'history': ban_history.settings(STATE),
             'maintenance': maintenance,
             'wordpress': wordpress_status,
@@ -396,7 +494,7 @@ def authorize(request):
     owner = account(request.get('owner', actor))
     if not admin and owner != actor:
         raise PermissionError('Another account cannot be selected')
-    if request.get('action') not in ('status', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel') and not admin:
+    if request.get('action') not in ('status', 'access_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel') and not admin:
         raise PermissionError('Only an administrator can change De-Noise settings')
     return admin, owner
 
@@ -442,7 +540,48 @@ def dispatch(request):
     for scope in ('bans', 'domain'):
         ban_history.selection(listing.get(scope + '_page', 1), listing.get(scope + '_view', 'active'))
     ban_history.selection(listing.get('wordpress_page', 1))
-    if action == 'history_clear':
+    if action == 'access_save':
+        if set(request) - {'actor', 'owner', 'action', 'target', 'settings', 'password', 'listing'}:
+            raise ValueError('Only domain access controls can be submitted')
+        key = request.get('target')
+        known = {site['key']: site for site in sites if site.get('kind') != 'mail'}
+        if key not in known or (not (admin and owner == request['actor']) and known[key]['owner'] != owner):
+            raise PermissionError('This domain does not belong to the selected account')
+        site = known[key]
+        if not site['supported'] or site['suspended']:
+            raise ValueError('This domain is suspended or unsupported')
+        saved = access_settings()
+        entry = request.get('settings')
+        if not isinstance(entry, dict) or set(entry) != set(access_protection.DEFAULT) - {'password_hash'}:
+            raise ValueError('Invalid domain access controls')
+        entry = copy.deepcopy(entry)
+        entry['password_hash'] = saved['sites'].get(key, {}).get('password_hash', '')
+        if request.get('password'):
+            entry['password_hash'] = access_protection.password_hash(request['password'])
+        elif request.get('password') not in ('', None):
+            raise ValueError('Invalid HTTP password')
+        saved['sites'][key] = entry
+        apply(policy, sites, access=saved)
+    elif action in ('geoip_update', 'geoip_save'):
+        if not (admin and owner == request['actor']):
+            raise PermissionError('Country database management requires the administrator context')
+        if set(request) - {'actor', 'owner', 'action', 'account_id', 'license_key', 'automatic', 'listing'}:
+            raise ValueError('Only country database settings can be submitted')
+        raw = storage.read(STATE / country_database.CONFIG)
+        config = json.loads(raw) if raw else {}
+        config['account_id'] = request.get('account_id', '')
+        if request.get('license_key'):
+            config['license_key'] = request['license_key']
+        if type(request.get('automatic')) is not bool:
+            raise ValueError('Select the automatic country database update setting')
+        config['automatic'] = request['automatic']
+        config.setdefault('license_key', '')
+        country_database.validate_config(config)
+        if action == 'geoip_update':
+            geography = country_database.download(config)
+            apply(policy, sites, geography=geography)
+        storage.replace(STATE / country_database.CONFIG, storage.json_bytes(config), 0o600)
+    elif action == 'history_clear':
         scope = request.get('scope')
         if scope not in ('global', 'domain') or (scope == 'global' and not (admin and owner == request['actor'])):
             raise PermissionError('Only domain history for your account can be cleared')

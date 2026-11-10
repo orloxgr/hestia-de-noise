@@ -26,6 +26,7 @@
         $labels = ['login' => 'WordPress login rate limit', 'xmlrpc' => 'XML-RPC rate limit',
             'agent' => 'User-Agent rule', 'private-file' => 'Private file protection',
             'domain-ban' => 'Domain IP ban', 'user-enumeration' => 'User enumeration',
+            'wordpress-access' => 'WordPress HTTP access gate', 'country-filter' => 'Country filter',
             'missing-file' => 'Missing-file probe', 'suspicious-query' => 'Suspicious query',
             'endpoint-limit' => 'Endpoint rate limit'];
         $label = $labels[$rule] ?? (str_starts_with($rule, 'filter-limit-') ? 'Filtered URL rate limit' :

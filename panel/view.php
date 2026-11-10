@@ -3,7 +3,7 @@ require $root . '/web/templates/header.php';
 $panel = top_panel($headerOwner, $TAB);
 $tabs = $isAdmin ? ['general' => 'General', 'agents' => 'User-Agents', 'endpoints' => 'Endpoints',
     'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans', 'domain-bans' => 'Domain bans',
-    'enumeration' => 'User enumeration', 'wordpress' => 'WordPress logins', 'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'domains' => 'Domains', 'activity' => 'Activity'];
+    'enumeration' => 'User enumeration', 'wordpress' => 'WordPress logins', 'access' => 'WP access', 'countries' => 'Countries', 'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'access' => 'WP access', 'domains' => 'Domains', 'activity' => 'Activity'];
 $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs);
 ?>
 <script>document.title = 'De-Noise';</script>
@@ -75,6 +75,10 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <?php require $install . '/panel/wordpress.php'; ?>
 <?php elseif ($key === 'enumeration'): ?>
     <?php require $install . '/panel/enumeration.php'; ?>
+<?php elseif ($key === 'access'): ?>
+    <?php require $install . '/panel/access.php'; ?>
+<?php elseif ($key === 'countries'): ?>
+    <?php require $install . '/panel/countries.php'; ?>
 <?php elseif ($key === 'cron'): ?>
     <?php require $install . '/panel/cron.php'; ?>
 <?php elseif ($key === 'domain-bans'): ?>
@@ -87,7 +91,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 </div>
 <?php endforeach; ?>
 </div>
-<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= in_array($activeTab, ['cron', 'domain-bans', 'wordpress'], true) ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
+<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= in_array($activeTab, ['cron', 'domain-bans', 'wordpress', 'access', 'countries'], true) ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
 <p class="u-mt20"><small>Version <?= $escape($meta['version']) ?></small></p>
 </div></div>
 <script type="application/json" id="hdn-agent-presets"><?= json_encode(['scanners' => $data['presets']['scanners'] ?? [], 'crawlers' => $data['presets']['crawlers'] ?? [], 'search_crawlers' => $data['presets']['search_crawlers'] ?? []], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>

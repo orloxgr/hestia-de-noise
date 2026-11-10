@@ -46,3 +46,10 @@
 #hdn-activity-output td, #hdn-activity-output th { text-align: left; vertical-align: top; padding: 8px 10px; }
 #hdn-activity-scan .form-select, #hdn-activity-scan .form-control { max-width: 30rem; }
 @media(max-width:700px) { .hdn-activity-counts { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+/* Per-domain controls stay aligned inside the native Hestia theme. */
+.hdn-access-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.hdn-access-form .form-label { display: block; }
+.hdn-access-form .form-control, .hdn-access-form .form-select { width: 100%; min-width: 0; box-sizing: border-box; }
+.hdn-access-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 640px) { .hdn-access-grid { grid-template-columns: 1fr; gap: 0; } }

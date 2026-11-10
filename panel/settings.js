@@ -152,7 +152,7 @@
     tabs.forEach(button => {
         button.addEventListener('click', () => {
             const save = document.getElementById('hdn-save');
-            if (save) save.hidden = ['cron', 'domain-bans', 'wordpress'].includes(button.dataset.hdnTab);
+            if (save) save.hidden = ['cron', 'domain-bans', 'wordpress', 'access', 'countries'].includes(button.dataset.hdnTab);
             document.querySelectorAll('input[name="tab"]').forEach(input => { input.value = button.dataset.hdnTab; });
             if (button.dataset.hdnTab === 'wordpress' && document.getElementById('hdn-wordpress-status')?.dataset.loaded === 'false') {
                 document.getElementById('hdn-wordpress-refresh')?.requestSubmit();

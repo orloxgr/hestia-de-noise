@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.14.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.15.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -42,6 +42,70 @@ Updates preserve the existing settings.
 Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
+
+## Per-domain WordPress HTTP access and countries
+
+Open **WP access**, expand a domain, set the extra HTTP username/password and
+save that domain. This feature is off by default on new installations and upgrades.
+Use HTTPS: HTTP Basic authentication does not encrypt its credentials itself.
+Administrators can edit all domains; owners can edit only their own web domains.
+The global settings form and older open panels cannot overwrite these settings.
+
+- **Enforce** applies the gate, **Observe** records candidates without a prompt,
+  and **Off** bypasses it. Suspended/unsupported sites are not activated.
+- Protect `/wp-login.php`, `/wp-admin` and `/wp-admin/`, including WordPress URL
+  subdirectories and login PATH_INFO requests. Frontend `admin-ajax.php`,
+  `admin-post.php` and the two password-strength-meter scripts remain accessible.
+- **Bypass for internal requests** accepts `Sec-Fetch-Site: same-origin`. Only
+  when that header is absent, an exact same scheme/host/default-port Referer
+  can bypass the gate. A cross-site/same-site/none value cannot be overridden by
+  a Referer. Domain aliases are checked against their own exact origin.
+- This intentionally stops unsophisticated direct-hit bots; headers can be
+  imitated. It is not a replacement for WordPress authentication or Fail2ban.
+  Bookmarks/direct administrator visits show the additional HTTP login prompt.
+- WooCommerce account, login, registration, password recovery, cart and checkout
+  URLs are not gated. A custom plugin that deliberately uses `wp-login.php` in a
+  customer flow needs that flow checked; an external email link there can prompt.
+- Passwords are stored as salted SHA-512 crypt hashes in root-private settings.
+  Published htpasswd files are root-owned, mode 0640, readable by the configured
+  Nginx worker group. Neither plaintext passwords nor hashes return to the panel.
+  Keep a saved password by leaving the replacement field empty.
+
+Country filtering is independent of the HTTP password, optional **per domain**,
+with **administration only** as the initial scope. Choose blocked countries or
+allowed countries, enter two-letter codes (for example `GR`, `CY`), and choose
+whether unknown locations may pass. Unknown locations pass by default. Entire-site
+scope also affects customers, APIs and payment/webhook services; ACME certificate
+validation remains accessible. Country rules do not create automatic firewall bans.
+
+Before enabling a country filter, the administrator uses **Countries** to enter
+one central MaxMind account ID and GeoLite2 download license key, then selects
+**Download & apply country database**. No per-domain accounts, DNS changes, Nginx
+module, WordPress companion or request-time API call is needed. GeoLite2 Country
+CSV is compiled into one shared native Nginx IPv4/IPv6 lookup table, in memory
+while filtering is configured. The extra table consumes memory; it is not loaded
+when no country filter is configured. Location comes from Nginx's client address,
+not an untrusted forwarded header; deployments behind a proxy need their normal
+trusted-real-IP configuration. IP geolocation describes the address, not a person's
+nationality or whether they are malicious; VPNs can change the reported location.
+
+Download credentials stay in root-private `geoip-config.json`; they are never
+returned to the browser, placed in command arguments or forwarded to CDN redirects.
+Optional automatic refresh checks weekly during existing addon maintenance while
+country rules are active. Failed updates retain the last working database, display
+an error in Countries and retry the next day. There is also an immediate manual
+update button. The complete archive is processed without an addon row/byte quota.
+HTTP-only protection works without setting up a country database.
+
+GeoLite2 data is created by [MaxMind](https://www.maxmind.com/).
+See [download/update credentials](https://dev.maxmind.com/geoip/updating-databases/).
+Activity distinguishes **WordPress HTTP access gate** (actual 401 challenges),
+**Country filter** (403 rejections), and Observe candidates. No credentials, cookies
+or Authorization headers are logged. The checks run in Nginx before the selected
+proxy/backend route; native Hestia templates are not replaced. Candidate validation,
+worker reload and access-setting/password rollback use the existing transaction.
+Conflicting independently managed HTTP-auth directives are reported rather than
+silently overwritten.
 
 ## Included
 

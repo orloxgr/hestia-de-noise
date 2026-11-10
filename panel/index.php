@@ -75,7 +75,7 @@ $submitted = null;
 $wordpressResult = null;
 $analysisResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
+    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['access_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
         $error = 'Write access and a valid request token are required.';
     } else {
@@ -163,6 +163,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
+        } elseif ($request['action'] === 'access_save') {
+            $request['target'] = $_POST['access_target'] ?? '';
+            $request['password'] = $_POST['access_password'] ?? '';
+            $codes = is_string($_POST['country_codes'] ?? null) ? preg_split('/[\s,]+/', strtoupper(trim($_POST['country_codes']))) : [];
+            $request['settings'] = ['enabled' => isset($_POST['access_enabled']),
+                'bypass_internal' => isset($_POST['access_bypass_internal']), 'username' => $_POST['access_username'] ?? '',
+                'country' => ['enabled' => isset($_POST['country_enabled']), 'scope' => $_POST['country_scope'] ?? '',
+                    'mode' => $_POST['country_mode'] ?? '', 'countries' => array_values(array_filter($codes, static fn($x) => $x !== '')),
+                    'allow_unknown' => isset($_POST['country_allow_unknown'])]];
+        } elseif (in_array($request['action'], ['geoip_update', 'geoip_save'], true)) {
+            $request['account_id'] = $_POST['geoip_account_id'] ?? '';
+            $request['license_key'] = $_POST['geoip_license_key'] ?? '';
+            $request['automatic'] = isset($_POST['geoip_automatic']);
         } elseif ($request['action'] === 'activity_start') {
             $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
         } elseif (in_array($request['action'], ['log_scan', 'log_scan_start'], true)) {
@@ -210,7 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'], true)) {
+        if (!in_array($request['action'], ['save', 'access_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_');
@@ -230,6 +243,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isset($result['wordpress'])) $wordpressResult = $result['wordpress'];
             if ($request['action'] === 'log_scan' && !empty($result['ok'])) $analysisResult = $result['analysis'] ?? null;
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
+            elseif ($request['action'] === 'access_save') $message = 'Domain access protection saved. Enforce applies protection; Observe records candidates; Off bypasses it.';
+            elseif ($request['action'] === 'geoip_update') $message = 'Country database downloaded and applied. Existing rules now use the updated local data.';
+            elseif ($request['action'] === 'geoip_save') $message = 'Country download settings saved. No download or domain policy change was requested.';
             elseif ($request['action'] === 'history_clear') $message = 'Completed ban history cleared. Active bans and strike counters are unchanged.';
             elseif ($request['action'] === 'history_settings_save') $message = 'History retention saved.';
             elseif ($request['action'] === 'log_scan') $message = 'Log review completed. Suggestions only; no protection settings or bans were changed.';
