@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0 · 2026-11-10
+
+- Add central → account → domain profiles for the WordPress HTTP gate and country policy. Accounts and domains can inherit, override, or disable protection independently; future domains inherit automatically.
+- Add explicit inheritance controls and show the effective profile source. Allow custom profiles to inherit the parent password so central/account rotations propagate without replacing other controls or exposing password hashes.
+- Preserve all 0.15 domain settings as explicit overrides, including disabled profiles. Keep access settings separate from the General form and enforce administrator/account/domain ownership for each operation.
+- Resolve inherited settings consistently for native Nginx maps, private password publication, country database refresh and transactional rollback. Verify central defaults, account Off, domain overrides and country rules through real Nginx requests in the VM.
+
 ## 0.15.0 · 2026-11-10
 
 - Add optional per-domain WordPress HTTP access gates for administrators and domain owners, with exact same-origin/Referer bypass, frontend handler exceptions, salted hashes and worker-readable private password files. Direct login GET/POST requests are challenged in Nginx before the backend; Observe/Off do not challenge. Existing protection remains unchanged until explicitly enabled.

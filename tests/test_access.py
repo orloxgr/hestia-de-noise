@@ -38,6 +38,78 @@ def archive():
 
 
 class AccessValidation(unittest.TestCase):
+    def test_legacy_migration_preserves_explicit_off_and_new_domains_inherit(self):
+        settings = access.validate({'sites': {'alice/old.test': copy.deepcopy(access.DEFAULT)}}, target)
+        settings['defaults'].update(enabled=True, password_hash='$6$salt$' + 'a' * 86)
+        self.assertFalse(access.effective(settings, 'alice/old.test')['enabled'])
+        self.assertTrue(access.effective(settings, 'alice/new.test')['enabled'])
+        self.assertFalse(access.public(settings, {'alice/new.test'})['alice/new.test']['override'])
+
+    def test_profile_precedence_password_rotation_and_country_inheritance(self):
+        settings = {'defaults': copy.deepcopy(access.DEFAULT), 'accounts': {}, 'sites': {}}
+        settings['defaults'].update(enabled=True, password_hash='$6$salt$' + 'a' * 86)
+        settings['defaults']['country'].update(enabled=True, countries=['US'])
+        settings['accounts']['alice'] = copy.deepcopy(access.DEFAULT)
+        settings['sites']['alice/one.test'] = {**copy.deepcopy(access.DEFAULT), 'enabled': True}
+        settings['sites']['alice/custom.test'] = {**copy.deepcopy(access.DEFAULT), 'enabled': True,
+                                                 'password_hash': '$6$salt$' + 'c' * 86}
+        settings = access.validate(settings, target)
+        self.assertFalse(access.effective(settings, 'alice/new.test')['enabled'])
+        self.assertFalse(access.effective(settings, 'alice/one.test')['country']['enabled'])
+        self.assertTrue(access.effective(settings, 'bob/new.test')['country']['enabled'])
+        settings['defaults']['password_hash'] = '$6$salt$' + 'b' * 86
+        self.assertEqual(access.effective(settings, 'alice/one.test')['password_hash'], '$6$salt$' + 'b' * 86)
+        self.assertEqual(access.effective(settings, 'alice/custom.test')['password_hash'], '$6$salt$' + 'c' * 86)
+        visible = access.public_accounts(settings, {'alice'})
+        self.assertEqual(set(visible), {'alice'})
+        self.assertTrue(visible['alice']['password_inherited'])
+        self.assertNotIn('password_hash', json.dumps(visible))
+
+    def test_account_save_and_return_to_inheritance_preserve_other_levels(self):
+        settings = access.validate({'sites': {'alice/one.test': copy.deepcopy(access.DEFAULT)}}, target)
+        profile = {k: v for k, v in copy.deepcopy(access.DEFAULT).items() if k != 'password_hash'}
+        with patch.object(engine, 'authorize', return_value=(False, 'alice')), \
+                patch.object(engine, 'load', return_value=DEFAULT), patch.object(engine, 'collect', return_value=[]), \
+                patch.object(engine, 'access_settings', side_effect=lambda: copy.deepcopy(settings)), \
+                patch.object(engine, 'snapshot', return_value={}), patch.object(engine, 'apply') as apply:
+            engine.dispatch({'actor': 'alice', 'action': 'access_account_save', 'target': 'alice', 'settings': profile})
+            saved = apply.call_args.kwargs['access']
+            self.assertIn('alice', saved['accounts'])
+            self.assertEqual(saved['sites'], settings['sites'])
+            settings = saved
+            engine.dispatch({'actor': 'alice', 'action': 'access_account_save', 'target': 'alice', 'inherit': True})
+            self.assertEqual(apply.call_args.kwargs['access']['accounts'], {})
+            for request in ({'action': 'access_account_save', 'target': 'bob', 'inherit': True},
+                            {'action': 'access_defaults_save', 'settings': profile}):
+                with self.subTest(request=request), self.assertRaises(PermissionError):
+                    engine.dispatch({'actor': 'alice', **request})
+
+    def test_central_save_and_domain_password_can_return_to_parent(self):
+        hashed = '$6$salt$' + 'a' * 86
+        settings = access.validate({'sites': {'alice/one.test': {**copy.deepcopy(access.DEFAULT),
+                                    'password_hash': hashed}}}, target)
+        profile = {k: v for k, v in copy.deepcopy(access.DEFAULT).items() if k != 'password_hash'}
+        sites = [{'key': 'alice/one.test', 'owner': 'alice', 'supported': True, 'suspended': False}]
+        with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
+                patch.object(engine, 'load', return_value=DEFAULT), patch.object(engine, 'collect', return_value=sites), \
+                patch.object(engine, 'access_settings', side_effect=lambda: copy.deepcopy(settings)), \
+                patch.object(engine, 'snapshot', return_value={}), patch.object(engine, 'apply') as apply, \
+                patch.object(access, 'password_hash', return_value=hashed):
+            engine.dispatch({'actor': 'admin', 'action': 'access_defaults_save', 'settings': profile, 'password': 'new'})
+            self.assertEqual(apply.call_args.kwargs['access']['defaults']['password_hash'], hashed)
+            engine.dispatch({'actor': 'admin', 'action': 'access_save', 'target': 'alice/one.test',
+                             'settings': profile, 'inherit_password': True})
+            self.assertEqual(apply.call_args.kwargs['access']['sites']['alice/one.test']['password_hash'], '')
+            engine.dispatch({'actor': 'admin', 'action': 'access_save', 'target': 'alice/one.test', 'inherit': True})
+            self.assertEqual(apply.call_args.kwargs['access']['sites'], {})
+
+    def test_admin_looking_as_an_owner_cannot_change_central_or_foreign_account(self):
+        with patch.object(engine, 'authorize', return_value=(True, 'alice')), \
+                patch.object(engine, 'load', return_value=DEFAULT), patch.object(engine, 'collect', return_value=[]):
+            for request in ({'action': 'access_defaults_save'}, {'action': 'access_account_save', 'target': 'bob'}):
+                with self.subTest(request=request), self.assertRaises(PermissionError):
+                    engine.dispatch({'actor': 'admin', **request})
+
     def test_disabled_and_country_only_do_not_require_a_password(self):
         entry = copy.deepcopy(access.DEFAULT)
         entry['country'].update(enabled=True, countries=['GR'])
@@ -148,6 +220,20 @@ class NativeAccessTests(unittest.TestCase):
             if host == 'site-country.test': entry['country']['scope'] = 'site'
             if host == 'allow.test': entry['country'].update(mode='allow', countries=['GR'])
             if host == 'unknown.test': entry['country']['allow_unknown'] = False
+        # Exercise inheritance through real Nginx, including explicit account Off
+        # and a domain overriding that account while inheriting the central hash.
+        cls.settings = access.validate(cls.settings, target)
+        cls.settings['defaults'].update(enabled=True, password_hash=hashed)
+        cls.settings['defaults']['country'].update(enabled=True, countries=['US'])
+        cls.settings['sites']['alice/untouched.test'] = copy.deepcopy(access.DEFAULT)
+        cls.settings['accounts']['bob'] = copy.deepcopy(access.DEFAULT)
+        cls.settings['sites']['bob/domain-override.test'] = {**copy.deepcopy(access.DEFAULT), 'enabled': True}
+        for owner, host in [('carol', 'central.test'), ('bob', 'account-off.test'), ('bob', 'domain-override.test')]:
+            site = {'key': owner + '/' + host, 'domain': host, 'aliases': '', 'supported': True}
+            cls.sites.append(site)
+            entry = access.effective(cls.settings, site['key'])
+            if entry['enabled']:
+                (cls.credentials / (access.identifier(site['key']) + '.htpasswd')).write_text('wp:' + entry['password_hash'] + '\n')
         cls.geo = cls.root / 'countries.geo'; cls.geo.write_bytes(country.compile_csv(archive())[0])
         cls.policy = copy.deepcopy(DEFAULT); cls.policy['mode'] = 'enforce'
         cls.policy['overrides'] = {'alice/observe.test': 'observe', 'alice/off.test': 'off'}
@@ -194,6 +280,14 @@ class NativeAccessTests(unittest.TestCase):
         self.assertEqual(self.request(headers={'Authorization': 'Basic ' + base64.b64encode(b'wp:wrong').decode()}), 401)
         self.assertEqual(Origin.hits, before)
         self.assertEqual(self.request(headers={'Authorization': 'Basic ' + base64.b64encode(b'wp:login').decode()}), 200)
+
+    def test_central_account_and_domain_inheritance_at_native_request_time(self):
+        self.assertEqual(self.request(host='central.test'), 401)
+        self.assertEqual(self.request(host='central.test', source='127.3.1.1'), 403)
+        self.assertEqual(self.request(host='account-off.test', source='127.3.1.1'), 200)
+        self.assertEqual(self.request(host='domain-override.test', source='127.3.1.1'), 401)
+        self.assertEqual(self.request(host='domain-override.test', headers={
+            'Authorization': 'Basic ' + base64.b64encode(b'wp:login').decode()}), 200)
 
     def test_same_origin_and_fallback_preserve_post_and_strict_mode_still_prompts(self):
         self.assertEqual(self.request(headers={'Sec-Fetch-Site': 'same-origin'}, method='POST', body='log=user&pwd=pass'), 200)

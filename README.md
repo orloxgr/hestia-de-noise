@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.15.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.16.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -43,13 +43,22 @@ Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
 
-## Per-domain WordPress HTTP access and countries
+## Central, account and domain WordPress HTTP access and countries
 
-Open **WP access**, expand a domain, set the extra HTTP username/password and
-save that domain. This feature is off by default on new installations and upgrades.
+Open **WP access**. Administrators can set **Central defaults** for the HTTP gate
+and country policy. Accounts start with **Inherit parent settings** and can choose
+**Custom settings (override)**, including disabling either feature. Domains inherit
+their account unless they have their own override: **central → account → domain**.
+New domains automatically use their account's effective settings. Select inheritance
+again to remove an override and follow future parent changes.
+
+Protection starts disabled on a fresh installation. Upgrading from 0.15 preserves
+every previously saved domain profile as an explicit override, including disabled
+profiles; it does not silently replace existing choices with central defaults.
 Use HTTPS: HTTP Basic authentication does not encrypt its credentials itself.
-Administrators can edit all domains; owners can edit only their own web domains.
-The global settings form and older open panels cannot overwrite these settings.
+Administrators can edit all three levels; owners can edit only their own account
+and web domains. The main General settings form and older open panels cannot
+overwrite access settings at other levels.
 
 - **Enforce** applies the gate, **Observe** records candidates without a prompt,
   and **Off** bypasses it. Suspended/unsupported sites are not activated.
@@ -69,9 +78,12 @@ The global settings form and older open panels cannot overwrite these settings.
 - Passwords are stored as salted SHA-512 crypt hashes in root-private settings.
   Published htpasswd files are root-owned, mode 0640, readable by the configured
   Nginx worker group. Neither plaintext passwords nor hashes return to the panel.
-  Keep a saved password by leaving the replacement field empty.
+  Keep a custom password by leaving the replacement field empty. Choose
+  **Inherit HTTP password from parent** to follow parent password rotations while
+  retaining other custom controls. A new nonempty password creates a custom password.
 
-Country filtering is independent of the HTTP password, optional **per domain**,
+Country filtering is independent of the HTTP password and follows the same
+central/account/domain inheritance,
 with **administration only** as the initial scope. Choose blocked countries or
 allowed countries, enter two-letter codes (for example `GR`, `CY`), and choose
 whether unknown locations may pass. Unknown locations pass by default. Entire-site

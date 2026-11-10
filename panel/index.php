@@ -75,7 +75,7 @@ $submitted = null;
 $wordpressResult = null;
 $analysisResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['access_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
+    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['access_save', 'access_account_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
         $error = 'Write access and a valid request token are required.';
     } else {
@@ -163,9 +163,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
-        } elseif ($request['action'] === 'access_save') {
+        } elseif (in_array($request['action'], ['access_save', 'access_account_save', 'access_defaults_save'], true)) {
             $request['target'] = $_POST['access_target'] ?? '';
             $request['password'] = $_POST['access_password'] ?? '';
+            $request['inherit'] = ($_POST['access_source'] ?? 'custom') === 'inherit';
+            $request['inherit_password'] = isset($_POST['access_inherit_password']);
             $codes = is_string($_POST['country_codes'] ?? null) ? preg_split('/[\s,]+/', strtoupper(trim($_POST['country_codes']))) : [];
             $request['settings'] = ['enabled' => isset($_POST['access_enabled']),
                 'bypass_internal' => isset($_POST['access_bypass_internal']), 'username' => $_POST['access_username'] ?? '',
@@ -223,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'access_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'], true)) {
+        if (!in_array($request['action'], ['save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_');
@@ -243,7 +245,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isset($result['wordpress'])) $wordpressResult = $result['wordpress'];
             if ($request['action'] === 'log_scan' && !empty($result['ok'])) $analysisResult = $result['analysis'] ?? null;
             if (empty($result['ok'])) $error = $result['error'] ?? 'The operation failed.';
-            elseif ($request['action'] === 'access_save') $message = 'Domain access protection saved. Enforce applies protection; Observe records candidates; Off bypasses it.';
+            elseif (in_array($request['action'], ['access_save', 'access_account_save', 'access_defaults_save'], true)) $message = match ($request['action']) {
+                'access_defaults_save' => 'Central access defaults saved. Inheriting accounts and domains now use these settings.',
+                'access_account_save' => 'Account access settings saved. Inheriting domains now use the account profile.',
+                default => 'Domain access settings saved. Enforce applies protection; Observe records candidates; Off bypasses it.'
+            };
             elseif ($request['action'] === 'geoip_update') $message = 'Country database downloaded and applied. Existing rules now use the updated local data.';
             elseif ($request['action'] === 'geoip_save') $message = 'Country download settings saved. No download or domain policy change was requested.';
             elseif ($request['action'] === 'history_clear') $message = 'Completed ban history cleared. Active bans and strike counters are unchanged.';

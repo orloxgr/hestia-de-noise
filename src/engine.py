@@ -249,7 +249,8 @@ def geo_metadata():
 def refresh_countries(policy, sites):
     """Scheduled download only; serving requests never calls an external service."""
     settings = access_settings()
-    if not any(settings['sites'].get(s['key'], {}).get('country', {}).get('enabled')
+    if not any(s.get('kind') != 'mail' and s.get('supported') and not s.get('suspended')
+               and access_protection.effective(settings, s['key'])['country']['enabled']
                and site_mode(policy, s) != 'off' for s in sites):
         return
     raw = storage.read(STATE / country_database.CONFIG)
@@ -323,7 +324,7 @@ def apply(policy, sites, remove=False, access=None, geography=None):
             if site['supported'] and (site.get('kind') != 'mail' or policy['mail_protection']):
                 for path in site['paths']:
                     desired[path] = site_config(policy, site, site.get('roots', {}).get(path), access)
-                entry = access['sites'].get(site['key'])
+                entry = access_protection.effective(access, site['key']) if site.get('kind') != 'mail' else None
                 if entry and entry['enabled'] and not site.get('suspended') and site_mode(policy, site) != 'off':
                     for destination in site['paths']:
                         base = Path(destination.removesuffix('_hdn'))
@@ -341,7 +342,7 @@ def apply(policy, sites, remove=False, access=None, geography=None):
                     desired[str(filename)] = '# Managed by hestia-de-noise\n' + entry['username'] + ':' + entry['password_hash'] + '\n'
         if any(s.get('supported') and not s.get('suspended') and s.get('kind') != 'mail'
                and site_mode(policy, s) != 'off'
-               and access['sites'].get(s['key'], {}).get('country', {}).get('enabled') for s in sites):
+               and access_protection.effective(access, s['key'])['country']['enabled'] for s in sites):
             if not geo_path:
                 raise ValueError('Download the country database before enabling a country filter')
             if not geo_path.is_file():
@@ -453,7 +454,9 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     except (OSError, ValueError) as error:
         scoped = {'active': 0, 'pending': 0, 'rows': [], 'error': str(error)}
     visible_keys = {row['key'] for row in rows}
-    access = access_protection.public(access_settings(), visible_keys)
+    saved_access = access_settings()
+    access = access_protection.public(saved_access, {row['key'] for row in rows if row['kind'] != 'mail'})
+    owners = {row['owner'] for row in rows if row['kind'] != 'mail'} | ({owner} if owner is not None else set())
     geography = country_database.status(STATE, storage.read) if STATE.exists() else {'available': False, 'configured': False}
     if owner is not None:
         geography = {k: v for k, v in geography.items() if k not in ('account_id', 'error')}
@@ -475,6 +478,8 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
             'bans': ban_status,
             'domain_bans': scoped,
             'access': access, 'geography': geography,
+            'access_defaults': access_protection.public_profile(saved_access['defaults']) if owner is None else None,
+            'access_accounts': access_protection.public_accounts(saved_access, owners),
             'history': ban_history.settings(STATE),
             'maintenance': maintenance,
             'wordpress': wordpress_status,
@@ -494,7 +499,7 @@ def authorize(request):
     owner = account(request.get('owner', actor))
     if not admin and owner != actor:
         raise PermissionError('Another account cannot be selected')
-    if request.get('action') not in ('status', 'access_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel') and not admin:
+    if request.get('action') not in ('status', 'access_save', 'access_account_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel') and not admin:
         raise PermissionError('Only an administrator can change De-Noise settings')
     return admin, owner
 
@@ -540,27 +545,53 @@ def dispatch(request):
     for scope in ('bans', 'domain'):
         ban_history.selection(listing.get(scope + '_page', 1), listing.get(scope + '_view', 'active'))
     ban_history.selection(listing.get('wordpress_page', 1))
-    if action == 'access_save':
-        if set(request) - {'actor', 'owner', 'action', 'target', 'settings', 'password', 'listing'}:
+    if action in ('access_save', 'access_account_save', 'access_defaults_save'):
+        if set(request) - {'actor', 'owner', 'action', 'target', 'settings', 'password', 'listing', 'inherit', 'inherit_password'}:
             raise ValueError('Only domain access controls can be submitted')
         key = request.get('target')
-        known = {site['key']: site for site in sites if site.get('kind') != 'mail'}
-        if key not in known or (not (admin and owner == request['actor']) and known[key]['owner'] != owner):
-            raise PermissionError('This domain does not belong to the selected account')
-        site = known[key]
-        if not site['supported'] or site['suspended']:
-            raise ValueError('This domain is suspended or unsupported')
+        central = admin and owner == request['actor']
+        if action == 'access_defaults_save':
+            if not central:
+                raise PermissionError('Only the administrator can change central access defaults')
+        elif action == 'access_account_save':
+            account(key)
+            if not central and key != owner:
+                raise PermissionError('Another account cannot be selected')
+            if central and key != request['actor']:
+                user = hestia('v-list-user', key).get(key, {})
+                if user.get('SUSPENDED') != 'no':
+                    raise ValueError('Account is suspended or unavailable')
+        else:
+            known = {site['key']: site for site in sites if site.get('kind') != 'mail'}
+            if key not in known or (not central and known[key]['owner'] != owner):
+                raise PermissionError('This domain does not belong to the selected account')
+            site = known[key]
+            if not site['supported'] or site['suspended']:
+                raise ValueError('This domain is suspended or unsupported')
         saved = access_settings()
-        entry = request.get('settings')
-        if not isinstance(entry, dict) or set(entry) != set(access_protection.DEFAULT) - {'password_hash'}:
-            raise ValueError('Invalid domain access controls')
-        entry = copy.deepcopy(entry)
-        entry['password_hash'] = saved['sites'].get(key, {}).get('password_hash', '')
-        if request.get('password'):
-            entry['password_hash'] = access_protection.password_hash(request['password'])
-        elif request.get('password') not in ('', None):
-            raise ValueError('Invalid HTTP password')
-        saved['sites'][key] = entry
+        for flag in ('inherit', 'inherit_password'):
+            if flag in request and type(request[flag]) is not bool:
+                raise ValueError('Access inheritance switches must be booleans')
+        collection = 'accounts' if action == 'access_account_save' else 'sites'
+        if action != 'access_defaults_save' and request.get('inherit'):
+            saved[collection].pop(key, None)
+        else:
+            entry = request.get('settings')
+            if not isinstance(entry, dict) or set(entry) != set(access_protection.DEFAULT) - {'password_hash'}:
+                raise ValueError('Invalid domain access controls')
+            entry = copy.deepcopy(entry)
+            previous = saved['defaults'] if action == 'access_defaults_save' else saved[collection].get(key, {})
+            entry['password_hash'] = previous.get('password_hash', '')
+            if action != 'access_defaults_save' and request.get('inherit_password'):
+                entry['password_hash'] = ''
+            if request.get('password'):
+                entry['password_hash'] = access_protection.password_hash(request['password'])
+            elif request.get('password') not in ('', None):
+                raise ValueError('Invalid HTTP password')
+            if action == 'access_defaults_save':
+                saved['defaults'] = entry
+            else:
+                saved[collection][key] = entry
         apply(policy, sites, access=saved)
     elif action in ('geoip_update', 'geoip_save'):
         if not (admin and owner == request['actor']):

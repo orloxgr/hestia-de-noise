@@ -137,6 +137,27 @@ class TransactionTests(unittest.TestCase):
             engine.apply(DEFAULT, [self.site], access=settings)
             self.assertIn(str(filename), self.global_file.read_text())
 
+    def test_inherited_central_password_publication_rotation_and_rollback(self):
+        directory = self.directory / 'access'; directory.mkdir()
+        settings = access_protection.validate({'sites': {}}, engine.target)
+        settings['defaults'].update(enabled=True, password_hash='$6$salt$' + 'a' * 86)
+        filename = directory / (access_protection.identifier(self.site['key']) + '.htpasswd')
+        candidate = copy.deepcopy(DEFAULT); candidate['mode'] = 'enforce'
+        with patch.object(access_protection, 'DIRECTORY', directory), patch.object(engine, 'verify'), \
+                patch.object(engine.storage, 'log_uids', return_value={0}), patch.object(engine, 'run', return_value=''):
+            engine.apply(candidate, [self.site], access=settings)
+            self.assertIn('$6$salt$' + 'a' * 86, filename.read_text())
+            settings['defaults']['password_hash'] = '$6$salt$' + 'b' * 86
+            with patch.object(engine, 'verify', side_effect=RuntimeError('candidate rejected')):
+                with self.assertRaisesRegex(RuntimeError, 'candidate rejected'):
+                    engine.apply(candidate, [self.site], access=settings)
+            self.assertIn('$6$salt$' + 'a' * 86, filename.read_text())
+            engine.apply(candidate, [self.site], access=settings)
+            self.assertIn('$6$salt$' + 'b' * 86, filename.read_text())
+            settings['accounts']['alice'] = copy.deepcopy(access_protection.DEFAULT)
+            engine.apply(candidate, [self.site], access=settings)
+            self.assertFalse(filename.exists())
+
 
 class AuthorizationTests(unittest.TestCase):
     def setUp(self):
@@ -217,6 +238,9 @@ class AuthorizationTests(unittest.TestCase):
         data = engine.snapshot(DEFAULT, sites, 'alice')
         self.assertEqual([s['owner'] for s in data['sites']], ['alice'])
         self.assertNotIn('agents', data['policy'])
+        self.assertIsNone(data['access_defaults'])
+        self.assertEqual(set(data['access_accounts']), {'alice'})
+        self.assertEqual(set(data['access']), {'alice/example.test'})
 
     def test_admin_viewing_an_owner_gets_the_owner_activity_scope(self):
         sites = [{'key': owner + '/' + owner + '.test', 'owner': owner, 'domain': owner + '.test',

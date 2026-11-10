@@ -148,6 +148,10 @@
         });
         field.value = lines.join('\n');
     }));
+    document.querySelectorAll('[data-hdn-access-source]').forEach(select => {
+        const controls = select.closest('form').querySelector('[data-hdn-access-controls]');
+        select.addEventListener('change', () => { controls.disabled = select.value === 'inherit'; });
+    });
     const tabs = [...document.querySelectorAll('[data-hdn-tab]')];
     tabs.forEach(button => {
         button.addEventListener('click', () => {

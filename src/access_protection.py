@@ -1,4 +1,4 @@
-"""Per-domain native Nginx administration gates. No WordPress request worker."""
+"""Inherited native Nginx administration gates. No WordPress request worker."""
 import copy
 import hashlib
 import re
@@ -20,11 +20,20 @@ def identifier(key):
 
 
 def validate(value, target):
-    if not isinstance(value, dict) or set(value) != {'sites'} or not isinstance(value['sites'], dict):
+    if isinstance(value, dict) and set(value) == {'sites'}:
+        # 0.15 domains were explicit settings, including explicit Off. Preserve them.
+        value = {'defaults': copy.deepcopy(DEFAULT), 'accounts': {}, **value}
+    if (not isinstance(value, dict) or set(value) != {'defaults', 'accounts', 'sites'}
+            or not isinstance(value['sites'], dict) or not isinstance(value['accounts'], dict)):
         raise ValueError('Invalid domain access settings')
     result = copy.deepcopy(value)
-    for key, entry in result['sites'].items():
+    for key in result['sites']:
         target(key)
+    for owner in result['accounts']:
+        if not isinstance(owner, str):
+            raise ValueError('Invalid access account')
+        target(owner + '/access.invalid')
+    for entry in [result['defaults'], *result['accounts'].values(), *result['sites'].values()]:
         if not isinstance(entry, dict) or set(entry) != set(DEFAULT):
             raise ValueError('Invalid domain access controls')
         if any(type(entry[k]) is not bool for k in ('enabled', 'bypass_internal')):
@@ -34,8 +43,6 @@ def validate(value, target):
         hashed = entry['password_hash']
         if not isinstance(hashed, str) or hashed and not re.fullmatch(r'\$6\$[./A-Za-z0-9]+\$[./A-Za-z0-9]{86}', hashed):
             raise ValueError('Invalid saved HTTP password hash')
-        if entry['enabled'] and not hashed:
-            raise ValueError('Set an HTTP password before enabling administration protection')
         country = entry['country']
         if not isinstance(country, dict) or set(country) != set(DEFAULT['country']):
             raise ValueError('Invalid country controls')
@@ -50,7 +57,41 @@ def validate(value, target):
         country['countries'] = sorted(set(country['countries']))
         if country['enabled'] and not country['countries']:
             raise ValueError('Select at least one country before enabling the country filter')
+    profiles = [result['defaults']]
+    profiles += [effective(result, owner + '/access.invalid', account_only=True) for owner in result['accounts']]
+    profiles += [effective(result, key) for key in result['sites']]
+    if any(profile['enabled'] and not profile['password_hash'] for profile in profiles):
+        raise ValueError('Set an HTTP password before enabling administration protection')
     return result
+
+
+def effective(settings, key, account_only=False):
+    """Resolve whole profiles in order, with independently inherited passwords."""
+    owner = key.split('/', 1)[0]
+    entry = copy.deepcopy(settings.get('defaults', DEFAULT))
+    levels = [settings.get('accounts', {}).get(owner)]
+    if not account_only:
+        levels += [settings.get('sites', {}).get(key)]
+    for override in levels:
+        if override is not None:
+            inherited_hash = entry['password_hash']
+            entry = copy.deepcopy(override)
+            entry['password_hash'] = entry['password_hash'] or inherited_hash
+    return entry
+
+
+def public_profile(entry, override=False, source='global', password_inherited=False):
+    return {**{k: copy.deepcopy(v) for k, v in entry.items() if k != 'password_hash'},
+            'password_set': bool(entry['password_hash']), 'override': override,
+            'source': source, 'password_inherited': password_inherited}
+
+
+def public_accounts(settings, owners):
+    return {owner: public_profile(effective(settings, owner + '/access.invalid', account_only=True),
+                override=owner in settings.get('accounts', {}),
+                source='account' if owner in settings.get('accounts', {}) else 'global',
+                password_inherited=not settings.get('accounts', {}).get(owner, {}).get('password_hash'))
+            for owner in sorted(owners)}
 
 
 def password_hash(password):
@@ -65,16 +106,17 @@ def password_hash(password):
 
 
 def public(settings, visible):
-    return {key: {**{k: copy.deepcopy(v) for k, v in entry.items() if k != 'password_hash'},
-                  'password_set': bool(entry['password_hash'])}
-            for key, entry in settings['sites'].items() if key in visible}
+    return {key: public_profile(effective(settings, key), override=key in settings['sites'],
+                source='domain' if key in settings['sites'] else ('account' if key.split('/', 1)[0]
+                       in settings.get('accounts', {}) else 'global'),
+                password_inherited=not settings['sites'].get(key, {}).get('password_hash'))
+            for key in sorted(visible)}
 
 
 def compile_maps(settings, sites, pattern, geo_path=None):
-    entries = [(s, settings['sites'][s['key']]) for s in sites
+    entries = [(s, effective(settings, s['key'])) for s in sites
                if s.get('supported', True) and not s.get('suspended') and s.get('kind') != 'mail'
-               and s['key'] in settings['sites'] and (settings['sites'][s['key']]['enabled']
-                    or settings['sites'][s['key']]['country']['enabled'])]
+               and (effective(settings, s['key'])['enabled'] or effective(settings, s['key'])['country']['enabled'])]
     if not entries:
         return []
     lines = ['map $uri $hdn_admin_path {', '    default 0;',
@@ -130,7 +172,7 @@ def compile_maps(settings, sites, pattern, geo_path=None):
 
 
 def site_lines(settings, site, mode):
-    entry = settings['sites'].get(site['key'])
+    entry = effective(settings, site['key'])
     if not entry or mode == 'off' or site.get('kind') == 'mail':
         return []
     tag = 'ha' + identifier(site['key'])
