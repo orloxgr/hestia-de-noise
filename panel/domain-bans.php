@@ -1,5 +1,7 @@
 <?php $scopedBans = $data['domain_bans'] ?? []; $canDomainEdit = !empty($scopedBans['can_edit']); $editableSites = 0; ?>
-<h2 class="u-mb20">Domain automatic bans</h2>
+<details class="box-collapse u-mb20" id="hdn-domain-automatic-bans" open>
+<summary class="box-collapse-header">Domain automatic bans</summary>
+<div class="box-collapse-content">
 <p class="u-mb20">Enable additional protection for selected domains. These bans affect web traffic to that domain and its aliases only. Administrator rules always apply; trigger lists, thresholds and exceptions are managed by the administrator.</p>
 <?php if (!empty($scopedBans['error'])): ?><div class="alert alert-danger u-mb20"><?= $escape($isAdmin ? $scopedBans['error'] : 'Domain ban status is temporarily unavailable.') ?></div><?php endif; ?>
 <?php foreach (['missing_files' => 'Selected nonexistent PHP files', 'suspicious_queries' => 'Suspicious secret-file queries', 'any_404' => 'General 404 responses'] as $kind => $title):
@@ -37,3 +39,4 @@
 <?php if (empty($scopedBans['rows'])): ?><p>No domain-specific bans to display.</p><?php endif; ?>
 
 </div>
+</div></details>

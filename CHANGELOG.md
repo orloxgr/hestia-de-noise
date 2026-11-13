@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.2 · 2026-11-13
+
+- Explain Back, Synchronize now and Disable everywhere with mouse-over descriptions, including saved versus unsaved settings and the scope of global deactivation.
+- Give direct secret/repository probes, general repeated-404 bans, per-domain probe exceptions, ban status and domain automatic bans the same collapsible sections as selected PHP/query probes. Keep their controls, values and save behavior intact.
+
 ## 0.18.1 · 2026-11-13
 
 - Place Analyze PHP 404s inside IP bans → selected missing PHP files, next to the list it enriches, matching the Webuzo workflow. Keep the analyzer outside the remotely replaced ban-history fragment and available independently of the ban enable switch.

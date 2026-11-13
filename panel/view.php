@@ -9,10 +9,10 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 <script>document.title = 'De-Noise';</script>
 <style><?php readfile($install . '/panel/ui.css'); ?></style>
 <div class="toolbar"><div class="toolbar-inner"><div class="toolbar-buttons">
-    <a class="button button-secondary" href="/list/web/"><i class="fas fa-arrow-left icon-blue"></i>Back</a>
+    <a class="button button-secondary" href="/list/web/" title="Return to Hestia's web domain list."><i class="fas fa-arrow-left icon-blue"></i>Back</a>
     <?php if ($isAdmin): ?>
-    <form method="post"><?php $fields('sync'); ?><button class="button button-secondary" type="submit">Synchronize now</button></form>
-    <form method="post"><?php $fields('disable'); ?><button class="button button-secondary" type="submit">Disable everywhere</button></form>
+    <form method="post"><?php $fields('sync'); ?><button class="button button-secondary" type="submit" title="Run synchronization now: discover domains, reapply saved HTTP rules and reconcile automatic bans. Unsaved edits are not saved.">Synchronize now</button></form>
+    <form method="post"><?php $fields('disable'); ?><button class="button button-secondary" type="submit" title="Turn De-Noise off for every domain, clear per-domain mode overrides and disable its WordPress Fail2ban protection. Its automatic firewall bans are released by maintenance.">Disable everywhere</button></form>
     <?php endif; ?>
 </div></div></div>
 <div class="container" id="hdn-container"><div class="form-container form-container-wide">

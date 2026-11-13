@@ -10,7 +10,7 @@ import access_protection
 import agent_catalog
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.18.1'
+VERSION = '0.18.2'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
