@@ -6,7 +6,9 @@
 #hdn-tabs { min-width: 0; max-width: 100%; }
 #hdn-container [hidden] { display: none !important; }
 #hdn-tabs > .tabs-items { display: grid; grid-template-columns: repeat(var(--hdn-tab-columns), minmax(0, 1fr)); gap: 0; width: 100%; max-width: 100%; overflow: visible; }
-#hdn-tabs > .tabs-items > .tabs-item { min-width: 0; width: 100%; margin: 0; padding: 12px 6px; font-size: 13px; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+#hdn-tabs > .tabs-items > .tabs-item { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 46px; width: 100%; margin: 0; padding: 12px 8px; border: 1px solid #8886; background: transparent; color: inherit; font-size: 13px; line-height: 1.3; text-transform: none; white-space: nowrap; overflow-wrap: normal; text-align: center; cursor: pointer; box-sizing: border-box; }
+#hdn-tabs > .tabs-items > .tabs-item[aria-selected="true"] { background: #4957ad; border-color: #4957ad; color: #fff; }
+#hdn-tabs > .tabs-items > .tabs-item:focus-visible { outline: 2px solid #7e8be1; outline-offset: -3px; }
 #hdn-tabs > .tabs-items > .tabs-item:last-child:nth-child(odd) { grid-column: span 2; }
 #hdn-panel-cron { min-width: 0; }
 #hdn-panel-cron .hdn-cron-table-wrap { max-width: 100%; overflow-x: auto; }
@@ -19,6 +21,12 @@
 .hdn-scoped-table-wrap { max-width: 100%; overflow-x: auto; }
 #hdn-panel-domain-bans td { overflow-wrap: anywhere; }
 #hdn-panel-domain-bans .box-collapse-content { padding: 14px 20px; }
+#hdn-domain-controls td { overflow-wrap: anywhere; }
+#hdn-domain-controls .box-collapse-content { padding: 14px 20px; }
+@media (max-width: 900px) {
+    #hdn-tabs.hdn-admin-tabs > .tabs-items { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #hdn-tabs > .tabs-items > .tabs-item { white-space: normal; }
+}
 @media (max-width: 640px) {
     #hdn-tabs.hdn-admin-tabs > .tabs-items { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     #hdn-panel-cron .hdn-cron-table { min-width: 570px; }
@@ -85,4 +93,4 @@
 .hdn-review-note label { min-width: 160px; }
 .hdn-review-note small { flex-basis: 100%; }
 
-#hdn-save > i { margin-inline-end: 6px; }
+#hdn-save > i, #hdn-general-save > i { margin-inline-end: 6px; }

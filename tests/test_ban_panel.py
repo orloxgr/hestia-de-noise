@@ -85,6 +85,33 @@ class BanPanelTests(unittest.TestCase):
                     if scope=='bans':self.assertEqual('unban' in actions,view=='active')
                     self.assertIn('&lt;img onerror=alert(1)&gt;',body);self.assertNotIn('<img onerror=',body)
 
+    def test_php_analyzer_is_next_to_its_list_and_outside_remote_ban_history(self):
+        class Placement(html.parser.HTMLParser):
+            def __init__(self):
+                super().__init__(); self.stack = []; self.analyzers = []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'form' and attrs.get('id') == 'hdn-php_files-scan':
+                    self.analyzers.append(list(self.stack))
+                if tag in ('details', 'div', 'form'):
+                    self.stack.append((tag, attrs))
+
+            def handle_endtag(self, tag):
+                if tag in ('details', 'div', 'form'):
+                    self.stack.pop()
+
+        for view in ('active', 'history'):
+            with self.subTest(view=view):
+                forms, body = self.render(view, 'bans')
+                parsed = Placement(); parsed.feed(body)
+                self.assertEqual(len(parsed.analyzers), 1)
+                ancestors = parsed.analyzers[0]
+                self.assertTrue(any(attrs.get('id') == 'hdn-probe-missing_files' for _, attrs in ancestors))
+                self.assertFalse(any(tag == 'form' or 'data-hdn-remote-list' in attrs for tag, attrs in ancestors))
+                self.assertFalse(forms.nested)
+                self.assertLess(body.index('id="hdn-php_files-scan"'), body.index('id="hdn-probe-suspicious_queries"'))
+
     def test_wordpress_pager_has_native_refresh_action_and_correct_total(self):
         parsed,body=self.render('active','wordpress')
         self.assertFalse(parsed.nested);self.assertEqual(parsed.depth,0)

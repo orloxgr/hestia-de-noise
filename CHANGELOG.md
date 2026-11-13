@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.1 · 2026-11-13
+
+- Place Analyze PHP 404s inside IP bans → selected missing PHP files, next to the list it enriches, matching the Webuzo workflow. Keep the analyzer outside the remotely replaced ban-history fragment and available independently of the ban enable switch.
+- Align the administrator navigation with the twelve-section Webuzo layout: show Domains in General and preserve domain-specific ban controls in IP bans. Keep the owner's four scoped tabs and existing permissions. Use bordered full-width tab cells, readable mixed-case labels and a clear selected state; retain old tab links as aliases.
+- Verify the rendered form placement, absence of nested forms and browser analysis/append flow in the Hestia VM.
+
 ## 0.18.0 · 2026-11-13
 
 - Adapt the reusable Webuzo De-Noise 0.4.3 analysis/panel features to native Hestia discovery, logs and CLI. Keep delegated domain bans, administrator/account ownership, native IPv4/IPv6 enforcement, existing Fail2ban integration and CAPTCHA fixes. No Webuzo dependencies or replacement firewall backend.

@@ -2,8 +2,8 @@
 require $root . '/web/templates/header.php';
 $panel = top_panel($headerOwner, $TAB);
 $tabs = $isAdmin ? ['general' => 'General', 'agents' => 'User-Agents', 'endpoints' => 'Endpoints',
-    'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans', 'domain-bans' => 'Domain bans',
-    'enumeration' => 'User enumeration', 'wordpress' => 'WordPress logins', 'access' => 'WP access', 'countries' => 'Countries', 'cron' => 'Cron', 'domains' => 'Domains', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'access' => 'WP access', 'domains' => 'Domains', 'activity' => 'Activity'];
+    'filters' => 'Filtered URLs', 'static' => 'Static files', 'bans' => 'IP bans',
+    'enumeration' => 'User enumeration', 'access' => 'WP access', 'countries' => 'Countries', 'cron' => 'Cron', 'wordpress' => 'Fail2ban', 'activity' => 'Activity'] : ['domain-bans' => 'Domain bans', 'access' => 'WP access', 'domains' => 'Domains', 'activity' => 'Activity'];
 $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs);
 ?>
 <script>document.title = 'De-Noise';</script>
@@ -44,6 +44,8 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <label class="form-label u-block u-mt20"><input form="hdn-settings" type="checkbox" name="mail_protection" <?= !empty($policy['mail_protection']) ? 'checked' : '' ?> title="Apply the User-Agent lists and secret/repository probe protection to supported native webmail/mail HTTP hosts. Uses existing includes. Does not change SMTP, IMAP, webmail login, or general 404 bans."> Protect webmail HTTP hosts</label>
     <label class="form-label u-block u-mt20"><input form="hdn-settings" type="checkbox" name="log_rejections" <?= !empty($policy['log_rejections']) ? 'checked' : '' ?> title="Also record expected rate-limit rejections at error level in domain error logs. When off, they use notice level; Activity still records matches and genuine errors keep normal logging."> Detailed rate-limit messages in error logs</label>
     <label class="form-label u-block u-mt20"><input form="hdn-settings" type="checkbox" name="allow_domain_bans" <?= !array_key_exists('domain_bans', $policy) || !empty($policy['domain_bans']['allow_users']) ? 'checked' : '' ?>> Allow domain owners to edit their additional domain-only automatic bans</label>
+    <button form="hdn-settings" id="hdn-general-save" class="button u-mt20 u-mb20" type="submit"><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button>
+    <?php require $install . '/panel/domains.php'; ?>
 <?php elseif ($key === 'agents'): ?>
     <h2 class="u-mb20">User-Agent lists</h2>
     <p class="u-mb20">One literal substring per line. Case-insensitive. Each list has its own switch.</p>
@@ -82,6 +84,9 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <?php $ruleModule = $key; require $install . '/panel/rules.php'; unset($ruleModule); ?>
 <?php elseif ($key === 'bans'): ?>
     <?php require $install . '/panel/bans.php'; ?>
+    <section class="u-mt20" id="hdn-domain-controls">
+    <?php require $install . '/panel/domain-bans.php'; ?>
+    </section>
 <?php elseif ($key === 'wordpress'): ?>
     <?php require $install . '/panel/wordpress.php'; ?>
 <?php elseif ($key === 'enumeration'): ?>
@@ -102,7 +107,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
 </div>
 <?php endforeach; ?>
 </div>
-<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= in_array($activeTab, ['cron', 'domain-bans', 'wordpress', 'access', 'countries'], true) ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
+<?php if ($isAdmin): ?><button form="hdn-settings" id="hdn-save" class="button u-mt20" type="submit" <?= in_array($activeTab, ['general', 'cron', 'wordpress', 'access', 'countries', 'activity'], true) ? 'hidden' : '' ?>><i class="fas fa-floppy-disk icon-purple"></i>Save &amp; Apply</button><?php endif; ?>
 <p class="u-mt20"><small>Version <?= $escape($meta['version']) ?></small></p>
 </div></div>
 <script type="application/json" id="hdn-agent-presets"><?= json_encode(array_map(static fn($category) => $category['entries'], $data['agent_categories'] ?? []), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>

@@ -74,6 +74,7 @@ $listing['wordpress_page'] = filter_var($_POST['wordpress_target_page'] ?? $_POS
     FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1;
 $statusRequest['listing'] = $listing;
 $activeTab = is_string($_POST['tab'] ?? $_GET['tab'] ?? null) ? ($_POST['tab'] ?? $_GET['tab']) : 'general';
+if ($isAdmin) $activeTab = ['domains' => 'general', 'domain-bans' => 'bans', 'fail2ban' => 'wordpress'][$activeTab] ?? $activeTab;
 $fields = static function (string $action) use ($escape, $activeTab, $listing): void {
     echo '<input type="hidden" name="token" value="' . $escape($_SESSION['token']) . '">';
     echo '<input type="hidden" name="action" value="' . $escape($action) . '">';
@@ -358,6 +359,4 @@ if (empty($data['ok'])) $error = $error ?: ($data['error'] ?? 'Could not load De
 // When impersonating a user, render the user's scope even for an admin session.
 if (!$isAdmin) $data['sites'] = array_values(array_filter($data['sites'] ?? [], static fn($site) => $site['owner'] === $owner));
 $policy = $error !== '' && $submitted !== null ? $submitted : ($data['policy'] ?? []);
-$selectedTab = $_POST['tab'] ?? $_GET['tab'] ?? 'general';
-$activeTab = is_string($selectedTab) ? $selectedTab : 'general';
 require $install . '/panel/view.php';

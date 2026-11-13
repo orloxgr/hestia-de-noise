@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.18.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.18.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -172,7 +172,7 @@ silently overwritten.
   lists/numeric profiles, the `rest_route` variant, and author-ID discovery.
   A separate optional switch covers public author archives. Authenticated
   requests retain WordPress's normal permissions; other REST routes remain available.
-- **WordPress logins:** administrator controls for the existing Fail2ban
+- **Fail2ban → WordPress logins:** administrator controls for the existing Fail2ban
   service: enable, failed-attempt threshold/window, three-stage ban durations,
   on-demand status and selected/all WordPress unban.
 - Private-file preset: environment files, source control, configuration backups,
@@ -235,15 +235,14 @@ silently overwritten.
   expandable exact schedule details.
 - **Domain bans:** owners can switch on additional automatic bans for their own
   domains. These use Nginx, support IPv4/IPv6 and do not block other domains.
-- Hestia's native tabs: General, User-Agents, Endpoints, Filtered URLs, Static
-  files, IP bans, Domain bans, User enumeration, WordPress logins, Cron, Domains
-  and Activity. Administrator tabs occupy two full-width rows of six, without
-  horizontal scrolling. Small screens use three columns to keep labels readable.
-  Domain bans and Cron have separate
-  save/apply controls.
+- Twelve administrator tabs in two full-width rows: General, User-Agents,
+  Endpoints, Filtered URLs, Static files, IP bans, User enumeration, WP access,
+  Countries, Cron, Fail2ban and Activity. Domains are managed inside General;
+  domain-only bans have their own controls inside IP bans. Small screens use
+  three columns. Domain bans and Cron retain separate save/apply controls.
 - All accounts and domains in the administrator's view; bulk mode changes and
   per-domain Off / Observe / Enforce / Inherit. Users see only their own Domain
-  bans, Domains and Activity tabs.
+  bans, WP access, Domains and Activity tabs.
 - Existing proxy templates stay selected, including Varnish templates. Aliases
   share their domain's settings and rate budget.
 - New domains are picked up by one minute-based maintenance job.
@@ -400,7 +399,7 @@ shown in De-Noise rather than inserted into native firewall records.
 plugin in each site you want to protect. De-Noise does not scan for that plugin,
 run WP-CLI presence checks or install it automatically.
 
-1. Open **WordPress logins** as administrator.
+1. Open **Fail2ban → WordPress login protection** as administrator.
 2. Enable protection. Keep **3 failures within 5 minutes** for the first ban.
 3. Set the durations: **5 minutes → 3 days → 0 days (permanent)**.
 4. Click **Save & Apply WordPress protection**.

@@ -14,7 +14,7 @@
 <?php foreach (['missing_files' => ['Ban IPs that 404 any of these files X times', 'paths', 'Selected PHP file paths — one per line', 'probe_files'],
                'suspicious_queries' => ['Ban IPs that 404 suspicious queries X times', 'targets', 'Secret file targets in query values — one per line', 'probe_queries']] as $key => [$title, $field, $label, $preset]):
     $rule = $ban[$key] ?? []; ?>
-<details class="box-collapse u-mb20" open>
+<details class="box-collapse u-mb20" id="hdn-probe-<?= $key ?>" open>
 <summary class="box-collapse-header"><?= $escape($title) ?></summary>
 <div class="box-collapse-content">
 <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="bans_<?= $key ?>_enabled" <?= !empty($rule['enabled']) ? 'checked' : '' ?>> Enabled</label>
@@ -33,6 +33,7 @@
 <p><?= $key === 'missing_files'
     ? 'Only selected nonexistent PHP files are rejected with 404. Existing files retain normal routing. Count distinct paths per IP across all domains.'
     : 'Match selected parameter names and complete secret file arguments, traversal to listed targets or PHP filter resource arguments, including encoded forms. Reject matches with 404 and count requests per IP across domains. Search parameters, ordinary relative paths and parameter names alone do not match the suggested rules.' ?></p>
+<?php if ($key === 'missing_files'): $reviewKind = 'php_files'; require $install . '/panel/inventory.php'; unset($reviewKind); endif; ?>
 </div></details>
 <?php endforeach; ?>
 <?php $notFound = $ban['any_404'] ?? []; ?>
@@ -100,4 +101,3 @@
 <?php if (!$historyView): ?></form><?php endif; ?>
 
 </div>
-<?php $reviewKind = 'php_files'; require $install . '/panel/inventory.php'; unset($reviewKind); ?>
