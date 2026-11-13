@@ -139,3 +139,21 @@ test('late activity response for another site never replaces the selected report
     await new Promise(resolve=>setImmediate(resolve));
     assert.equal(f.updated(),false);
 });
+test('WP access method selector switches only its own HTTP/CAPTCHA controls', () => {
+    const controls = {'[data-hdn-basic-controls]': {}, '[data-hdn-captcha-controls]': {},
+        '[name="access_username"]': {}, '[name="captcha_seconds"]': {}};
+    let changed;
+    const form = {querySelector: name => controls[name]};
+    const select = {value:'off', closest: () => form, addEventListener: (_, fn) => { changed = fn; }};
+    vm.runInNewContext(source, {document: {
+        getElementById: name => ['hdn-agent-presets','hdn-probe-presets'].includes(name) ? {textContent:'{}'} : null,
+        querySelectorAll: name => name === '[data-hdn-access-method]' ? [select] : [], addEventListener() {}
+    }});
+    for (const mode of ['off','basic','captcha','basic','off']) {
+        select.value = mode; changed();
+        assert.equal(controls['[data-hdn-basic-controls]'].hidden, mode !== 'basic');
+        assert.equal(controls['[data-hdn-captcha-controls]'].hidden, mode !== 'captcha');
+        assert.equal(controls['[name="access_username"]'].required, mode === 'basic');
+        assert.equal(controls['[name="captcha_seconds"]'].required, mode === 'captcha');
+    }
+});

@@ -31,6 +31,13 @@ class InstallerTests(unittest.TestCase):
         self.original_cron = (MARKER + '\n# Previous job\n').encode()
         self.locations['CRON'].write_bytes(self.original_cron)
         self.stack = contextlib.ExitStack()
+        state = self.path / 'state'; state.mkdir()
+        self.stack.enter_context(patch.object(installer.engine, 'STATE', state))
+        self.stack.enter_context(patch.object(installer.wordpress, 'install', return_value={'managed': False}))
+        self.stack.enter_context(patch.object(installer.captcha_runtime, 'UNITS', self.path / 'units'))
+        (self.path / 'units').mkdir()
+        self.stack.enter_context(patch.object(installer.captcha_runtime, 'worker_group', return_value='www-data'))
+        self.stack.enter_context(patch.object(installer.engine, 'run'))
         for key, value in self.locations.items():
             self.stack.enter_context(patch.object(installer, key, value))
         self.stack.enter_context(patch.object(installer, 'preflight'))
@@ -74,6 +81,18 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn(b'__INSTALL_ROOT__', page)
         self.assertIn(b'/releases/release-', page.replace(b'\\', b'/'))
         self.assertIn(b' sync >> ', self.locations['CRON'].read_bytes())
+        unit = self.path / 'units/hestia-de-noise-captcha.socket'
+        self.assertIn(b'SocketMode=0660', unit.read_bytes())
+        self.assertIn(b'LoadCredential=signing-key:', (unit.parent / 'hestia-de-noise-captcha.service').read_bytes())
+
+    def test_uninstall_removes_owned_units_and_preserves_signing_state(self):
+        with patch.object(installer.engine, 'apply', return_value={'changed_files': 0}), \
+                patch.object(installer.wordpress, 'uninstall'), contextlib.redirect_stdout(io.StringIO()):
+            installer.install()
+            installer.uninstall()
+        self.assertFalse((self.path / 'units/hestia-de-noise-captcha.socket').exists())
+        self.assertFalse((self.path / 'units/hestia-de-noise-captcha.service').exists())
+        installer.engine.run.assert_any_call('/usr/bin/systemctl', 'disable', '--now', 'hestia-de-noise-captcha.socket')
 
 
 if __name__ == '__main__':

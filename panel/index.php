@@ -168,9 +168,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['password'] = $_POST['access_password'] ?? '';
             $request['inherit'] = ($_POST['access_source'] ?? 'custom') === 'inherit';
             $request['inherit_password'] = isset($_POST['access_inherit_password']);
+            $accessMethod = $_POST['access_method'] ?? (isset($_POST['access_enabled']) ? 'basic' : 'off');
+            if (!in_array($accessMethod, ['off', 'basic', 'captcha'], true)) throw new RuntimeException('Select a valid protection method.');
             $codes = is_string($_POST['country_codes'] ?? null) ? preg_split('/[\s,]+/', strtoupper(trim($_POST['country_codes']))) : [];
-            $request['settings'] = ['enabled' => isset($_POST['access_enabled']),
-                'bypass_internal' => isset($_POST['access_bypass_internal']), 'username' => $_POST['access_username'] ?? '',
+            $request['settings'] = ['enabled' => $accessMethod !== 'off',
+                'method' => $accessMethod === 'captcha' ? 'captcha' : 'basic',
+                'captcha_seconds' => filter_var($_POST['captcha_seconds'] ?? 21600, FILTER_VALIDATE_INT),
+                'bypass_internal' => isset($_POST['access_bypass_internal']), 'username' => ($_POST['access_username'] ?? '') ?: ($accessMethod !== 'basic' ? 'wp' : ''),
                 'country' => ['enabled' => isset($_POST['country_enabled']), 'scope' => $_POST['country_scope'] ?? '',
                     'mode' => $_POST['country_mode'] ?? '', 'countries' => array_values(array_filter($codes, static fn($x) => $x !== '')),
                     'allow_unknown' => isset($_POST['country_allow_unknown'])]];

@@ -148,6 +148,17 @@
         });
         field.value = lines.join('\n');
     }));
+    document.querySelectorAll('[data-hdn-access-method]').forEach(select => {
+        const form = select.closest('form');
+        const update = () => {
+            form.querySelector('[data-hdn-basic-controls]').hidden = select.value !== 'basic';
+            form.querySelector('[data-hdn-captcha-controls]').hidden = select.value !== 'captcha';
+            form.querySelector('[name="access_username"]').required = select.value === 'basic';
+            form.querySelector('[name="captcha_seconds"]').required = select.value === 'captcha';
+        };
+        select.addEventListener('change', update);
+        update();
+    });
     document.querySelectorAll('[data-hdn-access-source]').forEach(select => {
         const controls = select.closest('form').querySelector('[data-hdn-access-controls]');
         select.addEventListener('change', () => { controls.disabled = select.value === 'inherit'; });

@@ -16,6 +16,7 @@ import auto_bans
 from policy import DEFAULT, MARKER, VERSION, validate
 import storage
 import wordpress
+import captcha_runtime
 
 BASE = Path('/opt/hestia-de-noise')
 ROUTE = engine.HESTIA / 'web/plugins/de-noise'
@@ -145,11 +146,15 @@ def install():
                       '    daily\n    rotate 7\n    maxsize 10M\n    missingok\n    notifempty\n' +
                       '    compress\n    delaycompress\n    create 0640 root root\n    sharedscripts\n' +
                       '    postrotate\n        /usr/sbin/nginx -s reopen\n    endscript\n}\n').encode(), 0o644)}
+        integration.update({path: (text.encode(), 0o644) for path, text in
+                            captcha_runtime.unit_files(captcha_runtime.worker_group()).items()})
         before = {}
         try:
             for path, (data, mode) in integration.items():
                 before[path] = managed_file(path, data, mode)
             pointer(stage)
+            engine.run('/usr/bin/systemctl', 'daemon-reload')
+            engine.run('/usr/bin/systemctl', 'try-restart', captcha_runtime.NAME + '.service')
             policy = validate(engine.load('policy.json', DEFAULT))
             sites = engine.collect()
             if sites and not any(site['supported'] for site in sites):
@@ -163,6 +168,9 @@ def install():
                 pointer(previous)
             else:
                 (BASE / 'current').unlink(missing_ok=True)
+            engine.run('/usr/bin/systemctl', 'daemon-reload')
+            if previous:
+                engine.run('/usr/bin/systemctl', 'try-restart', captcha_runtime.NAME + '.service')
             raise
         print(json.dumps({'ok': True, 'version': VERSION, 'mode': policy['mode'],
                           'panel': '/plugins/de-noise/', **result,
@@ -177,6 +185,8 @@ def uninstall():
         wordpress.recover(engine.STATE, engine.run)
         directory(BASE)
         check_pointer()
+        units = captcha_runtime.unit_files(captcha_runtime.worker_group())
+        owned_units = [storage.owned(path) for path in units]
         cron_before = storage.owned(CRON)
         storage.replace(CRON, None)
         try:
@@ -190,6 +200,11 @@ def uninstall():
             raise
         for path in (MENU, BRIDGE, ROUTE / 'index.php', ROTATE):
             managed_file(path, None)
+        if any(value is not None for value in owned_units):
+            captcha_runtime.disable(engine.run)
+            for path in units:
+                managed_file(path, None)
+            engine.run('/usr/bin/systemctl', 'daemon-reload')
         # Retain root-private policy, logs and immutable releases. No recursive
         # deletion of server data, shared plugin directories or other addons.
         print(json.dumps({'ok': True, 'uninstalled': True,

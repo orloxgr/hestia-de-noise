@@ -10,8 +10,19 @@
     </select></label>
     <?php endif; ?>
     <fieldset data-hdn-access-controls <?= $profileLocked || (!$profileGlobal && empty($entry['override'])) ? 'disabled' : '' ?>>
-        <label class="form-label u-block u-mb10" title="Ask for an extra HTTP username/password before forwarding protected administration requests to WordPress. Applies to domains using this profile and their aliases in Enforce mode."><input type="checkbox" name="access_enabled" <?= $entry['enabled'] ? 'checked' : '' ?>> Enable administration HTTP password</label>
-        <label class="form-label u-block u-mb10" title="Bypass the extra password for Sec-Fetch-Site: same-origin. Only when that header is absent, accept a Referer with the exact same scheme, hostname and default port. Direct, cross-site, same-site-only and headerless requests still need the HTTP password."><input type="checkbox" name="access_bypass_internal" <?= $entry['bypass_internal'] ? 'checked' : '' ?>> Bypass for internal requests</label>
+        <label class="form-label">Protection method
+        <select class="form-select u-mb20" name="access_method" data-hdn-access-method title="Choose one additional administration check: Off, HTTP username/password, or a local image math CAPTCHA. Frontend handler exceptions and inheritance are shared.">
+            <option value="off" <?= !$entry['enabled'] ? 'selected' : '' ?>>Off</option>
+            <option value="basic" <?= $entry['enabled'] && ($entry['method'] ?? 'basic') === 'basic' ? 'selected' : '' ?>>HTTP username / password</option>
+            <option value="captcha" <?= $entry['enabled'] && ($entry['method'] ?? 'basic') === 'captcha' ? 'selected' : '' ?>>CAPTCHA</option>
+        </select></label>
+        <label class="form-label u-block u-mb10" title="Bypass the extra access check for Sec-Fetch-Site: same-origin. Only when that header is absent, accept a Referer with the exact same scheme, hostname and default port. Direct, cross-site, same-site-only and headerless requests still need the selected check."><input type="checkbox" name="access_bypass_internal" <?= $entry['bypass_internal'] ? 'checked' : '' ?>> Bypass for internal requests</label>
+        <div data-hdn-captcha-controls <?= ($entry['method'] ?? 'basic') !== 'captcha' || !$entry['enabled'] ? 'hidden' : '' ?>>
+            <label class="form-label">Remember verification · seconds
+            <input class="form-control u-mb10" type="number" min="1" step="1" name="captcha_seconds" value="<?= $escape($entry['captcha_seconds'] ?? 21600) ?>" title="How long this browser can access protected administration URLs after solving the CAPTCHA. 21600 seconds is six hours. The signed cookie is specific to the website; no shared IP or account lockout." required></label>
+            <p class="u-mb20">A simple local image sum, with no external scripts or WordPress request. Successful verification uses a host-only cookie. Failed answers do not create IP bans. Use HTTPS for secure transport.</p>
+        </div>
+        <div data-hdn-basic-controls <?= ($entry['method'] ?? 'basic') === 'captcha' || !$entry['enabled'] ? 'hidden' : '' ?>>
         <div class="hdn-access-grid">
         <label class="form-label">HTTP username <input class="form-control u-mb10" name="access_username" value="<?= $escape($entry['username']) ?>" autocomplete="off" required title="The extra HTTP username. This is separate from the WordPress account."></label>
         <label class="form-label">New HTTP password <input class="form-control u-mb10" type="password" name="access_password" autocomplete="new-password" title="Leave empty to keep the saved password, or select password inheritance to use the parent password. Only a salted password hash is retained; the current password is never displayed."></label>
@@ -20,8 +31,9 @@
         <label class="form-label u-block u-mb10" title="Use the current parent password, including future password changes. Entering a new password creates a custom password instead."><input type="checkbox" name="access_inherit_password" <?= !empty($entry['password_inherited']) ? 'checked' : '' ?>> Inherit HTTP password from parent</label>
         <?php endif; ?>
         <p class="u-mb20"><?= $entry['password_set'] ? 'An HTTP password is available. Its value is never displayed.' : 'No HTTP password available. Set one here or in the parent profile before enabling the gate.' ?></p>
+        </div>
         <h3 class="u-mb10">Country filter</h3>
-        <p class="u-mb10">Requires the server country database<?= empty($data['geography']['available']) ? ' (not downloaded yet; ask the administrator)' : '' ?>. Country rules also apply to requests that bypass the HTTP password.</p>
+        <p class="u-mb10">Requires the server country database<?= empty($data['geography']['available']) ? ' (not downloaded yet; ask the administrator)' : '' ?>. Country rules also apply to requests that bypass the access check.</p>
         <label class="form-label u-block u-mb10" title="Enable a separate geographic access policy for domains using this profile. A rejection returns HTTP 403; it does not create a firewall ban."><input type="checkbox" name="country_enabled" <?= $country['enabled'] ? 'checked' : '' ?>> Enable country filter</label>
         <div class="hdn-access-grid">
         <label class="form-label">Apply to <select name="country_scope" class="form-select u-mb10" title="Administration protects the WordPress login/admin paths with frontend handler exceptions. Entire site includes shop customers, APIs and payment/webhook services; select it only intentionally. ACME certificate validation remains accessible.">

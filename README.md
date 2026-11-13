@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.16.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.17.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -43,9 +43,10 @@ Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
 
-## Central, account and domain WordPress HTTP access and countries
+## Central, account and domain WordPress access and countries
 
-Open **WP access**. Administrators can set **Central defaults** for the HTTP gate
+Open **WP access**. Choose **Off**, **HTTP username / password**, or **CAPTCHA**.
+Administrators can set **Central defaults** for the access gate
 and country policy. Accounts start with **Inherit parent settings** and can choose
 **Custom settings (override)**, including disabling either feature. Domains inherit
 their account unless they have their own override: **central → account → domain**.
@@ -71,7 +72,7 @@ overwrite access settings at other levels.
   a Referer. Domain aliases are checked against their own exact origin.
 - This intentionally stops unsophisticated direct-hit bots; headers can be
   imitated. It is not a replacement for WordPress authentication or Fail2ban.
-  Bookmarks/direct administrator visits show the additional HTTP login prompt.
+  Bookmarks/direct administrator visits show the selected extra check.
 - WooCommerce account, login, registration, password recovery, cart and checkout
   URLs are not gated. A custom plugin that deliberately uses `wp-login.php` in a
   customer flow needs that flow checked; an external email link there can prompt.
@@ -82,7 +83,42 @@ overwrite access settings at other levels.
   **Inherit HTTP password from parent** to follow parent password rotations while
   retaining other custom controls. A new nonempty password creates a custom password.
 
-Country filtering is independent of the HTTP password and follows the same
+### Local CAPTCHA
+
+The CAPTCHA shows a small, responsive card with an image addition question,
+answer field, Continue and New image. It needs no WordPress plugin, external
+service, API key, JavaScript or extra image package. This is simple bot friction,
+not protection against a bot deliberately solving image questions.
+
+After a correct answer, a host-only HttpOnly/SameSite cookie remembers the browser
+for **21,600 seconds (six hours)** by default. Change **Remember verification ·
+seconds** in the profile. HTTPS cookies also have Secure. The cookie is tied to
+the website, hostname, protocol and configured lifetime; changing that lifetime
+invalidates earlier clearances. Cookies do not grant a WordPress login.
+
+Nginx checks the cookie locally through its native `http_secure_link_module`.
+Only challenge rendering/submission uses a socket-activated local Python service;
+ordinary public requests and cleared administration requests do not call it.
+The installer adds the managed `hestia-de-noise-captcha.socket`/`.service` units;
+enabling CAPTCHA starts the socket, and its first request starts the service.
+Disabling the last active CAPTCHA stops both. The module is included in the
+tested Hestia Nginx build; Nginx candidate validation reports an unsupported build
+and rolls settings back instead of silently weakening the selected method.
+
+Wrong answers do not ban an IP or lock an account. Each question is single-use
+and valid for ten minutes; an expired/incorrect answer offers another question.
+Unapproved original POST data is neither stored nor replayed: after verification,
+submit the original login form again. Frontend handler exceptions and the optional
+internal-request bypass are the same as for HTTP protection.
+
+The signing key stays root-private in `/var/lib/hestia-de-noise/captcha.key`;
+private per-domain Nginx include files contain only derived verification keys.
+The restricted local service keeps expiring question nonces in its own private
+state directory, without WordPress credentials, answers or client IPs. Activity
+shows CAPTCHA displays/retries and successful verification without recording
+question tokens or cookies. Existing access choices remain unchanged on upgrade.
+
+Country filtering is independent of the access method and follows the same
 central/account/domain inheritance,
 with **administration only** as the initial scope. Choose blocked countries or
 allowed countries, enter two-letter codes (for example `GR`, `CY`), and choose
@@ -107,12 +143,13 @@ Optional automatic refresh checks weekly during existing addon maintenance while
 country rules are active. Failed updates retain the last working database, display
 an error in Countries and retry the next day. There is also an immediate manual
 update button. The complete archive is processed without an addon row/byte quota.
-HTTP-only protection works without setting up a country database.
+Both access methods work without setting up a country database.
 
 GeoLite2 data is created by [MaxMind](https://www.maxmind.com/).
 See [download/update credentials](https://dev.maxmind.com/geoip/updating-databases/).
-Activity distinguishes **WordPress HTTP access gate** (actual 401 challenges),
-**Country filter** (403 rejections), and Observe candidates. No credentials, cookies
+Activity distinguishes **WordPress access gate** (HTTP 401 challenges or Observe
+candidates), **CAPTCHA shown / retried**, **CAPTCHA verified**, and **Country filter**
+(403 rejections). No credentials, cookies
 or Authorization headers are logged. The checks run in Nginx before the selected
 proxy/backend route; native Hestia templates are not replaced. Candidate validation,
 worker reload and access-setting/password rollback use the existing transaction.
@@ -685,3 +722,12 @@ only; Node.js is not a server runtime dependency:
 ```bash
 node --test tests/panel-settings.test.cjs
 ```
+
+The optional `node tests/captcha-browser.cjs` proof uses a real browser against an
+owned test domain already configured for CAPTCHA in Enforce. Set
+`HDN_CAPTCHA_TEST_URL` to its direct WordPress login URL,
+`HDN_PUPPETEER_MODULE` to your development Puppeteer module and
+`HDN_BROWSER_EXECUTABLE` to your Chromium/Edge executable. A self-signed lab only
+may set `HDN_BROWSER_TEST_TLS=self-signed`. The proof checks desktop/mobile
+layout, refresh, wrong-answer forms and browser errors; it does not change
+protection settings or install a browser on the server.

@@ -2,7 +2,7 @@
   "id": "hestia-de-noise",
   "slug": "de-noise",
   "title": "De-Noise",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "command": "v-denoise-hestia",
   "license": "GPL-3.0-or-later"
 }

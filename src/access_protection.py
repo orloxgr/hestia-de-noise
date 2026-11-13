@@ -4,10 +4,12 @@ import hashlib
 import re
 import subprocess
 from pathlib import Path
+import captcha
+import captcha_runtime
 
 SETTINGS = 'access.json'
 DIRECTORY = Path('/etc/nginx/hestia-de-noise-access')
-DEFAULT = {'enabled': False, 'bypass_internal': True, 'username': 'wp', 'password_hash': '',
+DEFAULT = {'method': 'basic', 'captcha_seconds': captcha.DEFAULT_SECONDS, 'enabled': False, 'bypass_internal': True, 'username': 'wp', 'password_hash': '',
            'country': {'enabled': False, 'scope': 'admin', 'mode': 'deny',
                        'countries': [], 'allow_unknown': True}}
 # Match complete path segments, including installations below a URL prefix.
@@ -34,8 +36,12 @@ def validate(value, target):
             raise ValueError('Invalid access account')
         target(owner + '/access.invalid')
     for entry in [result['defaults'], *result['accounts'].values(), *result['sites'].values()]:
+        if isinstance(entry, dict) and set(entry) == set(DEFAULT) - {'method', 'captcha_seconds'}:
+            entry.update(method='basic', captcha_seconds=captcha.DEFAULT_SECONDS)
         if not isinstance(entry, dict) or set(entry) != set(DEFAULT):
             raise ValueError('Invalid domain access controls')
+        if entry['method'] not in ('basic', 'captcha') or type(entry['captcha_seconds']) is not int or entry['captcha_seconds'] <= 0:
+            raise ValueError('Select HTTP password or CAPTCHA and a positive verification lifetime')
         if any(type(entry[k]) is not bool for k in ('enabled', 'bypass_internal')):
             raise ValueError('Access switches must be booleans')
         if not isinstance(entry['username'], str) or not re.fullmatch(r'[A-Za-z0-9_.@-]+', entry['username']):
@@ -60,7 +66,7 @@ def validate(value, target):
     profiles = [result['defaults']]
     profiles += [effective(result, owner + '/access.invalid', account_only=True) for owner in result['accounts']]
     profiles += [effective(result, key) for key in result['sites']]
-    if any(profile['enabled'] and not profile['password_hash'] for profile in profiles):
+    if any(profile['enabled'] and profile.get('method', 'basic') == 'basic' and not profile['password_hash'] for profile in profiles):
         raise ValueError('Set an HTTP password before enabling administration protection')
     return result
 
@@ -68,14 +74,14 @@ def validate(value, target):
 def effective(settings, key, account_only=False):
     """Resolve whole profiles in order, with independently inherited passwords."""
     owner = key.split('/', 1)[0]
-    entry = copy.deepcopy(settings.get('defaults', DEFAULT))
+    entry = {**copy.deepcopy(DEFAULT), **copy.deepcopy(settings.get('defaults', {}))}
     levels = [settings.get('accounts', {}).get(owner)]
     if not account_only:
         levels += [settings.get('sites', {}).get(key)]
     for override in levels:
         if override is not None:
             inherited_hash = entry['password_hash']
-            entry = copy.deepcopy(override)
+            entry = {**copy.deepcopy(DEFAULT), **copy.deepcopy(override)}
             entry['password_hash'] = entry['password_hash'] or inherited_hash
     return entry
 
@@ -130,6 +136,10 @@ def compile_maps(settings, sites, pattern, geo_path=None):
     else:
         lines += ['map $remote_addr $hdn_country { default ZZ; }']
     basic, countries = [], []
+    if any(e.get('method', 'basic') == 'captcha' and e['enabled'] for _, e in entries):
+        lines += ['upstream hdn_captcha_service { server unix:' + str(captcha_runtime.SOCKET) + '; }']
+        lines += ['map $status $hdn_captcha_event { default captcha-request; 200 captcha-check; 303 captcha-verified; }',
+                  'log_format hdn_captcha escape=json \'$time_iso8601 $server_name $hdn_captcha_event - $status $hdn_mode\\t"$http_user_agent"\';']
     for site, entry in entries:
         tag = 'ha' + identifier(site['key'])
         # Origin includes scheme, exact hostname and port; same-site is not same-origin.
@@ -151,6 +161,13 @@ def compile_maps(settings, sites, pattern, geo_path=None):
                   '    default 0;', '    ~^1:1:(0:[01]|1:0)$ 1;', '}',
                   'map "$hdn_mode:$' + tag + '_b" $' + tag + '_a {',
                   '    default off;', '    "enforce:1" "WordPress administration";', '}']
+        if entry.get('method', 'basic') == 'captcha' and entry['enabled']:
+            scope = identifier(site['key'])
+            lines += ['map $cookie_' + captcha.cookie(scope) + ' $' + tag + '_token {',
+                      '    default ",";',
+                      '    "~^(?<' + tag + '_hash>[A-Za-z0-9_-]{22})[.](?<' + tag + '_expiry>[0-9]+)$" "$' + tag + '_hash,$' + tag + '_expiry";', '}',
+                      'map "$hdn_mode:$' + tag + '_b:$secure_link" $' + tag + '_challenge {',
+                      '    default 0;', '    "enforce:1:" 1;', '    "enforce:1:0" 1;', '}']
         country = entry['country']
         lines += ['map $hdn_country $' + tag + '_cm {', '    default ' + ('1' if country['mode'] == 'allow' else '0') + ';']
         lines += ['    ' + c + ' ' + ('0' if country['mode'] == 'allow' else '1') + ';' for c in country['countries']]
@@ -177,11 +194,38 @@ def site_lines(settings, site, mode):
         return []
     tag = 'ha' + identifier(site['key'])
     lines = []
-    if entry['enabled']:
+    if entry['enabled'] and entry.get('method', 'basic') == 'basic':
         lines += ['auth_basic $' + tag + '_a;',
                   'auth_basic_user_file ' + str(DIRECTORY / (identifier(site['key']) + '.htpasswd')) + ';']
+    if entry['enabled'] and entry.get('method', 'basic') == 'captcha':
+        scope = identifier(site['key'])
+        proxy = ['proxy_pass http://hdn_captcha_service;',
+                 'proxy_set_header X-HDN-Site "' + scope + '";',
+                 'proxy_set_header X-HDN-Host $host;', 'proxy_set_header X-HDN-Scheme $scheme;',
+                 'proxy_set_header Cookie "";', 'proxy_set_header Authorization "";',
+                 'proxy_cache off;', 'proxy_intercept_errors off;',
+                 'access_log /var/log/hestia-de-noise/matches.log hdn_captcha;']
+        lines += ['include ' + str(DIRECTORY / (scope + '.captcha.conf')) + ';',
+                  'error_page 470 = @hdn_captcha_' + scope + ';',
+                  'location @hdn_captcha_' + scope + ' {',
+                  '    proxy_method GET;', '    proxy_pass_request_body off;',
+                  '    proxy_set_header Content-Length "";',
+                  '    proxy_set_header X-HDN-Action challenge;',
+                  '    proxy_set_header X-HDN-Target $request_uri;',
+                  '    proxy_set_header X-HDN-Method $request_method;',
+                  *('    ' + line for line in proxy), '}',
+                  'location ^~ ' + captcha.PREFIX + ' {',
+                  '    proxy_set_header X-HDN-Action verify;',
+                  '    proxy_set_header X-HDN-Target "";',
+                  '    proxy_set_header X-HDN-Method $request_method;',
+                  *('    ' + line for line in proxy), '}']
     if entry['country']['enabled'] and mode == 'enforce':
         lines += ['if ($' + tag + '_c) { return 403; }']
     if entry['enabled'] or entry['country']['enabled']:
         lines += ['access_log /var/log/hestia-de-noise/matches.log hdn_access if=$hdn_access_log;']
     return lines
+
+
+def challenge_line(settings, site, mode):
+    entry = effective(settings, site['key'])
+    return ['if ($ha' + identifier(site['key']) + '_challenge) { return 470; }'] if entry['enabled'] and entry.get('method') == 'captcha' and mode != 'off' and site.get('kind') != 'mail' else []

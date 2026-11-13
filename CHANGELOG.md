@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0 · 2026-11-13
+
+- Add a local image math CAPTCHA as an alternative to HTTP username/password in WP access, with the existing central → account → domain inheritance. Keep saved HTTP/Off profiles unchanged during upgrade.
+- Add a responsive challenge card, new-image control and configurable browser verification lifetime (six hours by default). Verify signed host/protocol-specific clearance cookies natively in Nginx, with no service call on ordinary or cleared requests.
+- Render and verify questions in a socket-activated, restricted local Python service without WordPress, external scripts, API keys or image dependencies. Keep single-use expiring question state, root-private signing/derived keys and same-host return targets; never retain/replay original login POST data.
+- Preserve frontend AJAX/admin-post/customer exceptions, internal-request bypass, Observe/Off and existing explicit denials. Wrong CAPTCHA answers do not create IP/account bans. Add clear Activity events without tokens, credentials or cookies.
+- Install/update/remove the managed service units with the addon, stop the service when the last CAPTCHA is disabled, and retain transactional Nginx/settings rollback.
+
 ## 0.16.0 · 2026-11-10
 
 - Add central → account → domain profiles for the WordPress HTTP gate and country policy. Accounts and domains can inherit, override, or disable protection independently; future domains inherit automatically.

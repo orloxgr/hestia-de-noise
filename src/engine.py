@@ -24,6 +24,7 @@ import enumeration
 import log_analysis
 import analysis_jobs
 import access_protection
+import captcha_runtime
 import country_database
 
 HESTIA = Path('/usr/local/hestia')
@@ -55,7 +56,7 @@ def managed_path(value):
     path = Path(value)
     if path == GLOBAL:
         return path
-    if path.parent == access_protection.DIRECTORY and re.fullmatch(r'[0-9a-f]{24}\.htpasswd', path.name):
+    if path.parent == access_protection.DIRECTORY and (re.fullmatch(r'[0-9a-f]{24}\.(?:htpasswd|captcha\.conf)', path.name) or path.name == captcha_runtime.CONFIG_NAME):
         return path
     if path.parent == STATE and re.fullmatch(r'country-[0-9a-f]{64}\.geo', path.name):
         return path
@@ -184,8 +185,8 @@ def verify(paths):
     # included by the running distribution's Nginx configuration structure.
     dump = run('/usr/sbin/nginx', '-T')
     for path in paths:
-        if str(path).endswith('.htpasswd'):
-            continue  # Data read by Nginx workers, not a configuration include.
+        if str(path).endswith('.htpasswd') or Path(path) == access_protection.DIRECTORY / captcha_runtime.CONFIG_NAME:
+            continue  # Runtime data, not an Nginx configuration include.
         if '# configuration file ' + str(path) + ':' not in dump:
             raise RuntimeError('Nginx does not load the expected include: ' + str(path))
 
@@ -224,7 +225,7 @@ def reload_nginx():
 
 def replace_rule(path, text):
     password = path.parent == access_protection.DIRECTORY and path.name.endswith('.htpasswd')
-    mode = 0o640 if password else (0o600 if path.name.endswith('.geo') else 0o644)
+    mode = 0o640 if password else (0o600 if path.name.endswith(('.geo', '.captcha.conf')) else 0o644)
     storage.replace(path, None if text is None else text.encode(), mode)
     if password and text is not None:
         import grp
@@ -325,7 +326,7 @@ def apply(policy, sites, remove=False, access=None, geography=None):
                 for path in site['paths']:
                     desired[path] = site_config(policy, site, site.get('roots', {}).get(path), access)
                 entry = access_protection.effective(access, site['key']) if site.get('kind') != 'mail' else None
-                if entry and entry['enabled'] and not site.get('suspended') and site_mode(policy, site) != 'off':
+                if entry and entry['enabled'] and entry.get('method', 'basic') == 'basic' and not site.get('suspended') and site_mode(policy, site) != 'off':
                     for destination in site['paths']:
                         base = Path(destination.removesuffix('_hdn'))
                         fragments = [base, *(p for p in base.parent.glob(base.name + '_*') if str(p) != destination)]
@@ -347,6 +348,8 @@ def apply(policy, sites, remove=False, access=None, geography=None):
                 raise ValueError('Download the country database before enabling a country filter')
             if not geo_path.is_file():
                 raise ValueError('Country database file is missing; download it again')
+    captcha_files, captcha_enabled = captcha_runtime.prepare(STATE, access_protection.DIRECTORY, access, sites, lambda site: site_mode(policy, site)) if not remove else ({}, False)
+    desired.update(captcha_files)
     manifest = load('manifest.json', [])
     old_paths = {str(managed_path(name)) for name in manifest}
     before, changes = {}, {}
@@ -374,6 +377,8 @@ def apply(policy, sites, remove=False, access=None, geography=None):
         enumeration.apply(companion_changes)
         for name, text in changes.items():
             replace_rule(Path(name), text)
+        if captcha_enabled:
+            captcha_runtime.enable(run)
         verify(desired)
         if changes:
             reload_nginx()
@@ -395,10 +400,14 @@ def apply(policy, sites, remove=False, access=None, geography=None):
     except Exception as error:
         try:
             recover()
+            if captcha_enabled and str(access_protection.DIRECTORY / captcha_runtime.CONFIG_NAME) not in old_paths:
+                captcha_runtime.disable(run)
         except Exception as rollback:
             raise RuntimeError(str(error) + '\nRecovery also failed: ' + str(rollback) +
                                '\nThe recovery journal has been retained.') from error
         raise
+    if not captcha_enabled and str(access_protection.DIRECTORY / captcha_runtime.CONFIG_NAME) in old_paths:
+        captcha_runtime.disable(run)
     return {'changed_files': len(changes), 'sites': len(sites),
             'supported_sites': sum(s['supported'] for s in sites)}
 
@@ -577,6 +586,9 @@ def dispatch(request):
             saved[collection].pop(key, None)
         else:
             entry = request.get('settings')
+            if isinstance(entry, dict) and set(entry) == set(access_protection.DEFAULT) - {'password_hash', 'method', 'captcha_seconds'}:
+                previous_profile = access_protection.effective(saved, (key + '/access.invalid') if action == 'access_account_save' else key) if action != 'access_defaults_save' else saved['defaults']
+                entry = {**entry, 'method': previous_profile['method'], 'captcha_seconds': previous_profile['captcha_seconds']}
             if not isinstance(entry, dict) or set(entry) != set(access_protection.DEFAULT) - {'password_hash'}:
                 raise ValueError('Invalid domain access controls')
             entry = copy.deepcopy(entry)

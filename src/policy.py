@@ -9,7 +9,7 @@ import enumeration
 import access_protection
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.16.0'
+VERSION = '0.17.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -481,6 +481,7 @@ def site_config(policy, site, document_root=None, access_settings=None):
                   'if ($hdn_static_reject) { return 404; }']
         if policy['enumeration']['enabled'] and site.get('enumeration_ready'):
             lines.append('if ($hdn_enum_reject) { return 403; }')
+    lines += access_protection.challenge_line(access_settings or {'sites': {}}, site, mode)
     for key in ('login', 'xmlrpc'):
         if policy[key]['enabled']:
             burst = policy[key]['burst']
