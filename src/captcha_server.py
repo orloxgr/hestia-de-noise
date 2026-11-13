@@ -76,7 +76,9 @@ class Handler(BaseHTTPRequestHandler):
                 expires = int(time.time()) + entry['seconds']
                 value = captcha.clearance(challenges.secret, scope, rev, host, scheme, expires)
                 attributes = '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + str(entry['seconds']) + ('; Secure' if scheme == 'https' else '')
-                return self.reply(303, extra=[('Location', previous['target']), ('Set-Cookie', captcha.cookie(scope) + '=' + value + attributes)])
+                return self.reply(200, captcha.verified_page(previous['target'], language=language).encode(),
+                                  extra=[('Set-Cookie', captcha.cookie(scope) + '=' + value + attributes),
+                                         ('X-HDN-Captcha-Result', 'verified')])
             token, data = challenges.create(scope, host, scheme, rev, previous['target'])
             return self.reply(200, captcha.page(challenges, token, data, language=language, error=not refresh).encode())
         except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):

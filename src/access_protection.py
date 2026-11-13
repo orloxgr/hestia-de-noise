@@ -138,7 +138,7 @@ def compile_maps(settings, sites, pattern, geo_path=None):
     basic, countries = [], []
     if any(e.get('method', 'basic') == 'captcha' and e['enabled'] for _, e in entries):
         lines += ['upstream hdn_captcha_service { server unix:' + str(captcha_runtime.SOCKET) + '; }']
-        lines += ['map $status $hdn_captcha_event { default captcha-request; 200 captcha-check; 303 captcha-verified; }',
+        lines += ['map "$status:$upstream_http_x_hdn_captcha_result" $hdn_captcha_event { default captcha-request; "200:" captcha-check; "200:verified" captcha-verified; "303:" captcha-verified; }',
                   'log_format hdn_captcha escape=json \'$time_iso8601 $server_name $hdn_captcha_event - $status $hdn_mode\\t"$http_user_agent"\';']
     for site, entry in entries:
         tag = 'ha' + identifier(site['key'])

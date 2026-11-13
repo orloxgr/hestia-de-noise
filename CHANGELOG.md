@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.2 · 2026-11-13
+
+- Complete successful CAPTCHA submissions with a local confirmation document before navigating back to the requested URL. Avoid Chromium applying the form's CSP restriction to the application's subsequent canonical-host/SSO redirects; retain same-origin form submission, signed host-specific cookies and existing CSP protections.
+- Use immediate native HTML navigation with a plain Continue fallback, without JavaScript or external services. Keep Activity's verified event distinct from displayed/retried questions.
+- Extend browser verification through correct answers and the actual WordPress login, including configured alias-to-canonical redirects. Read the visible question image in test code, without introducing an answer endpoint or bypass in the product.
+
 ## 0.17.1 · 2026-11-13
 
 - Restore saved IPv4 bans after reboot/firewall reload removes the live De-Noise chain or rules. Queue reconciliation instead of aborting all maintenance on the first saved-record/firewall disagreement.

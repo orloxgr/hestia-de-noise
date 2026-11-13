@@ -2,6 +2,7 @@
 // Set HDN_CAPTCHA_TEST_URL, HDN_PUPPETEER_MODULE and HDN_BROWSER_EXECUTABLE.
 const assert = require('node:assert/strict');
 const puppeteer = require(process.env.HDN_PUPPETEER_MODULE || 'puppeteer-core');
+const imageAnswer = require('./captcha-image-answer.cjs');
 (async () => {
     const url = new URL(process.env.HDN_CAPTCHA_TEST_URL);
     const browser = await puppeteer.launch({executablePath: process.env.HDN_BROWSER_EXECUTABLE, headless: true,
@@ -25,7 +26,24 @@ const puppeteer = require(process.env.HDN_PUPPETEER_MODULE || 'puppeteer-core');
         await page.goto(url.href, {waitUntil:'networkidle0'});
         assert.equal(await page.$eval('h1', node => node.textContent), 'Ένας γρήγορος έλεγχος');
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        async function finish() {
+            while (await page.$('[name=challenge]')) {
+                const answer = imageAnswer(await page.$eval('img', node => node.src));
+                await page.$eval('#answer', node => { node.value=''; });
+                await page.type('#answer', answer);
+                await Promise.all([page.waitForNavigation(), page.click('.primary')]);
+                // Wait past the completion document and any WordPress canonical redirect.
+                await page.waitForFunction(() => document.querySelector('[name=log]') || document.querySelector('[name=challenge]'));
+            }
+            assert(await page.$('[name=log]'), 'Verification must reach the actual WordPress login');
+        }
+        await finish();
+        if (process.env.HDN_CAPTCHA_ALIAS_TEST_URL) {
+            await page.deleteCookie(...await page.cookies());
+            await page.goto(process.env.HDN_CAPTCHA_ALIAS_TEST_URL, {waitUntil:'domcontentloaded'});
+            await finish();
+        }
         assert.deepEqual(errors, []);
-        console.log('CAPTCHA desktop, mobile, refresh and wrong-answer browser flows passed.');
+        console.log('CAPTCHA desktop, mobile, refresh, wrong-answer and complete WordPress login browser flows passed.');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

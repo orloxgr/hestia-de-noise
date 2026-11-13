@@ -9,7 +9,7 @@ import enumeration
 import access_protection
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.17.1'
+VERSION = '0.17.2'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']

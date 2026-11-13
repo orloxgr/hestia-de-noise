@@ -134,6 +134,19 @@ class Challenges:
         return not refresh and hmac.compare_digest(str(answer).strip(), expected), data
 
 
+def verified_page(target, *, language='en'):
+    target = html.escape(safe_target(target), quote=True)
+    el = language.lower().startswith('el')
+    title, message, link = ('Ο έλεγχος ολοκληρώθηκε', 'Σε μεταφέρουμε στη σελίδα σου.', 'Συνέχεια') if el else (
+        'Check complete', 'Taking you back to your page.', 'Continue')
+    # Commit a new document before navigating to the app. A POST redirect keeps
+    # the original form-action policy across the app's later canonical/SSO
+    # redirects, which Chromium can block even after successful verification.
+    return f'''<!doctype html><html lang="{'el' if el else 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url={target}"><title>{title}</title>
+<style>*{{box-sizing:border-box}}body{{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#f3f6fb;color:#20314c;font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}}main{{width:100%;max-width:420px;padding:36px;border:1px solid #e2e9f3;border-radius:22px;background:#fff;box-shadow:0 18px 60px #263d6110}}h1{{font-size:25px;line-height:1.25;margin:0 0 12px}}p{{color:#64728a}}a{{color:#3c66d8}}</style></head>
+<body><main><h1>✓ {title}</h1><p>{message}</p><a href="{target}">{link} →</a></main></body></html>'''
+
+
 def page(challenges, token, data, *, language='en', error=False, submitted=False):
     el = language.lower().startswith('el')
     words = ('Ένας γρήγορος έλεγχος', 'Λύσε την απλή πράξη για να συνεχίσεις.', 'Η απάντησή σου', 'Συνέχεια',

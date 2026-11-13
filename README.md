@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.17.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.17.2.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -95,6 +95,12 @@ for **21,600 seconds (six hours)** by default. Change **Remember verification ·
 seconds** in the profile. HTTPS cookies also have Secure. The cookie is tied to
 the website, hostname, protocol and configured lifetime; changing that lifetime
 invalidates earlier clearances. Cookies do not grant a WordPress login.
+
+A successful answer commits a small completion page before returning to the
+requested URL. This separates the CAPTCHA form submission from the application's
+later canonical/SSO redirects, preserving `form-action 'self'` without Chromium
+blocking legitimate redirects. The page navigates immediately with native HTML
+refresh and has a normal Continue link as a fallback; no JavaScript is needed.
 
 Nginx checks the cookie locally through its native `http_secure_link_module`.
 Only challenge rendering/submission uses a socket-activated local Python service;
@@ -736,5 +742,9 @@ owned test domain already configured for CAPTCHA in Enforce. Set
 `HDN_PUPPETEER_MODULE` to your development Puppeteer module and
 `HDN_BROWSER_EXECUTABLE` to your Chromium/Edge executable. A self-signed lab only
 may set `HDN_BROWSER_TEST_TLS=self-signed`. The proof checks desktop/mobile
-layout, refresh, wrong-answer forms and browser errors; it does not change
+layout, refresh, wrong-answer forms, successful verification through the real
+WordPress login and browser errors. Set `HDN_CAPTCHA_ALIAS_TEST_URL` to include a
+configured `www`/canonical alias redirect. The test reads the displayed question
+image rather than adding any production answer endpoint or verification bypass.
+It does not change
 protection settings or install a browser on the server.

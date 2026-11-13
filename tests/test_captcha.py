@@ -63,6 +63,11 @@ class ChallengeTests(unittest.TestCase):
         self.assertNotIn('<script', body)
         self.assertIn('formnovalidate', body)
         self.assertTrue(captcha.picture(1, 9).startswith(b'\x89PNG'))
+        complete = captcha.verified_page('/wp-admin/?a=1&b=2')
+        self.assertIn('http-equiv="refresh" content="0;url=/wp-admin/?a=1&amp;b=2"', complete)
+        self.assertIn('href="/wp-admin/?a=1&amp;b=2"', complete)
+        self.assertNotIn('<script', complete)
+        with self.assertRaises(ValueError): captcha.verified_page('//evil.test/')
 
     def test_legacy_profiles_preserve_basic_and_captcha_needs_no_http_password(self):
         legacy = {k: v for k, v in copy.deepcopy(access.DEFAULT).items() if k not in ('method', 'captcha_seconds')}
@@ -156,8 +161,10 @@ class NativeCaptchaTests(unittest.TestCase):
         # no-referrer turns real browser form POST Origin into null; keep just the origin.
         self.assertEqual(headers['Referrer-Policy'], 'strict-origin')
         self.assertNotIn('WWW-Authenticate', headers); self.assertEqual(Origin.hits, before)
-        status, headers, _ = self.solve(page)
-        self.assertEqual(status, 303); self.assertEqual(headers['Location'], '/shop/wp-login.php?redirect_to=%2Fshop%2Fwp-admin%2F')
+        status, headers, complete = self.solve(page)
+        self.assertEqual(status, 200); self.assertEqual(headers['X-HDN-Captcha-Result'], 'verified')
+        self.assertNotIn('Location', headers)
+        self.assertIn(b'0;url=/shop/wp-login.php?redirect_to=%2Fshop%2Fwp-admin%2F', complete)
         cookie = headers['Set-Cookie'].split(';')[0]
         self.assertIn('HttpOnly', headers['Set-Cookie']); self.assertIn('SameSite=Lax', headers['Set-Cookie'])
         with patch.object(self.server.challenges, 'create', side_effect=AssertionError('Native cookie must not invoke service')):
@@ -200,7 +207,7 @@ class NativeCaptchaTests(unittest.TestCase):
         time.sleep(.03)
         log = (self.root / 'matches.log').read_text()
         self.assertIn('captcha-check - 200 enforce', log)
-        self.assertIn('captcha-verified - 303 enforce', log)
+        self.assertIn('captcha-verified - 200 enforce', log)
         for private in ('private-password', 'private-user', 'hdn_captcha_', 'challenge='):
             self.assertNotIn(private, log)
 
