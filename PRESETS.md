@@ -1,9 +1,14 @@
-# Presets — 0.12.0
+# Presets — 0.18.0
 
-## Scanner tools
+## User-Agent categories
 
-**User-Agents → Add scanner tools** inserts these literal names into the
-Scanner tools box, which has its own enable switch:
+Each category has its own enable switch and **Add suggested agents** button.
+Names are literal case-insensitive substrings. Suggestions are optional; nothing
+is added on upgrade. Declared names are not verified identities.
+
+### Scanner tools
+
+Security scanners and testing tools, including tools used for authorized audits.
 
 ```text
 TLM-Audit-Scanner
@@ -17,48 +22,64 @@ DirBuster
 gobuster
 ffuf
 WPScan
+CensysInspect
+Expanse
+Palo Alto Networks
 ```
 
-These are scanning tools; authorized scans can use them too. The list matches
-declared names and is not identity verification.
+### AI Training Crawlers
 
-## Optional bulk / AI crawlers
-
-**User-Agents → Add bulk / AI crawlers** inserts these into the separate
-Crawlers / other agents box, with its own enable switch:
+Content collection for AI model development and training. Some operators also use the data for other products.
 
 ```text
 meta-externalagent
-GoogleOther
-MJ12bot
-Bytespider
 ClaudeBot
-Amazonbot
-Reflectionbot
 GPTBot
+Reflectionbot
+Amazonbot
+```
+
+### Search Indexers
+
+Search and AI search indexing. Blocking these crawlers can reduce visibility in their services.
+
+```text
+LinkupBot
+meta-webindexer
+PetalBot
+Baiduspider
+ibou-search
+```
+
+### SEO & Backlink Crawlers
+
+SEO analysis and backlink indexes. Some also feed search engines; AhrefsBot powers Yep as well as Ahrefs tools.
+
+```text
+MJ12bot
 AhrefsBot
 SemrushBot
 DotBot
 BLEXBot
+SERankingBacklinksBot
+```
+
+### Other Crawlers / Data Collection
+
+General collection, research and agents with mixed or unclassified purposes. Review individual names before blocking.
+
+```text
+GoogleOther
+Bytespider
 YisouSpider
 ElevenlabsCrawler
 CCBot
 ```
 
-These are collection, search, training or SEO-analysis crawlers, not inherently malicious
-services. Use the group only when that traffic is unwanted. Googlebot, Bingbot,
-Applebot, social-preview and user-requested retrieval agents are not in either
-blocklist. Custom entries still apply literally.
-
-**Add optional search crawlers** separately suggests `LinkupBot`,
-`meta-webindexer`, `PetalBot`, `Baiduspider` and `ibou-search`. Review before saving: blocking
-these names can reduce visibility in their services. Suggestions do not change
-existing blocklists automatically.
-
-For a narrower policy, use **Filtered URLs → Add optional search crawlers to
-this rule**. This adds the same names to that rule only and preserves its
-domains, action, rate, switch and other names. It does not create a global
-User-Agent block. Review and Save & Apply.
+**Analyze current agents** counts retained log requests. Append individual rows
+or recognized names from the completed report to unsaved lists, then review
+and **Save & Apply**. Appending never enables a category. Unknown/browser-like
+declarations are not automatically classified as malicious.
 
 ## Paths and request budgets
 

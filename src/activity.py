@@ -60,6 +60,9 @@ def summary(domains, now=None, minutes=15, progress=None, cancelled=None, report
                 if len(fields) == 4:  # Older endpoint-only rate-limit record.
                     timestamp, domain, limit, status = fields
                     rule, mode = 'endpoint-limit', 'unknown'
+                elif len(fields) == 5 and fields[3].isdigit() and fields[4] in ('off', 'observe', 'enforce'):
+                    timestamp, domain, rule, status, mode = fields
+                    limit = ''
                 elif len(fields) in (5, 6):
                     timestamp, domain, rule, limit, status = fields[:5]
                     mode = fields[5] if len(fields) == 6 else 'unknown'

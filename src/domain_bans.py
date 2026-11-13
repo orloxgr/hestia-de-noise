@@ -7,6 +7,7 @@ from itertools import chain
 import not_found
 import ban_evidence
 import ban_history
+import listing
 
 import auto_bans
 from policy import site_mode
@@ -58,13 +59,13 @@ def applied(state):
     return json.loads(raw) if raw is not None else {}
 
 
-def report(policy, sites, state, owner=None, now=None, page=1, view='active'):
+def report(policy, sites, state, owner=None, now=None, page=1, view='active', per_page=50):
     ban_history.selection(page, view)
     now = time.time() if now is None else now
     known = {site['key'] for site in sites if owner is None or site['owner'] == owner}
     with auto_bans.database(state, create=False) as db:
         if db is None:
-            return {'active': 0, 'pending': 0, 'rows': [], 'pagination': ban_history.pagination(0, page, view)}
+            return {'active': 0, 'pending': 0, 'rows': [], 'pagination': ban_history.pagination(0, page, view, per_page=per_page)}
         tables(db)
         # Configuration still needs all applied rules. Display rows/evidence are
         # selected in SQL with LIMIT; no Python list of every current ban.
@@ -91,11 +92,11 @@ def report(policy, sites, state, owner=None, now=None, page=1, view='active'):
         ) '''
         counts = dict(db.execute(cte + 'SELECT status,COUNT(*) FROM current GROUP BY status', (now,)).fetchall())
         if view == 'history':
-            visible, meta = ban_history.page(db, 'domain', owner=owner, number=page)
+            visible, meta = ban_history.page(db, 'domain', owner=owner, number=page, per_page=per_page)
         else:
-            meta = ban_history.pagination(sum(counts.values()), page)
+            meta = ban_history.pagination(sum(counts.values()), page, per_page=per_page)
             visible = [dict(row) for row in db.execute(cte + 'SELECT * FROM current ORDER BY created DESC,site,ip LIMIT ? OFFSET ?',
-                       (now, ban_history.PAGE_SIZE, (meta['page'] - 1) * ban_history.PAGE_SIZE))]
+                       (now, *listing.bounds(meta)))]
             for row in visible:
                 row['domain'] = row['site'].split('/', 1)[1]
                 row['diagnostics'] = ban_evidence.lookup(db, row['ip'], row['created'], site=row['site'])

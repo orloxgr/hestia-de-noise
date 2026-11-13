@@ -24,6 +24,7 @@
 <?php endforeach; ?>
 <?php if ($canDomainEdit && $editableSites): ?><button class="button u-mt10" type="submit">Save domain protection</button><?php endif; ?>
 </form>
+<div data-hdn-remote-list="domain" data-hdn-view="<?= $escape($listing['domain_view'] ?? 'active') ?>">
 <h3 class="u-mt20 u-mb10">Domain ban status</h3>
 <p class="u-mb10">Active: <?= $escape($scopedBans['active'] ?? 0) ?> · Pending: <?= $escape($scopedBans['pending'] ?? 0) ?></p>
 <?php $listState = $scopedBans; $listPrefix = 'domain'; $listTab = 'domain-bans'; require $install . '/panel/ban-pagination.php'; ?>
@@ -34,3 +35,5 @@
 <td><?= $row['expires'] ? $escape(gmdate('Y-m-d H:i:s', (int)$row['expires'])) : 'Permanent' ?></td><td><?= $historyView ? $escape(gmdate('Y-m-d H:i:s', (int)$row['ended'])) : $escape($row['status']) ?></td>
 </tr><?php endforeach; ?></tbody></table></div>
 <?php if (empty($scopedBans['rows'])): ?><p>No domain-specific bans to display.</p><?php endif; ?>
+
+</div>

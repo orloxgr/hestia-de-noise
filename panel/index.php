@@ -65,17 +65,28 @@ foreach (['bans', 'domain'] as $scope) {
     $listing[$scope . '_page'] = filter_var($pageValue, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1;
     $listing[$scope . '_view'] = in_array($viewValue, ['active', 'history'], true) ? $viewValue : 'active';
 }
+foreach (['bans', 'domain', 'wordpress'] as $scope) {
+    $value = $_POST[$scope . '_per_page'] ?? $_GET[$scope . '_per_page'] ?? 50;
+    $listing[$scope . '_per_page'] = $value === 'all' ? 'all' : (int)$value;
+}
 $statusRequest = ['actor' => $actor, 'owner' => $owner, 'action' => 'status', 'listing' => $listing];
 $listing['wordpress_page'] = filter_var($_POST['wordpress_target_page'] ?? $_POST['wordpress_page'] ?? $_GET['wordpress_page'] ?? 1,
     FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 1;
 $statusRequest['listing'] = $listing;
+$activeTab = is_string($_POST['tab'] ?? $_GET['tab'] ?? null) ? ($_POST['tab'] ?? $_GET['tab']) : 'general';
+$fields = static function (string $action) use ($escape, $activeTab, $listing): void {
+    echo '<input type="hidden" name="token" value="' . $escape($_SESSION['token']) . '">';
+    echo '<input type="hidden" name="action" value="' . $escape($action) . '">';
+    echo '<input type="hidden" name="tab" value="' . $escape($activeTab) . '">';
+    foreach ($listing as $key => $value) echo '<input type="hidden" name="' . $escape($key) . '" value="' . $escape($value) . '">';
+};
 $error = '';
 $message = '';
 $submitted = null;
 $wordpressResult = null;
 $analysisResult = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['access_save', 'access_account_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
+    if ((!$isAdmin && !in_array($_POST['action'] ?? '', ['access_save', 'access_account_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel', 'review_export'], true)) || !empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) {
         $error = 'Write access and a valid request token are required.';
     } else {
@@ -83,11 +94,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 9, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 10, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'log_rejections' => isset($_POST['log_rejections']), 'mail_protection' => isset($_POST['mail_protection']),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
                 'scanners' => isset($_POST['scanners'])];
+            foreach (['ai_agents', 'search_agents', 'seo_agents'] as $field) {
+                $lines = is_string($_POST[$field] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST[$field])) : [];
+                $submitted[$field] = array_values(array_filter($lines, static fn($line) => trim($line) !== ''));
+                $submitted[$field . '_enabled'] = isset($_POST[$field . '_enabled']);
+            }
             $submitted['enumeration'] = ['enabled' => isset($_POST['enumeration_enabled']),
                 'rest' => isset($_POST['enumeration_rest']), 'author_ids' => isset($_POST['enumeration_author_ids']),
                 'author_archives' => isset($_POST['enumeration_author_archives']),
@@ -163,6 +179,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach (['files', 'queries'] as $kind) {
                 if (is_array($submitted['probe_exceptions'][$kind])) $request['policy']['probe_exceptions'][$kind] = (object)$submitted['probe_exceptions'][$kind];
             }
+        } elseif ($request['action'] === 'review_mark') {
+            $request['job'] = $_POST['analysis_job'] ?? '';
+            $request['kind'] = $_POST['review_kind'] ?? '';
+            $request['domain'] = $_POST['review_domain'] ?? '';
+            $request['item'] = $_POST['review_item'] ?? '';
+            $request['mark'] = $_POST['review_mark'] ?? '';
+        } elseif ($request['action'] === 'review_export') {
+            $request['job'] = $_POST['analysis_job'] ?? '';
+            $request['offset'] = filter_var($_POST['export_offset'] ?? 0, FILTER_VALIDATE_INT);
+            $request['kind'] = $_POST['review_kind'] ?? '';
+            $request['domain'] = $_POST['activity_domain'] ?? 'all';
+        } elseif (in_array($request['action'], ['agents_export', 'agents_candidates'], true)) {
+            $request['job'] = $_POST['analysis_job'] ?? '';
+            $request['offset'] = filter_var($_POST['export_offset'] ?? 0, FILTER_VALIDATE_INT);
+            if ($request['action'] === 'agents_candidates') $request['category'] = $_POST['analysis_category'] ?? '';
         } elseif (in_array($request['action'], ['access_save', 'access_account_save', 'access_defaults_save'], true)) {
             $request['target'] = $_POST['access_target'] ?? '';
             $request['password'] = $_POST['access_password'] ?? '';
@@ -184,13 +215,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['automatic'] = isset($_POST['geoip_automatic']);
         } elseif ($request['action'] === 'activity_start') {
             $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
-        } elseif (in_array($request['action'], ['log_scan', 'log_scan_start'], true)) {
+        } elseif (in_array($request['action'], ['log_scan', 'log_scan_start', 'agents_start', 'php_files_start'], true)) {
             $request['target'] = $_POST['analysis_target'] ?? '';
             $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
             $request['verify_google'] = isset($_POST['analysis_verify_google']);
-        } elseif (in_array($request['action'], ['log_scan_status', 'log_scan_cancel', 'activity_status', 'activity_cancel'], true)) {
+        } elseif (in_array($request['action'], ['log_scan_status', 'log_scan_cancel', 'activity_status', 'activity_cancel', 'agents_status', 'agents_cancel', 'php_files_status', 'php_files_cancel'], true)) {
             $request['job'] = $_POST['analysis_job'] ?? '';
             $request['page'] = filter_var($_POST['analysis_page'] ?? 1, FILTER_VALIDATE_INT);
+            $value = $_POST['analysis_per_page'] ?? 20;
+            $request['per_page'] = $value === 'all' ? 'all' : filter_var($value, FILTER_VALIDATE_INT);
             if ($request['action'] === 'activity_status') $request['domain'] = $_POST['activity_domain'] ?? 'all';
         } elseif ($request['action'] === 'history_clear') {
             $request['scope'] = $_POST['history_scope'] ?? '';
@@ -229,16 +262,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if (is_array($request['preferences'])) $request['preferences'] = (object)$request['preferences'];
         }
-        if (!in_array($request['action'], ['save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'], true)) {
+        if (isset($_POST['review_filters'])) {
+            $request['filters'] = is_string($_POST['review_filters']) ? json_decode($_POST['review_filters'], true) : false;
+            if (!is_array($request['filters'])) $request['filters'] = false;
+        }
+        if (!in_array($request['action'], ['save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'review_export', 'review_mark', 'agents_start', 'agents_status', 'agents_cancel', 'agents_export', 'agents_candidates', 'php_files_start', 'php_files_status', 'php_files_cancel'], true)) {
             $error = 'Unsupported operation.';
         } else {
-            $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_');
+            $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_') || str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_') || in_array($request['action'], ['review_mark', 'review_export'], true);
             if ($isReview) session_write_close();
             $result = $bridge($request);
             if ($isReview && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ?? '') === '1') {
                 if (!empty($result['job']['analysis'])) {
                     $data = ['analysis' => $result['job']['analysis']];
-                    ob_start(); require $install . ($request['action'][0] === 'a' ? '/panel/activity-output.php' : '/panel/analysis-output.php');
+                    ob_start();
+                    if (str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_')) {
+                        $reviewKind = str_starts_with($request['action'], 'agents_') ? 'agents' : 'php_files';
+                        require $install . '/panel/inventory-output.php';
+                    } else require $install . (str_starts_with($request['action'], 'activity_') ? '/panel/activity-output.php' : '/panel/analysis-output.php');
                     $result['report'] = ob_get_clean();
                     unset($result['job']['analysis']);
                 }
@@ -278,6 +319,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ??
     header('Content-Type: application/json; charset=utf-8'); http_response_code(403);
     echo json_encode(['ok' => false, 'error' => $error ?: 'Review request rejected.']); exit;
 }
+if (isset($_GET['download_list'])) {
+    if (!in_array($_GET['download_list'], ['bans','domain','wordpress'], true) || (!$isAdmin && $_GET['download_list'] !== 'domain')) { http_response_code(403); exit; }
+    $scope = $_GET['download_list'];
+    $exportRequest = $statusRequest;
+    $exportRequest['listing'][$scope . '_page'] = 1;
+    $exportRequest['listing'][$scope . '_per_page'] = 'all';
+    if ($scope === 'wordpress') $exportRequest['action'] = 'wordpress_status';
+    $exportData = $bridge($exportRequest);
+    $state = $exportData[$scope === 'domain' ? 'domain_bans' : $scope] ?? [];
+    if (empty($exportData['ok']) || !empty($state['error'])) { http_response_code(400); echo 'Could not read this list.'; exit; }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="hestia-de-noise-' . $scope . '.csv"');
+    header('Cache-Control: private, no-store');
+    $stream = fopen('php://output', 'w'); fwrite($stream, "\xEF\xBB\xBF");
+    $csv = static function (array $row) use ($stream): void {
+        $row = array_map(static function ($v): string {
+            $v = (string)$v;
+            return preg_match('/^[\s\x{FEFF}]*[=+@-]|^[\t\r\n]/u', $v) ? "'" . $v : $v;
+        }, $row);
+        fputcsv($stream, $row, ',', '"', '');
+    };
+    if ($scope === 'wordpress') {
+        $csv(['IP']); foreach ($state['ips'] ?? [] as $ip) $csv([$ip]);
+    } else {
+        $csv(['IP','Source domain','Reason','Recorded UTC','Expiry','Status','Ended UTC']);
+        foreach ($state['rows'] ?? [] as $row) $csv([$row['ip'], $row['domain'], $row['reason'],
+            gmdate('Y-m-d H:i:s', (int)$row['created']), $row['expires'] ? gmdate('Y-m-d H:i:s', (int)$row['expires']) : 'Permanent',
+            $row['status'] ?? '', empty($row['ended']) ? '' : gmdate('Y-m-d H:i:s', (int)$row['ended'])]);
+    }
+    fclose($stream); exit;
+}
+if ($isAdmin && ($_GET['wordpress_read'] ?? '') === '1') $statusRequest['action'] = 'wordpress_status';
 $data = $bridge($statusRequest);
 if ($wordpressResult !== null) $data['wordpress'] = $wordpressResult;
 if ($isAdmin && $analysisResult !== null) $data['analysis'] = $analysisResult;
@@ -287,10 +360,4 @@ if (!$isAdmin) $data['sites'] = array_values(array_filter($data['sites'] ?? [], 
 $policy = $error !== '' && $submitted !== null ? $submitted : ($data['policy'] ?? []);
 $selectedTab = $_POST['tab'] ?? $_GET['tab'] ?? 'general';
 $activeTab = is_string($selectedTab) ? $selectedTab : 'general';
-$fields = static function (string $action) use ($escape, $activeTab, $listing): void {
-    echo '<input type="hidden" name="token" value="' . $escape($_SESSION['token']) . '">';
-    echo '<input type="hidden" name="action" value="' . $escape($action) . '">';
-    echo '<input type="hidden" name="tab" value="' . $escape($activeTab) . '">';
-    foreach ($listing as $key => $value) echo '<input type="hidden" name="' . $escape($key) . '" value="' . $escape($value) . '">';
-};
 require $install . '/panel/view.php';

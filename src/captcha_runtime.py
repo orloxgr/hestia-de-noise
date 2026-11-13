@@ -39,12 +39,22 @@ UMask=0077
 
 
 def worker_group():
-    import pwd
     import grp
     import storage
+    import subprocess
     raw = storage.read('/etc/nginx/nginx.conf') or b''
     match = re.search(rb'^\s*user\s+[\'\"]?([A-Za-z0-9_-]+)[\'\"]?(?:\s+[\'\"]?([A-Za-z0-9_-]+)[\'\"]?)?\s*;', raw, re.M)
-    return match[2].decode() if match and match[2] else grp.getgrgid(pwd.getpwnam(match[1].decode()).pw_gid).gr_name if match else 'root'
+    if match:
+        # Nginx uses a group with the same name when the directive omits it;
+        # this can differ from the user's primary group.
+        group = (match[2] or match[1]).decode()
+    else:
+        build = subprocess.run(['/usr/sbin/nginx', '-V'], capture_output=True, text=True, check=True).stderr
+        configured = re.search(r'(?:^|\s)--group=([A-Za-z0-9_-]+)(?:\s|$)', build)
+        user = re.search(r'(?:^|\s)--user=([A-Za-z0-9_-]+)(?:\s|$)', build)
+        group = configured[1] if configured else user[1] if user else 'nobody'
+    grp.getgrnam(group)
+    return group
 
 
 def prepare(state_directory, directory, settings, sites, site_mode):

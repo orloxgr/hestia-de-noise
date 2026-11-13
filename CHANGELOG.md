@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.18.0 · 2026-11-13
+
+- Adapt the reusable Webuzo De-Noise 0.4.3 analysis/panel features to native Hestia discovery, logs and CLI. Keep delegated domain bans, administrator/account ownership, native IPv4/IPv6 enforcement, existing Fail2ban integration and CAPTCHA fixes. No Webuzo dependencies or replacement firewall backend.
+- Split agent controls into five independent purpose-based lists. Migrate existing literal entries and enabled/disabled choices without adding blocks. Recognize declared crawler products across versions; explain operator, purpose, usefulness and sources without treating a name as authenticated identity.
+- Add complete on-demand agent and PHP-404 inventories, resumable background workers, exact per-domain counts, repeated-directory grouping and pseudonymous client-pattern evidence. Append exact selected paths/names or recognized category members to unsaved lists without saving or enabling rules.
+- Add full-report finding filters, exact domain/path review notes, separate evidence priorities/tags, rejected-probe grouping and known application endpoint descriptions. Ignore technical cron/cache tokens as content-filter dimensions; retain genuine errors and probe evidence.
+- Add shared 20/50/100/500/All pagination and complete CSV exports, including scoped domain-ban exports and grouped exact-path expansion. Preserve unsaved settings across remote list navigation; escape spreadsheet formulas and reject incomplete transfers.
+- Parse Activity records with an empty Nginx limit status correctly. Resolve the CAPTCHA socket group using native Nginx directive/build semantics. Keep Hestia session/CSRF and trusted-storage checks, without arbitrary report/search length caps.
+- Validate in the Hestia VM with the Python/native-Nginx suite, JavaScript regressions, authenticated admin/owner workflows and browser append/pagination tests.
+
 ## 0.17.2 · 2026-11-13
 
 - Complete successful CAPTCHA submissions with a local confirmation document before navigating back to the requested URL. Avoid Chromium applying the form's CSP restriction to the application's subsequent canonical-host/SSO redirects; retain same-origin form submission, signed host-specific cookies and existing CSP protections.

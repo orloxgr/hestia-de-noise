@@ -26,6 +26,10 @@ import analysis_jobs
 import access_protection
 import captcha_runtime
 import country_database
+import agent_catalog
+import listing as list_sizes
+
+REVIEW_ACTIONS = ('review_mark', 'review_export', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'agents_export', 'agents_candidates') + tuple(kind + '_' + action for kind in ('agents', 'php_files') for action in ('start', 'status', 'cancel'))
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -454,12 +458,12 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     if owner is None:
         try:
             ban_status = auto_bans.report(STATE, policy['bans']['enabled'],
-                listing.get('bans_page', 1), listing.get('bans_view', 'active'))
+                listing.get('bans_page', 1), listing.get('bans_view', 'active'), listing.get('bans_per_page', 50))
         except (OSError, ValueError) as error:
             ban_status = {'error': str(error)}
     try:
         scoped = domain_bans.report(policy, sites, STATE, owner,
-            page=listing.get('domain_page', 1), view=listing.get('domain_view', 'active'))
+            page=listing.get('domain_page', 1), view=listing.get('domain_view', 'active'), per_page=listing.get('domain_per_page', 50))
     except (OSError, ValueError) as error:
         scoped = {'active': 0, 'pending': 0, 'rows': [], 'error': str(error)}
     visible_keys = {row['key'] for row in rows}
@@ -476,7 +480,7 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     wordpress_status = None
     if owner is None:
         try:
-            wordpress_status = wordpress.snapshot(STATE, run, live=wordpress_live, page=listing.get('wordpress_page', 1))
+            wordpress_status = wordpress.snapshot(STATE, run, live=wordpress_live, page=listing.get('wordpress_page', 1), per_page=listing.get('wordpress_per_page', 50))
         except (OSError, ValueError) as error:
             wordpress_status = {'settings': wordpress.DEFAULT, 'loaded': wordpress_live, 'error': str(error)}
     maintenance = load('maintenance.json', {}) if owner is None else {}
@@ -493,7 +497,8 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
             'maintenance': maintenance,
             'wordpress': wordpress_status,
             'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
-            'presets': {'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'search_crawlers': SEARCH_AGENTS,
+            'agent_categories': agent_catalog.CATEGORIES if owner is None else {},
+            'presets': {**{field: category['entries'] for field, category in agent_catalog.CATEGORIES.items()}, 'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'search_crawlers': SEARCH_AGENTS,
                         'filter_agents': FILTER_AGENTS, 'rules': RULES,
                         'probe_files': probe_rules.FILES, 'probe_queries': probe_rules.QUERY_TARGETS,
                         'probe_parameters': probe_rules.QUERY_PARAMETERS} if owner is None else {}}
@@ -508,7 +513,7 @@ def authorize(request):
     owner = account(request.get('owner', actor))
     if not admin and owner != actor:
         raise PermissionError('Another account cannot be selected')
-    if request.get('action') not in ('status', 'access_save', 'access_account_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel') and not admin:
+    if request.get('action') not in ('status', 'access_save', 'access_account_save', 'domain_bans_save', 'history_clear', 'activity_start', 'activity_status', 'activity_cancel', 'review_export') and not admin:
         raise PermissionError('Only an administrator can change De-Noise settings')
     return admin, owner
 
@@ -516,30 +521,67 @@ def authorize(request):
 def dispatch(request):
     if not isinstance(request, dict):
         raise ValueError('Expected a JSON object')
-    if request.get('action') in ('log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'):
+    if request.get('action') in REVIEW_ACTIONS:
         admin, owner = authorize(request)
+        if request['action'] == 'review_mark':
+            if not admin or owner != request['actor']:
+                raise PermissionError('Review notes require the administrator context')
+            if set(request) - {'actor','owner','action','listing','kind','job','domain','item','mark'}:
+                raise ValueError('Only an exact report item can be reviewed')
+            return {'ok': True, 'mark': analysis_jobs.mark_review(STATE, request.get('job'), request['actor'],
+                request.get('kind'), request.get('domain'), request.get('item'), request.get('mark'))}
+        if request['action'] == 'review_export':
+            if set(request) - {'actor','owner','action','listing','kind','job','offset','domain','filters'}:
+                raise ValueError('Only review export selections can be submitted')
+            kind = request.get('kind')
+            central = admin and owner == request['actor']
+            if not central and kind != 'activity':
+                raise PermissionError('Only your own Activity can be exported')
+            return {'ok': True, 'export': analysis_jobs.export_review(STATE, request.get('job'), request['actor'],
+                kind=kind, owner=None if central else owner, domain=request.get('domain','all'), offset=request.get('offset',0), **({'filters': request['filters']} if 'filters' in request else {}))}
+        page_args = {'per_page': request['per_page']} if 'per_page' in request else {}
+        if 'filters' in request: page_args['filters'] = request['filters']
         if request['action'].startswith('activity_'):
-            if set(request) - {'actor', 'owner', 'action', 'minutes', 'job', 'page', 'listing', 'domain'}:
+            if set(request) - {'actor', 'owner', 'action', 'minutes', 'job', 'page', 'listing', 'domain', 'per_page'}:
                 raise ValueError('Only activity selections can be submitted')
             scope = None if admin and owner == request['actor'] else owner
             arguments = dict(kind='activity', owner=scope)
             if request['action'] == 'activity_start':
                 job = analysis_jobs.start(STATE, None, request['actor'], 'all', request.get('minutes'), **arguments)
             elif request['action'] == 'activity_status':
-                job = analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1),
-                                           domain=request.get('domain', 'all'), **arguments)
+                job = analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1), domain=request.get('domain', 'all'), **arguments, **page_args)
             else:
                 job = analysis_jobs.cancel(STATE, request.get('job'), request['actor'], **arguments)
             return {'ok': True, 'job': job}
         if not admin or owner != request['actor']:
             raise PermissionError('Log analysis requires the administrator context')
-        if set(request) - {'actor', 'owner', 'action', 'target', 'minutes', 'verify_google', 'listing', 'job', 'page'}:
+        if request['action'] == 'agents_candidates':
+            if set(request) - {'actor', 'owner', 'action', 'listing', 'job', 'offset', 'category'}:
+                raise ValueError('Only agent candidate selections can be submitted')
+            return {'ok': True, 'candidates': analysis_jobs.agent_candidates(STATE, request.get('job'),
+                request['actor'], request.get('category'), request.get('offset', 0))}
+        if set(request) - {'actor', 'owner', 'action', 'target', 'minutes', 'verify_google', 'listing', 'job', 'page', 'offset', 'per_page', 'filters'}:
             raise ValueError('Only log-analysis selections can be submitted')
+        for kind in ('agents', 'php_files'):
+            if not request['action'].startswith(kind + '_'):
+                continue
+            operation = request['action'][len(kind) + 1:]
+            if kind == 'agents' and operation == 'export':
+                return {'ok': True, 'export': analysis_jobs.export_agents(STATE, request.get('job'),
+                    request['actor'], request.get('offset', 0))}
+            if operation == 'start':
+                job = analysis_jobs.start(STATE, None, request['actor'], request.get('target'),
+                    request.get('minutes'), kind=kind)
+            elif operation == 'status':
+                job = analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1), kind=kind, **page_args)
+            else:
+                job = analysis_jobs.cancel(STATE, request.get('job'), request['actor'], kind=kind)
+            return {'ok': True, 'job': job}
         if request['action'] == 'log_scan_start':
             return {'ok': True, 'job': analysis_jobs.start(STATE, None, request['actor'],
                 request.get('target'), request.get('minutes'), request.get('verify_google', False))}
         if request['action'] == 'log_scan_status':
-            return {'ok': True, 'job': analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1))}
+            return {'ok': True, 'job': analysis_jobs.status(STATE, request.get('job'), request['actor'], request.get('page', 1), **page_args)}
         if request['action'] == 'log_scan_cancel':
             return {'ok': True, 'job': analysis_jobs.cancel(STATE, request.get('job'), request['actor'])}
         return {'ok': True, 'analysis': log_analysis.review(collect(), request.get('target'),
@@ -549,11 +591,13 @@ def dispatch(request):
     policy = validate(load('policy.json', DEFAULT))
     sites = collect()
     listing = request.get('listing', {})
-    if (not isinstance(listing, dict) or set(listing) - {'bans_page','bans_view','domain_page','domain_view','wordpress_page'}):
+    if (not isinstance(listing, dict) or set(listing) - {'bans_page','bans_view','domain_page','domain_view','wordpress_page','bans_per_page','domain_per_page','wordpress_per_page'}):
         raise ValueError('Invalid IP-list selection')
     for scope in ('bans', 'domain'):
         ban_history.selection(listing.get(scope + '_page', 1), listing.get(scope + '_view', 'active'))
     ban_history.selection(listing.get('wordpress_page', 1))
+    for scope in ('bans', 'domain', 'wordpress'):
+        list_sizes.size(listing.get(scope + '_per_page', 50))
     if action in ('access_save', 'access_account_save', 'access_defaults_save'):
         if set(request) - {'actor', 'owner', 'action', 'target', 'settings', 'password', 'listing', 'inherit', 'inherit_password'}:
             raise ValueError('Only domain access controls can be submitted')
@@ -687,15 +731,15 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') in (6, 7, 8, 9):
+        if incoming.get('schema') in (6, 7, 8, 9, 10):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
             incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
-                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9) else {}}}
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10) else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
-        if incoming.get('schema') != 9:
+        if incoming.get('schema') not in (9, 10):
             policy['enumeration'] = previous['enumeration']
-        if incoming.get('schema') not in (8, 9):
+        if incoming.get('schema') not in (8, 9, 10):
             for key in ('log_rejections', 'mail_protection'):
                 policy[key] = previous[key]
             for key in ('exclude_static', 'min_distinct_paths'):
@@ -762,7 +806,7 @@ def main():
         request = json.loads(raw)
         # An explicit read-only review has its own queued scan lock. It
         # must not hold the protection/recovery lock or run mutation recovery.
-        if isinstance(request, dict) and request.get('action') in ('log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel'):
+        if isinstance(request, dict) and request.get('action') in REVIEW_ACTIONS:
             return dispatch(request)
     with locked():
         recover()

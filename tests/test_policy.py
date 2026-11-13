@@ -26,13 +26,15 @@ class PolicyTests(unittest.TestCase):
     def test_v4_upgrade_preserves_existing_bans_and_does_not_enable_new_categories(self):
         old = copy.deepcopy(DEFAULT)
         old['schema'] = 4
+        for field in ('ai_agents', 'search_agents', 'seo_agents'):
+            old.pop(field); old.pop(field + '_enabled')
         old.pop('enumeration')
         old.pop('probe_exceptions')
         old.pop('domain_bans')
         for key in ('missing_files', 'suspicious_queries', 'any_404'): old['bans'].pop(key)
         old['bans'].update(enabled=True, maxretry=1, duration_days=0)
         saved = validate(old)
-        self.assertEqual(saved['schema'], 9)
+        self.assertEqual(saved['schema'], 10)
         self.assertEqual(saved['bans']['duration_days'], 0)
         for key in ('missing_files', 'suspicious_queries'):
             self.assertFalse(saved['bans'][key]['enabled'])

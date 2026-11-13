@@ -20,8 +20,9 @@ import test_nginx as nginx_tests
 class EnumerationPolicyTests(unittest.TestCase):
     def test_upgrade_starts_off_and_rejects_injected_scope_or_non_boolean(self):
         old = copy.deepcopy(DEFAULT); old.pop('enumeration'); old['schema'] = 8
+        for field in ('ai_agents', 'search_agents', 'seo_agents'):old.pop(field);old.pop(field + '_enabled')
         upgraded = validate(old)
-        self.assertEqual(upgraded['schema'], 9)
+        self.assertEqual(upgraded['schema'], 10)
         self.assertEqual(upgraded['enumeration'], enumeration.SETTINGS)
         for value in ('yes', 1, None):
             bad = copy.deepcopy(DEFAULT); bad['enumeration']['enabled'] = value
@@ -32,6 +33,7 @@ class EnumerationPolicyTests(unittest.TestCase):
     def test_stale_panel_save_preserves_new_setting(self):
         saved = copy.deepcopy(DEFAULT); saved['enumeration']['enabled'] = True
         old = copy.deepcopy(DEFAULT); old['schema'] = 8; old.pop('enumeration')
+        for field in ('ai_agents', 'search_agents', 'seo_agents'):old.pop(field);old.pop(field + '_enabled')
         with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
              patch.object(engine, 'load', return_value=saved), patch.object(engine, 'collect', return_value=[]), \
              patch.object(engine, 'apply') as apply, patch.object(engine, 'snapshot', return_value={}):

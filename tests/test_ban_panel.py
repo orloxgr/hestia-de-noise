@@ -90,5 +90,6 @@ class BanPanelTests(unittest.TestCase):
         self.assertFalse(parsed.nested);self.assertEqual(parsed.depth,0)
         self.assertIn('Banned IPs: 177',body)
         self.assertTrue(any(f.get('action')=='wordpress_status' for f in parsed.forms))
-        self.assertIn('name="wordpress_target_page" value="3"',body)
+        self.assertIn('wordpress_page=3',body)
+        self.assertIn('data-hdn-remote-size="wordpress"',body)
         self.assertNotIn('Empty history',body)

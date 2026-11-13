@@ -21,8 +21,8 @@ class Jobs(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
 
     def prepared(self):
-        with patch.object(analysis_jobs.subprocess, 'Popen') as launch:
-            launch.return_value.pid = 99999999
+        with patch.object(analysis_jobs, 'launch_worker') as launch:
+            launch.return_value = 99999999
             result = analysis_jobs.start(self.root, [], 'admin', 'all', 17)
         return result['id'], analysis_jobs.directory(self.root, result['id'])
 
@@ -51,7 +51,7 @@ class Jobs(unittest.TestCase):
         self.assertEqual(result['findings_total'], 65)
         analysis_jobs.write(path, 'result.json', result)
         analysis_jobs.write(path, 'status.json', {'state':'complete'})
-        pages = [analysis_jobs.status(self.root,job,'admin',page)['analysis'] for page in (1,2,3,4)]
+        pages = [analysis_jobs.status(self.root,job,'admin',page,filters={'group_rejected':False})['analysis'] for page in (1,2,3,4)]
         self.assertEqual([len(page['findings']) for page in pages], [20,20,20,5])
         self.assertEqual(len({item['path'] for page in pages for item in page['findings']}),65)
 
@@ -64,9 +64,9 @@ class Jobs(unittest.TestCase):
 
     def test_start_returns_before_inventory_and_never_runs_protection_recovery(self):
         with patch.object(engine,'authorize',return_value=(True,'admin')), patch.object(engine,'collect') as inventory, \
-             patch.object(engine,'STATE',self.root), patch.object(analysis_jobs.subprocess,'Popen') as launch, \
+             patch.object(engine,'STATE',self.root), patch.object(analysis_jobs,'launch_worker') as launch, \
              patch.object(engine,'synchronize') as sync:
-            launch.return_value.pid=99999999
+            launch.return_value=99999999
             result=engine.dispatch(dict(action='log_scan_start',actor='admin',target='all',minutes=17))
         self.assertEqual(result['job']['state'],'queued')
         inventory.assert_not_called();sync.assert_not_called()
@@ -93,8 +93,8 @@ class Jobs(unittest.TestCase):
 
     def test_activity_reports_preserve_complete_pages_and_account_context(self):
         import activity, time, datetime
-        with patch.object(analysis_jobs.subprocess, 'Popen') as launch:
-            launch.return_value.pid=99999999
+        with patch.object(analysis_jobs, 'launch_worker') as launch:
+            launch.return_value=99999999
             job=analysis_jobs.start(self.root, [], 'admin', 'all', 17, kind='activity', owner='alice')['id']
         path=analysis_jobs.directory(self.root, job)
         log=self.root/'matches.log'
@@ -112,51 +112,13 @@ class Jobs(unittest.TestCase):
 
     def test_activity_start_preserves_owner_scope_and_defers_inventory(self):
         with patch.object(engine,'authorize',return_value=(True,'alice')), patch.object(engine,'collect') as inventory, \
-             patch.object(engine,'STATE',self.root), patch.object(analysis_jobs.subprocess,'Popen') as launch:
-            launch.return_value.pid=99999999
+             patch.object(engine,'STATE',self.root), patch.object(analysis_jobs,'launch_worker') as launch:
+            launch.return_value=99999999
             result=engine.dispatch(dict(action='activity_start',actor='admin',owner='alice',minutes=17))
         inventory.assert_not_called()
         request=analysis_jobs.read(analysis_jobs.directory(self.root,result['job']['id']),'request.json')
         self.assertEqual(request['owner'],'alice')
         self.assertEqual(request['kind'],'activity')
-
-    def test_activity_site_filter_covers_all_pages_without_rescan_or_scope_leak(self):
-        import activity, datetime, hashlib
-        with patch.object(analysis_jobs.subprocess, 'Popen') as launch:
-            launch.return_value.pid=99999999
-            job=analysis_jobs.start(self.root, [], 'admin', 'all', 17, kind='activity', owner='alice')['id']
-        path=analysis_jobs.directory(self.root,job)
-        request=analysis_jobs.read(path,'request.json')
-        stamp=datetime.datetime.fromtimestamp(request['requested_at']-5,datetime.timezone.utc).isoformat()
-        log=self.root/'matches.log'
-        log.write_text((f'{stamp} one.test agent - 403 enforce\t"Applebot"\n'*41)+
-                       (f'{stamp} two.test login - 200 enforce\t"Other client"\n'*63)+
-                       f'{stamp} foreign.test agent - 403 enforce\t"Private foreign agent"\n')
-        with patch.object(activity,'LOG',log):
-            report=activity.summary({'one.test','two.test'},request['requested_at'],17,report_path=path/'report.sqlite')
-        del report['window_start'];del report['window_end']  # Existing saved report, before this release.
-        analysis_jobs.write(path,'result.json',report)
-        analysis_jobs.write(path,'status.json',dict(state='complete'))
-        before={name:hashlib.sha256((path/name).read_bytes()).hexdigest() for name in ('result.json','report.sqlite','request.json')}
-        with patch.object(activity,'summary',side_effect=AssertionError('Unexpected rescan')), \
-             patch.object(log_analysis,'scan',side_effect=AssertionError('Unexpected rescan')):
-            pages=[analysis_jobs.status(self.root,job,'admin',page,kind='activity',owner='alice',domain='one.test')['analysis'] for page in (1,2,3)]
-            other=analysis_jobs.status(self.root,job,'admin',kind='activity',owner='alice',domain='two.test')['analysis']
-            all_sites=analysis_jobs.status(self.root,job,'admin',kind='activity',owner='alice')['analysis']
-            for domain in ('foreign.test',"one.test' OR 1=1 --"):
-                empty=analysis_jobs.status(self.root,job,'admin',kind='activity',owner='alice',domain=domain)['analysis']
-                self.assertEqual((empty['total'],empty['findings'],empty['rows']),(0,[],[]))
-        self.assertEqual([len(page['findings']) for page in pages],[20,20,1])
-        for page in pages:
-            self.assertEqual((page['total'],page['pages'],page['review_total']),(41,3,104))
-            self.assertEqual({row['domain'] for row in page['findings']+page['rows']},{'one.test'})
-            self.assertEqual(datetime.datetime.fromisoformat(page['window_end']).timestamp(),int(request['requested_at']))
-        self.assertEqual(other['total'],63)
-        self.assertEqual(all_sites['total'],104)
-        self.assertNotIn('Private foreign agent',json.dumps(all_sites))
-        self.assertEqual(before,{name:hashlib.sha256((path/name).read_bytes()).hexdigest() for name in before})
-        with self.assertRaises(PermissionError):
-            analysis_jobs.status(self.root,job,'admin',kind='activity',owner='bob',domain='one.test')
 
     def test_cancellation_before_worker_handler_is_loaded_stays_cancelled(self):
         job,path=self.prepared()
@@ -187,3 +149,48 @@ class Jobs(unittest.TestCase):
         os.waitpid(pid,0)
         self.assertEqual(analysis_jobs.status(self.root,result['id'],'admin')['state'],'cancelled')
         self.assertFalse((path/'result.json').exists())
+
+    def test_activity_site_filter_covers_all_pages_without_rescan_or_scope_leak(self):
+        import activity, datetime, hashlib
+        with patch.object(analysis_jobs, 'launch_worker') as launch:
+            launch.return_value=99999999
+            job=analysis_jobs.start(self.root, [], 'admin', 'all', 17, kind='activity', owner='alice')['id']
+        path=analysis_jobs.directory(self.root,job)
+        request=analysis_jobs.read(path,'request.json')
+        stamp=datetime.datetime.fromtimestamp(request['requested_at']-5,datetime.timezone.utc).isoformat()
+        log=self.root/'matches.log'
+        log.write_text((f'{stamp} one.test agent - 403 enforce\t"Applebot"\n'*41)+
+                       (f'{stamp} two.test login - 200 enforce\t"Other client"\n'*63)+
+                       f'{stamp} foreign.test agent - 403 enforce\t"Private foreign agent"\n')
+        with patch.object(activity,'LOG',log):
+            report=activity.summary({'one.test','two.test'},request['requested_at'],17,report_path=path/'report.sqlite')
+        del report['window_start'];del report['window_end']  # Existing saved report, before this release.
+        analysis_jobs.write(path,'result.json',report)
+        analysis_jobs.write(path,'status.json',dict(state='complete'))
+        before={name:hashlib.sha256((path/name).read_bytes()).hexdigest() for name in ('result.json','report.sqlite','request.json')}
+        with patch.object(activity,'summary',side_effect=AssertionError('Unexpected rescan')), \
+             patch.object(log_analysis,'scan',side_effect=AssertionError('Unexpected rescan')):
+            pages=[analysis_jobs.status(self.root,job,'admin',page,kind='activity',owner='alice',domain='one.test')['analysis'] for page in (1,2,3)]
+            exported=analysis_jobs.export_review(self.root,job,'admin',kind='activity',owner='alice',domain='one.test')
+            self.assertEqual(len(exported['rows']),41)
+            self.assertEqual({row[1] for row in exported['rows']},{'one.test'})
+            self.assertIsNone(exported['next_offset'])
+            for foreign in ('foreign.test', "one.test' OR 1=1 --"):
+                self.assertEqual(analysis_jobs.export_review(self.root,job,'admin',kind='activity',owner='alice',domain=foreign)['rows'],[])
+            with self.assertRaises(PermissionError): analysis_jobs.export_review(self.root,job,'admin',kind='activity',owner='bob')
+            other=analysis_jobs.status(self.root,job,'admin',kind='activity',owner='alice',domain='two.test')['analysis']
+            all_sites=analysis_jobs.status(self.root,job,'admin',kind='activity',owner='alice')['analysis']
+            for domain in ('foreign.test',"one.test' OR 1=1 --"):
+                empty=analysis_jobs.status(self.root,job,'admin',kind='activity',owner='alice',domain=domain)['analysis']
+                self.assertEqual((empty['total'],empty['findings'],empty['rows']),(0,[],[]))
+        self.assertEqual([len(page['findings']) for page in pages],[20,20,1])
+        for page in pages:
+            self.assertEqual((page['total'],page['pages'],page['review_total']),(41,3,104))
+            self.assertEqual({row['domain'] for row in page['findings']+page['rows']},{'one.test'})
+            self.assertEqual(datetime.datetime.fromisoformat(page['window_end']).timestamp(),int(request['requested_at']))
+        self.assertEqual(other['total'],63)
+        self.assertEqual(all_sites['total'],104)
+        self.assertNotIn('Private foreign agent',json.dumps(all_sites))
+        self.assertEqual(before,{name:hashlib.sha256((path/name).read_bytes()).hexdigest() for name in before})
+        with self.assertRaises(PermissionError):
+            analysis_jobs.status(self.root,job,'admin',kind='activity',owner='bob',domain='one.test')

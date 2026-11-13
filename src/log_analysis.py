@@ -21,6 +21,7 @@ import time
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 import storage
+import agent_catalog
 from policy import domain as valid_domain
 
 LOG_ROOTS = (Path('/var/log/apache2/domains'), Path('/var/log/nginx/domains'))
@@ -40,14 +41,12 @@ SECRET_PATH = re.compile(r'(?:^|/)\.(?:env(?:[./]|$)|git(?:/|$)|svn(?:/|$)|hg(?:
 # These exact cache transport names are not content-filter dimensions. Their
 # presence does not authenticate the caller or exempt a request from analysis.
 TECHNICAL = {'ver', 'v', 'fbclid', 'gclid', 'msclkid', '_', 'cachebuster', 'rest_route', 'format',
-             'ultracache_revalidate', 'ultracache_rt', 'ultracache_rv', 'ultracache_bucket'}
+             'ultracache_revalidate', 'ultracache_rt', 'ultracache_rv', 'ultracache_bucket', 'doing_wp_cron', 'no-cache'}
 SENSITIVE = {'key', 'token', 'nonce', '_wpnonce', 'password', 'pass', 'email', 'login', 'auth', 'signature',
              'session', 'sessionid', 'sid', 'code', 'state', 'csrf', 'csrf_token', 'access_token',
              'refresh_token', 'api_key', 'api_token', 'action'}
-CLAIMS = ('Googlebot', 'bingbot', 'Applebot', 'Baiduspider', 'PetalBot', 'ibou-search',
-          'meta-webindexer', 'facebookexternalhit', 'Twitterbot', 'Slackbot', 'Discordbot',
-          'WhatsApp', 'TelegramBot', 'GPTBot', 'ClaudeBot', 'CCBot', 'Amazonbot',
-          'Reflectionbot', 'LinkupBot', 'AhrefsBot', 'SemrushBot', 'sqlmap', 'Nikto', 'Nuclei')
+KNOWN_CLAIMS = frozenset(name for field, category in agent_catalog.CATEGORIES.items()
+                         for name in category['entries'] + agent_catalog.EXTRA.get(field, []))
 
 
 def selection(sites, target, minutes):
@@ -147,8 +146,27 @@ def params(target):
 
 
 def claim(agent):
-    low = agent.lower()
-    return next((value for value in CLAIMS if value.lower() in low), 'Other / browser-like (unverified)')
+    name, _ = agent_catalog.observed(agent)
+    return name if name != agent or name in KNOWN_CLAIMS else 'Other / browser-like (unverified)'
+
+
+def endpoint(path, target=''):
+    """Describe known work; never retain arbitrary query values or actions."""
+    routes = {'/wp-json/complianz/v1/banner': 'Complianz consent banner',
+              '/wp-json/complianz/v1/track': 'Complianz consent event',
+              '/wp-json/ultracache/v1/errors/frontend': 'UltraCache browser error report',
+              '/wp-json/ultracache/v1/media/background-worker': 'UltraCache media background worker',
+              '/wp-json/oembed/1.0/embed': 'WordPress oEmbed lookup'}
+    for route, label in routes.items():
+        if path.rstrip('/').endswith(route): return label
+    if path.endswith('/wp-cron.php'): return 'WordPress scheduled tasks'
+    try:
+        pairs = dict(parse_qsl(target.partition('?')[2], keep_blank_values=True))
+    except ValueError:
+        pairs = {}
+    actions = {'get_refreshed_fragments': 'WooCommerce cart fragments', 'add_to_cart': 'WooCommerce add to cart',
+               'remove_from_cart': 'WooCommerce remove from cart', 'checkout': 'WooCommerce checkout'}
+    return actions.get(pairs.get('wc-ajax'), 'WooCommerce AJAX' if 'wc-ajax' in pairs else '')
 
 
 
@@ -217,6 +235,9 @@ def findings(groups, persist=False):
         elif count >= 100 and max(group['minutes'].values(), default=0) >= 40:
             kind, title = 'investigate', 'High activity on one route'
             advice = 'Check normal visitors, integrations and crawl activity before choosing any limit. Volume, browser-like names and HTTP 200 do not establish legitimacy or abuse.'
+        elif path.endswith('/wp-cron.php') and count >= 100:
+            kind, title = 'investigate', 'WordPress scheduled-task activity'
+            advice = 'These requests run WordPress scheduled tasks. doing_wp_cron is a technical token, not a content filter. Check the saved interval against the current native cron setup before diagnosing duplicate schedules.'
         if not kind:
             continue
         suggestion = ({key: group[key] for key in ('site', 'domain', 'path', 'parameters', 'count', 'first', 'last', 'verified_google', 'unconfirmed_google')} |
@@ -226,6 +247,8 @@ def findings(groups, persist=False):
                            request_time_samples=group['timing_count'],
                            mean_request_ms=round(group['request_seconds'] / group['timing_count'] * 1000, 2) if group['timing_count'] else None,
                            upstream_time_samples=group['upstream_count'],
+                           endpoint_work=sorted(group.get('endpoint_work', [])),
+                           log_sources=sorted(group.get('log_sources', [])),
                            mean_upstream_ms=round(group['upstream_seconds'] / group['upstream_count'] * 1000, 2) if group['upstream_count'] else None,
                            cache=dict(group['cache']), recommendations=recommendations(group, title)))
         if title == 'Many combinations of URL parameters':
@@ -240,26 +263,38 @@ def findings(groups, persist=False):
     return sorted(result, key=lambda row: (order[row['kind']], -row['count'], row['site'], row['path']))
 
 
-def scan(sites, target, minutes, state=None, verify_google=False, now=None, progress=None, cancelled=None, report_path=None):
+def native_log_paths(site, root):
+    for name in site.get('log_domains', [site['domain']]):
+        valid_domain(name)
+        candidates = [root / (name + '.log')] + sorted(root.glob(name + '.log.[0-9]*'))
+        for path in candidates:
+            if re.fullmatch(re.escape(name) + r'[.]log(?:[.][0-9]+(?:[.](?:gz|bz2|xz))?)?', path.name):
+                yield path
+
+
+def scan(sites, target, minutes, state=None, verify_google=False, now=None, progress=None, cancelled=None, report_path=None, inventory_kind=None):
+    if inventory_kind not in (None, 'agents', 'php_files'):
+        raise ValueError('Invalid traffic inventory')
     chosen = selection(sites, target, minutes)
     if type(verify_google) is not bool:
         raise ValueError('Invalid Google verification switch')
     now = time.time() if now is None else now
     started = time.monotonic(); cutoff = now - minutes * 60
     ranges, verification = (google_ranges(state, now) if verify_google else ([], 'Not requested; crawler names are unverified claims'))
-    seen, groups, coverage, files = set(), Groups(report_path), [], []
+    if inventory_kind:
+        from traffic_inventory import Inventory
+        groups = Inventory(inventory_kind, report_path)
+    else:
+        groups = Groups(report_path)
+    seen, coverage, files = set(), [], []
     totals = Counter(image_records_excluded=0); errors = []; bytes_read = 0; group_dropped = False
     salt = os.urandom(16); date_cache = {}
     try:
         for site in chosen:
             for root in LOG_ROOTS:
-                candidates = [root / (site['domain'] + '.log')]
-                candidates += sorted(root.glob(site['domain'] + '.log.[0-9]*'))
-                for path in candidates:
-                    if not re.fullmatch(re.escape(site['domain']) + r'[.]log(?:[.][0-9]+(?:[.](?:gz|bz2|xz))?)?', path.name):
-                        continue
+                for path in native_log_paths(site, root):
                     try:
-                        info = path.stat(follow_symlinks=False)
+                        info = path.lstat()
                     except FileNotFoundError:
                         continue
                     except OSError:
@@ -329,6 +364,9 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
                         continue
                     records += 1; totals['requests'] += 1; totals['status_' + status] += 1
                     if progress: progress(dict(records=totals['requests'], bytes=bytes_read, files_done=index, files_total=len(files), domain=site['domain']))
+                    if inventory_kind:
+                        groups.observe(site, path_only, status, agent, at, address=address)
+                        continue
                     decoded_path = unquote(unquote(path_only))
                     if IMAGE.search(decoded_path):
                         # Preserve positive secret-probe evidence even when the
@@ -344,6 +382,12 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
                     if key not in groups:
                         groups[key] = new_group(site, path_only, names)
                     group = groups[key]
+                    group.setdefault('log_sources', [])
+                    if path.name not in group['log_sources']: group['log_sources'].append(path.name)
+                    work = endpoint(path_only, target_url)
+                    if work:
+                        group.setdefault('endpoint_work', [])
+                        if work not in group['endpoint_work']: group['endpoint_work'].append(work)
                     group['count'] += 1; group['statuses'][status] += 1; group['methods'][method] += 1
                     group['minutes'][int(at // 60)] += 1
                     group['first'] = at if group['first'] is None else min(group['first'], at)
@@ -384,15 +428,20 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
         selected_domains = {site['domain'] for site in chosen}
         seen_domains = {row['domain'] for row in coverage}
         partial = bool(errors or group_dropped or totals['unparsed'] or totals['incomplete_lines'] or any(row['partial'] for row in coverage) or selected_domains - seen_domains)
-        suggestions = findings(groups, persist=report_path is not None)
+        if inventory_kind:
+            suggestions, inventory_total = groups.finish(report_path is not None)
+        else:
+            suggestions = findings(groups, persist=report_path is not None)
         return dict(generated_at=now, minutes=minutes, target=target, domains=len(chosen), bytes_read=bytes_read,
                     elapsed_seconds=round(time.monotonic() - started, 3), partial=partial, limits={},
                     totals=dict(totals), findings=suggestions,
-                    findings_total=groups.suggestion_count() if report_path is not None else len(suggestions),
+                    findings_total=inventory_total if inventory_kind else (groups.suggestion_count() if report_path is not None else len(suggestions)),
+                    inventory_kind=inventory_kind, paths_total=groups.paths_total if inventory_kind else None,
+                    categories={key: value['title'] for key, value in agent_catalog.CATEGORIES.items()} if inventory_kind else {},
                     findings_database=report_path is not None, coverage=coverage, errors=errors,
                     unavailable_domains=sorted(selected_domains - seen_domains), group_limit_reached=group_dropped,
                     verification=verification, verified_google_requested=verify_google,
-                    note='Native log records are not total incoming traffic or PHP executions. Early blocks and cache HITs may be absent. Known UltraCache revalidation/bucket parameters do not count as content-filter diversity; this does not verify the caller or exempt errors, slow requests or secret probes. Query values, client IPs and raw User-Agents are not returned or retained. No protection setting was changed.')
+                    note=('Counts reflect retained native access logs. Cache HITs and early blocks may be absent; layered logs may duplicate records. Agent names are unverified declarations. No protection setting was changed.' if inventory_kind else 'Native log records are not total incoming traffic or PHP executions. Early blocks and cache HITs may be absent. Known UltraCache revalidation/bucket parameters do not count as content-filter diversity; this does not verify the caller or exempt errors, slow requests or secret probes. Query values, client IPs and raw User-Agents are not returned or retained. No protection setting was changed.'))
     finally:
         groups.close()
 

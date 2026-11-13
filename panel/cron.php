@@ -8,7 +8,7 @@
 <?php elseif (!empty($data['cron']['id'])): ?>
 <form method="post"><?php $fields('cron_apply'); ?>
 <input type="hidden" name="plan_id" value="<?= $escape($data['cron']['id']) ?>">
-<div class="hdn-cron-table-wrap"><table class="table hdn-cron-table"><thead><tr><th>Select</th><th>Account / job</th><th>Website</th><th>Previous interval</th><th>New interval</th><th>Status</th></tr></thead><tbody>
+<div class="hdn-cron-table-wrap"><table class="table hdn-cron-table" data-hdn-list="Cron schedules"><thead><tr><th>Select</th><th>Account / job</th><th>Website</th><th>Previous interval</th><th>New interval</th><th>Status</th></tr></thead><tbody>
 <?php foreach ($data['cron']['rows'] as $row): ?><tr>
 <td><input type="checkbox" name="cron_jobs[]" value="<?= $escape($row['key']) ?>" checked></td>
 <td><?= $escape($row['key']) ?></td><td><?= $escape($row['site'] ?? $row['label']) ?>

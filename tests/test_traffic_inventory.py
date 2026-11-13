@@ -1,0 +1,392 @@
+"""Purpose lists and observational inventories preserve explicit rule choices."""
+import copy
+import datetime
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+import agent_catalog
+import agent_details
+import analysis_jobs
+import engine
+import log_analysis
+import policy
+
+
+class Categories(unittest.TestCase):
+    def test_bot_information_distinguishes_training_search_fetch_and_tool_developers(self):
+        cases = [('GPTBot', 'OpenAI', 'train', 'AI model'),
+                 ('OAI-SearchBot', 'OpenAI', 'search', 'shop'),
+                 ('ChatGPT-User', 'OpenAI', 'requests', 'conversation'),
+                 ('AhrefsBot', 'Ahrefs', 'backlink', 'Ahrefs'),
+                 ('Googlebot-Image', 'Google', 'images', 'product photos'),
+                 ('facebookexternalhit', 'Meta', 'previews', 'product'),
+                 ('ElevenlabsCrawler', 'ElevenLabs', 'train', 'model'),
+                 ('Nuclei', 'ProjectDiscovery (user-run tool)', 'vulnerability', 'requested')]
+        for name, operator, purpose, usefulness in cases:
+            with self.subTest(name=name):
+                info = agent_catalog.describe('Mozilla/5.0 (compatible; ' + name.lower() + '/1.0)')
+                self.assertEqual(info['operator'], operator)
+                self.assertIn(purpose.lower(), info['purpose'].lower())
+                self.assertIn(usefulness.lower(), info['usefulness'].lower())
+                self.assertTrue(info['url'].startswith('https://'))
+        self.assertNotEqual(agent_catalog.describe('Googlebot-Image')['purpose'],
+                            agent_catalog.describe('Googlebot')['purpose'])
+
+    def test_unknown_information_never_uses_user_agent_urls_as_sources_or_invents_operators(self):
+        for value in ('', '-', 'Mozilla/5.0 Chrome/156.0', 'NotGPTBot/1.0',
+                      'UnknownBot (+https://example.test/evil)', '<script>alert(1)</script>', 'ZmEu'):
+            with self.subTest(value=value):
+                info = agent_catalog.describe(value)
+                self.assertEqual(info['operator'], 'Not confirmed')
+                self.assertIsNone(info['url'])
+        for key, info in agent_details.DETAILS.items():
+            self.assertIn(key, {name.casefold() for name, _ in agent_catalog._NAMES})
+            self.assertEqual(set(info), {'operator', 'purpose', 'usefulness', 'url'})
+        info = agent_catalog.describe('GPTBot'); info['operator'] = 'Changed'
+        self.assertEqual(agent_catalog.describe('GPTBot')['operator'], 'OpenAI')
+
+    def test_empty_defaults_and_disjoint_suggestions(self):
+        all_names = []
+        for field, category in agent_catalog.CATEGORIES.items():
+            self.assertEqual(policy.DEFAULT[field], [])
+            all_names += category['entries']
+        self.assertEqual(len(all_names), len(set(name.casefold() for name in all_names)))
+        self.assertNotIn('meta-webindexer', agent_catalog.AI)
+        self.assertIn('meta-webindexer', agent_catalog.SEARCH)
+
+    def test_v9_migration_preserves_active_substrings_and_disabled_choices(self):
+        for enabled in (True, False):
+            old = {key: copy.deepcopy(policy.DEFAULT[key]) if key in policy.DEFAULT else {'allow_users':True,'sites':{}} for key in policy.V9_KEYS}
+            old.update(schema=9, agents=['GPTBot', 'meta-webindexer', 'AhrefsBot',
+                                        'MyCrawler', 'GoogleOther', 'Claude'], agents_enabled=enabled)
+            result = policy.validate(old)
+            self.assertEqual(result['ai_agents'], ['GPTBot'])
+            self.assertEqual(result['search_agents'], ['meta-webindexer'])
+            self.assertEqual(result['seo_agents'], ['AhrefsBot'])
+            self.assertEqual(result['agents'], ['MyCrawler', 'GoogleOther', 'Claude'])
+            for field in ('ai_agents', 'search_agents', 'seo_agents'):
+                self.assertIs(result[field + '_enabled'], enabled)
+            self.assertEqual(set(agent_catalog.enabled(result)), set(old['agents']) if enabled else set())
+            self.assertEqual(policy.validate(result), result)
+
+    def test_independent_switches_apply_to_native_hestia_compiler(self):
+        value = copy.deepcopy(policy.DEFAULT)
+        value.update(mail_protection=True, mode='enforce')
+        for field in agent_catalog.CATEGORIES:
+            value[field] = ['Test-' + field]
+        for selected in agent_catalog.CATEGORIES:
+            for field in agent_catalog.CATEGORIES:
+                value[field + '_enabled'] = field == selected
+            valid = policy.validate(value)
+            self.assertEqual(agent_catalog.enabled(valid), ['Test-' + selected])
+            compiled = policy.global_config(valid, [])
+            self.assertIn(policy.literal_regex('Test-' + selected), compiled)
+            for other in agent_catalog.CATEGORIES:
+                if other != selected:
+                    self.assertNotIn(policy.literal_regex('Test-' + other), compiled)
+
+
+    def test_declared_training_search_and_fetch_names_remain_distinct(self):
+        for name, expected in [('ClaudeBot', 'ai_agents'), ('Claude-SearchBot', 'search_agents'),
+                               ('OAI-SearchBot', 'search_agents'), ('ChatGPT-User', 'agents'),
+                               ('Amzn-SearchBot', 'search_agents'), ('AhrefsBot', 'seo_agents')]:
+            self.assertEqual(agent_catalog.observed('Mozilla/5.0 (compatible; ' + name + '/1.0)')[1], expected)
+        self.assertEqual(agent_catalog.observed('NotGPTBot/1.0'), ('NotGPTBot/1.0', 'agents'))
+
+    def test_search_variants_and_scanners_from_declared_agents_are_classified(self):
+        for name in ('Baiduspider-render', 'Baiduspider-image', 'Baiduspider-mobile', 'Baiduspider-video',
+                     'Googlebot-Image', 'Googlebot-News', 'Googlebot-Video', 'PerplexityBot',
+                     'ExaSearchBot', 'ExaSearchBot-Images', 'DuckAssistBot'):
+            for version in ('1.0', '2.0'):
+                declared = 'Mozilla/5.0 (compatible; ' + name.lower() + '/' + version + ')'
+                self.assertEqual(agent_catalog.observed(declared), (name, 'search_agents'))
+        self.assertEqual(agent_catalog.observed('Mozilla/5.0 (compatible; CensysInspect/1.1)'),
+                         ('CensysInspect', 'tool_agents'))
+        self.assertEqual(agent_catalog.observed('Hello from Palo Alto Networks, find out more about our scans'),
+                         ('Palo Alto Networks', 'tool_agents'))
+        self.assertEqual(agent_catalog.observed('Expanse, a Palo Alto Networks company'),
+                         ('Palo Alto Networks', 'tool_agents'))
+
+    def test_variants_do_not_broaden_append_rules_or_match_unknown_product_suffixes(self):
+        for name in ('Googlebot-Image', 'Baiduspider-render', 'ExaSearchBot-Images'):
+            observed, _ = agent_catalog.observed('Mozilla/5.0 (' + name + '/1.0)')
+            self.assertEqual(policy.validate_agents([observed]), [name])
+        for value in ('NotGPTBot/1.0', 'NotPerplexityBot/1.0', 'Googlebot-ImageProxy/1.0',
+                      'Baiduspider-render-evil/1.0', 'ExaSearchBot-ImagesBackup/1.0',
+                      'Mozilla/5.0 Chrome/156.0.0.0', 'WordPress/7.0; https://example.test', 'MailPoet Cron', 'curl/8.7.1'):
+            self.assertEqual(agent_catalog.observed(value), (value, 'agents'))
+        for name in ('ChatGPT-User', 'Claude-User', 'Perplexity-User', 'ExaUser', 'facebookexternalhit', 'GoogleOther'):
+            self.assertEqual(agent_catalog.observed(name + '/1.0'), (name, 'agents'))
+            self.assertNotIn(name, agent_catalog.AI)
+
+
+@unittest.skipUnless(os.name == 'posix' and os.geteuid() == 0, 'Trusted native Linux log files')
+class Inventory(unittest.TestCase):
+    def setUp(self):
+        auth = patch.object(engine, 'hestia', side_effect=lambda command, actor: {actor: {'SUSPENDED': 'no', 'ROLE': 'admin' if actor == 'root' else 'user'}})
+        auth.start(); self.addCleanup(auth.stop)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.logs = self.root / 'logs'; self.logs.mkdir()
+        self.now = datetime.datetime.now(datetime.timezone.utc).timestamp() + 1
+        self.sites = [dict(key='alice/one.test', domain='one.test', owner='alice'),
+                      dict(key='bob/two.test', domain='two.test', owner='bob')]
+        self.stamp = datetime.datetime.fromtimestamp(self.now - 2, datetime.timezone.utc).strftime('%d/%b/%Y:%H:%M:%S %z')
+
+    def line(self, path='/', status=200, agent='TestCrawler/1.0', stamp=None):
+        return f'198.51.100.1 - - [{stamp or self.stamp}] "GET {path} HTTP/1.1" {status} 0 "-" "{agent}"\n'
+
+    def scan(self, kind, **extra):
+        with patch.object(log_analysis, 'LOG_ROOTS', (self.logs,)):
+            return log_analysis.scan(self.sites, extra.pop('target', 'all'), 30, self.root,
+                                     now=self.now, inventory_kind=kind, **extra)
+
+    def test_agent_counts_include_assets_rotations_and_unknowns_without_query_values(self):
+        (self.logs / 'one.test.log').write_text(self.line('/a.png', agent='GPTBot/1.0') +
+            self.line('/x?token=private-query', agent='GPTBot/2.0') + self.line(agent='Unknown <tag>') +
+            self.line(agent='OAI-SearchBot/1.0'))
+        with gzip.open(self.logs / 'two.test.log.1.gz', 'wt') as stream:
+            stream.write(self.line('/a.css', agent='gptbot/1.0'))
+        result = self.scan('agents')
+        rows = {row['value']: row for row in result['findings']}
+        self.assertEqual(result['totals']['requests'], 5)
+        self.assertEqual(rows['GPTBot']['count'], 3)
+        self.assertEqual(len(rows['GPTBot']['domains']), 2)
+        self.assertEqual(rows['Unknown <tag>']['category'], 'agents')
+        self.assertEqual(rows['OAI-SearchBot']['category'], 'search_agents')
+        self.assertNotIn('private-query', json.dumps(result))
+        self.assertFalse((self.root / 'policy.json').exists())
+
+    def test_new_search_variants_group_versions_but_preserve_products_and_domain_counts(self):
+        (self.logs / 'one.test.log').write_text(
+            self.line(agent='Mozilla/5.0 (compatible; PerplexityBot/1.0)') +
+            self.line(agent='Mozilla/5.0 (compatible; Baiduspider-render/2.0)') +
+            self.line(agent='Googlebot-Image/1.0') + self.line(agent='Googlebot/2.1') +
+            self.line(agent='ExaSearchBot-Images/1.0'))
+        (self.logs / 'two.test.log').write_text(
+            self.line(agent='PerplexityBot/2.0') + self.line(agent='Baiduspider-render/3.0'))
+        result = self.scan('agents'); rows = {row['value']: row for row in result['findings']}
+        self.assertEqual(result['totals']['requests'], 7)
+        self.assertEqual(sum(row['count'] for row in rows.values()), 7)
+        self.assertEqual(rows['PerplexityBot']['count'], 2)
+        self.assertEqual(rows['Baiduspider-render']['count'], 2)
+        self.assertEqual(len(rows['Baiduspider-render']['domains']), 2)
+        self.assertEqual(rows['Googlebot-Image']['candidate'], 'Googlebot-Image')
+        self.assertEqual(rows['Googlebot']['count'], 1)
+        self.assertTrue(all(row['category'] == 'search_agents' for row in rows.values()))
+        self.assertFalse((self.root / 'policy.json').exists())
+
+    def test_php_counts_only_404_and_keeps_domains_exact_paths_and_safe_candidates(self):
+        (self.logs / 'one.test.log').write_text(self.line('/probe.php?a=secret', 404) * 3 +
+            self.line('/probe.php', 200) + self.line('/image.png', 404) +
+            self.line('/other%2ephp', 404) + self.line('/%2e%2e/evil.php', 404))
+        (self.logs / 'two.test.log').write_text(self.line('/probe.php', 404))
+        result = self.scan('php_files')
+        rows = {row['value']: row for row in result['findings']}
+        self.assertEqual(rows['/probe.php']['count'], 4)
+        self.assertEqual([d['count'] for d in rows['/probe.php']['domains']], [3, 1])
+        self.assertEqual(rows['/other%2ephp']['candidate'], '/other.php')
+        self.assertIsNone(rows['/%2e%2e/evil.php']['candidate'])
+        self.assertNotIn('/image.png', rows)
+        self.assertNotIn('secret', json.dumps(result))
+        for row in rows.values():
+            if row['candidate']:
+                data = copy.deepcopy(policy.DEFAULT)
+                data['bans']['missing_files']['paths'] = [row['candidate']]
+                policy.validate(data)
+
+    def test_domain_selection_and_time_window_are_enforced(self):
+        old = datetime.datetime.fromtimestamp(self.now - 86400, datetime.timezone.utc).strftime('%d/%b/%Y:%H:%M:%S %z')
+        (self.logs / 'one.test.log').write_text(self.line(agent='OwnBot') + self.line(agent='OldBot', stamp=old))
+        (self.logs / 'two.test.log').write_text(self.line(agent='ForeignBot'))
+        result = self.scan('agents', target='alice/one.test')
+        self.assertEqual([row['value'] for row in result['findings']], ['OwnBot'])
+
+    def test_complete_inventory_pages_and_kind_ownership_cannot_be_crossed(self):
+        with patch.object(analysis_jobs, 'launch_worker', return_value=99999999):
+            job = analysis_jobs.start(self.root, self.sites, 'root', 'all', 30, kind='agents')['id']
+        directory = analysis_jobs.directory(self.root, job)
+        (self.logs / 'one.test.log').write_text(''.join(self.line(agent='Unknown' + str(n)) for n in range(47)))
+        result = self.scan('agents', report_path=directory / 'report.sqlite')
+        analysis_jobs.write(directory, 'result.json', result)
+        analysis_jobs.write(directory, 'status.json', dict(state='complete'))
+        pages = [analysis_jobs.status(self.root, job, 'root', page, kind='agents')['analysis'] for page in (1, 2, 3)]
+        self.assertEqual([len(p['findings']) for p in pages], [20, 20, 7])
+        self.assertEqual(len({r['value'] for p in pages for r in p['findings']}), 47)
+        with self.assertRaises(PermissionError): analysis_jobs.status(self.root, job, 'root', kind='php_files')
+        with self.assertRaises(PermissionError): analysis_jobs.status(self.root, job, 'alice', kind='agents')
+
+    def test_new_reviews_require_root_context_and_do_not_discover_sites_in_start_request(self):
+        for kind in ('agents', 'php_files'):
+            with patch.object(engine, 'hestia', side_effect=lambda command, actor: {actor: {'SUSPENDED':'no', 'ROLE':'admin' if actor=='root' else 'user'}}):
+                with self.assertRaises(PermissionError):
+                    engine.dispatch(dict(action=kind + '_start', actor='alice', target='all', minutes=30))
+            with patch.object(engine, 'STATE', self.root), patch.object(engine, 'collect') as collect, \
+                    patch.object(analysis_jobs, 'launch_worker', return_value=99999999):
+                result = engine.dispatch(dict(action=kind + '_start', actor='root', target='all', minutes=30))
+            collect.assert_not_called()
+            self.assertEqual(result['job']['state'], 'queued')
+            with self.assertRaises(PermissionError):
+                engine.dispatch(dict(action=kind + '_status', actor='root', owner='alice', job=result['job']['id']))
+
+    def test_cancelled_inventory_never_creates_a_report_or_policy(self):
+        with patch.object(analysis_jobs, 'launch_worker', return_value=99999999):
+            job = analysis_jobs.start(self.root, self.sites, 'root', 'all', 30, kind='php_files')['id']
+        analysis_jobs.cancel(self.root, job, 'root', kind='php_files')
+        with patch.object(analysis_jobs.signal, 'signal'), patch.object(analysis_jobs.os, 'nice'):
+            analysis_jobs.worker(self.root, job)
+        directory = analysis_jobs.directory(self.root, job)
+        self.assertEqual(analysis_jobs.read(directory, 'status.json')['state'], 'cancelled')
+        self.assertFalse((directory / 'report.sqlite').exists())
+        self.assertFalse((self.root / 'policy.json').exists())
+
+    def export_job(self, kind='agents', complete=True):
+        with patch.object(analysis_jobs, 'launch_worker', return_value=99999999):
+            job = analysis_jobs.start(self.root, self.sites, 'root', 'all', 30, kind=kind)['id']
+        directory = analysis_jobs.directory(self.root, job)
+        result = self.scan(kind, report_path=directory / 'report.sqlite')
+        analysis_jobs.write(directory, 'result.json', result)
+        analysis_jobs.write(directory, 'status.json', dict(state='complete' if complete else 'running'))
+        return job, directory
+
+    def test_csv_export_reads_all_rows_across_transfer_chunks_without_scanning_or_writing(self):
+        (self.logs / 'one.test.log').write_text(''.join(self.line(agent='Agent-' + str(n)) for n in range(1507)) +
+            self.line(agent='TopBot') * 3)
+        job, directory = self.export_job()
+        database = directory / 'report.sqlite'
+        before = hashlib.sha256(database.read_bytes()).hexdigest()
+        rows, offset, chunks = [], 0, []
+        with patch.object(log_analysis, 'scan') as scan:
+            while offset is not None:
+                value = analysis_jobs.export_agents(self.root, job, 'root', offset)
+                self.assertEqual(value['total'], 1508)
+                rows.extend(value['rows']); chunks.append(len(value['rows']))
+                offset = value['next_offset']
+        scan.assert_not_called()
+        self.assertEqual(chunks, [500, 500, 500, 8])
+        self.assertEqual(rows[0], ['TopBot', 3])
+        self.assertEqual(len({row[0] for row in rows}), 1508)
+        self.assertEqual(hashlib.sha256(database.read_bytes()).hexdigest(), before)
+        self.assertFalse((self.root / 'policy.json').exists())
+
+    def test_export_rejects_foreign_jobs_incomplete_reports_offsets_and_untrusted_database(self):
+        job, directory = self.export_job()
+        with self.assertRaises(PermissionError): analysis_jobs.export_agents(self.root, job, 'alice')
+        for offset in (-1, True, '0', 1):
+            with self.subTest(offset=offset), self.assertRaises(ValueError):
+                analysis_jobs.export_agents(self.root, job, 'root', offset)
+        other, _ = self.export_job(kind='php_files')
+        with self.assertRaises(PermissionError): analysis_jobs.export_agents(self.root, other, 'root')
+        analysis_jobs.write(directory, 'status.json', dict(state='running'))
+        with self.assertRaises(ValueError): analysis_jobs.export_agents(self.root, job, 'root')
+        analysis_jobs.write(directory, 'status.json', dict(state='complete'))
+        (directory / 'report.sqlite').chmod(0o644)
+        with self.assertRaises(ValueError): analysis_jobs.export_agents(self.root, job, 'root')
+
+    def test_empty_completed_export_is_valid(self):
+        job, _ = self.export_job()
+        self.assertEqual(analysis_jobs.export_agents(self.root, job, 'root'), dict(rows=[], total=0, next_offset=None))
+
+    def test_existing_completed_reports_gain_information_without_rewriting_reports_or_counts(self):
+        (self.logs / 'one.test.log').write_text(self.line(agent='PerplexityBot/1.0') * 2 +
+                                               self.line(agent='Unknown Browser'))
+        job, directory = self.export_job()
+        files = [directory / 'result.json', directory / 'report.sqlite']
+        before = [path.read_bytes() for path in files]
+        self.assertNotIn('bot_info', before[0].decode())
+        with patch.object(log_analysis, 'scan') as scan:
+            result = analysis_jobs.status(self.root, job, 'root', kind='agents')['analysis']
+        scan.assert_not_called()
+        rows = {row['value']: row for row in result['findings']}
+        self.assertEqual(rows['PerplexityBot']['count'], 2)
+        self.assertEqual(rows['PerplexityBot']['category'], 'search_agents')
+        self.assertEqual(rows['PerplexityBot']['bot_info']['operator'], 'Perplexity')
+        self.assertEqual(rows['Unknown Browser']['bot_info']['operator'], 'Not confirmed')
+        self.assertEqual(before, [path.read_bytes() for path in files])
+        self.assertFalse((self.root / 'policy.json').exists())
+
+    def test_category_candidates_scan_all_chunks_and_exclude_unknown_other_values(self):
+        agents = ['Unknown-' + str(n) for n in range(1005)] + [
+            'Mozilla/5.0 Chrome/99.0', 'WordPress/6.8', 'curl/8.7.1',
+            'GPTBot/1.0', 'GoogleOther', 'facebookexternalhit/1.1',
+            'Baiduspider-render/2.0', 'Googlebot-Image/1.0', 'CensysInspect/1.1', 'AhrefsBot/1.0']
+        (self.logs / 'one.test.log').write_text(''.join(self.line(agent=name) for name in agents))
+        job, directory = self.export_job()
+        before = hashlib.sha256((directory / 'report.sqlite').read_bytes()).hexdigest()
+        expected = {'tool_agents': ['CensysInspect'], 'ai_agents': ['GPTBot'],
+            'search_agents': ['Baiduspider-render', 'Googlebot-Image'],
+            'seo_agents': ['AhrefsBot'], 'agents': ['GoogleOther', 'facebookexternalhit']}
+        with patch.object(log_analysis, 'scan') as scan:
+            for category, names in expected.items():
+                offset, found, scanned, chunks = 0, [], 0, 0
+                while offset is not None:
+                    value = analysis_jobs.agent_candidates(self.root, job, 'root', category, offset)
+                    self.assertEqual(value['category'], category)
+                    self.assertEqual(value['total'], len(agents))
+                    self.assertLessEqual(value['scanned'], 500)
+                    found += value['names']; scanned += value['scanned']; chunks += 1
+                    offset = value['next_offset']
+                self.assertCountEqual(found, names)
+                self.assertEqual(scanned, len(agents))
+                self.assertEqual(chunks, 3)
+        scan.assert_not_called()
+        self.assertEqual(hashlib.sha256((directory / 'report.sqlite').read_bytes()).hexdigest(), before)
+        self.assertFalse((self.root / 'policy.json').exists())
+
+    def test_candidates_reject_invalid_scope_category_job_state_and_database(self):
+        job, directory = self.export_job()
+        for category in ('invalid', '../agents', None, [], 'AI_AGENTS'):
+            with self.subTest(category=category), self.assertRaises(ValueError):
+                analysis_jobs.agent_candidates(self.root, job, 'root', category)
+        with self.assertRaises(PermissionError):
+            analysis_jobs.agent_candidates(self.root, job, 'alice', 'agents')
+        other, _ = self.export_job(kind='php_files')
+        with self.assertRaises(PermissionError):
+            analysis_jobs.agent_candidates(self.root, other, 'root', 'agents')
+        for offset in (-1, True, '0', 1):
+            with self.subTest(offset=offset), self.assertRaises(ValueError):
+                analysis_jobs.agent_candidates(self.root, job, 'root', 'agents', offset)
+        analysis_jobs.write(directory, 'status.json', dict(state='running'))
+        with self.assertRaises(ValueError):
+            analysis_jobs.agent_candidates(self.root, job, 'root', 'agents')
+        analysis_jobs.write(directory, 'status.json', dict(state='complete'))
+        (directory / 'report.sqlite').chmod(0o644)
+        with self.assertRaises(ValueError):
+            analysis_jobs.agent_candidates(self.root, job, 'root', 'agents')
+
+    def test_candidates_endpoint_requires_admin_scope_and_accepts_no_policy_changes(self):
+        request = dict(actor='root', action='agents_candidates', job='a' * 32, category='ai_agents', offset=0)
+        with patch.object(engine, 'hestia', side_effect=lambda command, actor: {actor: {'SUSPENDED':'no', 'ROLE':'admin' if actor=='root' else 'user'}}):
+            for fields in (dict(actor='alice'), dict(owner='alice')):
+                with self.assertRaises(PermissionError): engine.dispatch({**request, **fields})
+        for extra in ('policy', 'target', 'minutes'):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                engine.dispatch({**request, extra: {}})
+        with patch.object(engine, 'collect') as collect, patch.object(analysis_jobs, 'agent_candidates',
+                return_value=dict(category='ai_agents', names=['GPTBot'], scanned=1, total=1, next_offset=None)) as candidates:
+            result = engine.dispatch(request)
+        self.assertTrue(result['ok'])
+        collect.assert_not_called()
+        candidates.assert_called_once_with(engine.STATE, 'a' * 32, 'root', 'ai_agents', 0)
+
+    def test_export_endpoint_requires_root_scope_and_never_discovers_or_changes_sites(self):
+        with patch.object(engine, 'hestia', side_effect=lambda command, actor: {actor: {'SUSPENDED':'no', 'ROLE':'admin' if actor=='root' else 'user'}}):
+            with self.assertRaises(PermissionError):
+                engine.dispatch(dict(actor='alice', action='agents_export', job='a' * 32))
+        with self.assertRaises(PermissionError):
+            engine.dispatch(dict(actor='root', owner='alice', action='agents_export', job='a' * 32))
+        with patch.object(engine, 'collect') as collect, patch.object(analysis_jobs, 'export_agents',
+                return_value=dict(rows=[['GPTBot', 10]], total=1, next_offset=None)) as export:
+            result = engine.dispatch(dict(actor='root', action='agents_export', job='a' * 32, offset=0))
+        collect.assert_not_called()
+        self.assertTrue(result['ok'])
+        export.assert_called_once_with(engine.STATE, 'a' * 32, 'root', 0)

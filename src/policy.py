@@ -7,9 +7,10 @@ from urllib.parse import quote, unquote
 import probe_rules
 import enumeration
 import access_protection
+import agent_catalog
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.17.2'
+VERSION = '0.18.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -20,7 +21,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 9, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 10, 'mode': 'observe', 'agents': [], 'scanners': False,
            'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
@@ -39,8 +40,11 @@ DEFAULT = {'schema': 9, 'mode': 'observe', 'agents': [], 'scanners': False,
                                            'parameters': list(probe_rules.QUERY_PARAMETERS)}},
            'probe_exceptions': {'files': {}, 'queries': {}},
            'domain_bans': {'allow_users': True, 'sites': {}}}
+DEFAULT.update({field: [] for field in ('ai_agents', 'search_agents', 'seo_agents')})
+DEFAULT.update({field + '_enabled': True for field in ('ai_agents', 'search_agents', 'seo_agents')})
+V9_KEYS = set(DEFAULT) - {field + suffix for field in ('ai_agents', 'search_agents', 'seo_agents') for suffix in ('', '_enabled')}
 LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
-V7_KEYS = set(DEFAULT) - {'log_rejections', 'mail_protection', 'enumeration'}
+V7_KEYS = V9_KEYS - {'log_rejections', 'mail_protection', 'enumeration'}
 PRIVATE_PATTERNS = [
     ('private-file', r'(?:^|/)\.env(?:[./]|$)'),
     ('repository', r'(?:^|/)\.(?:git|svn|hg)(?:/|$)'),
@@ -128,16 +132,25 @@ def validate(raw):
         if isinstance(paths, list) and probe_rules.is_previous_preset(paths):
             data['bans']['missing_files']['paths'] = list(probe_rules.FILES)
         data.update(schema=8, log_rejections=False, mail_protection=False)
-    if data.get('schema') == 8 and set(data) == set(DEFAULT) - {'enumeration'}:
+    if data.get('schema') == 8 and set(data) == V9_KEYS - {'enumeration'}:
         data.update(schema=9, enumeration=copy.deepcopy(enumeration.SETTINGS))
-    if data.get('schema') != 9 or set(data) != set(DEFAULT):
+    if data.get('schema') == 9 and set(data) == V9_KEYS:
+        previous = data.get('agents')
+        if not isinstance(previous, list) or any(not isinstance(value, str) for value in previous):
+            raise ValueError('Invalid saved User-Agent list')
+        for field in ('ai_agents', 'search_agents', 'seo_agents'):
+            data[field] = [value for value in previous if agent_catalog.classify(value) == field]
+            data[field + '_enabled'] = data['agents_enabled']
+        data['agents'] = [value for value in previous if agent_catalog.classify(value) not in ('ai_agents', 'search_agents', 'seo_agents')]
+        data['schema'] = 10
+    if data.get('schema') != 10 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     enumeration.validate(data['enumeration'], target)
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
-    if any(type(data[key]) is not bool for key in ('tool_agents_enabled', 'agents_enabled', 'log_rejections', 'mail_protection')):
+    if any(type(data[key]) is not bool for key in tuple(field + '_enabled' for field in agent_catalog.CATEGORIES) + ('log_rejections', 'mail_protection')):
         raise ValueError('Invalid User-Agent list switch')
-    for field in ('agents', 'tool_agents'):
+    for field in agent_catalog.CATEGORIES:
         data[field] = validate_agents(data[field])
     ban = data['bans']
     if (not isinstance(ban, dict) or set(ban) != set(DEFAULT['bans']) or
@@ -356,7 +369,7 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
     lines += ['    ' + host + ' $' + name + ';' for host, name in block_variables]
     lines += ['}', 'map $server_name $hdn_mode { default off; }',
              'map $http_user_agent $hdn_agent {', '    default 0;']
-    entries = (policy['agents'] if policy['agents_enabled'] else []) + (policy['tool_agents'] if policy['tool_agents_enabled'] else [])
+    entries = agent_catalog.enabled(policy)
     lines += ['    ' + literal_regex(entry) + ' 1;' for entry in dict.fromkeys(entries)]
     lines += ['}', 'map $uri $hdn_private {', '    default 0;']
     if policy['scanners']:

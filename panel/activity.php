@@ -1,5 +1,8 @@
+<?php
+if (!isset($data, $escape)) { http_response_code(403); exit; }
+?>
 <h2 class="u-mb20">Activity</h2>
-<p class="u-mb10">Review log records matching De-Noise rules. This is not all site traffic. Logs are scanned only when requested with Refresh activity; changing the site filter only reads the saved report.</p>
+<p class="u-mb10">Review matched requests from all available retained logs. A review runs only when requested; opening this panel does not rescan logs.</p>
 <form method="post" id="hdn-activity-scan" data-hdn-context="<?= $escape(($actor ?? $headerOwner) . ":" . ($isAdmin ? "all" : $headerOwner)) ?>">
 <?php $fields('activity_start'); ?>
 <label class="form-label">Site

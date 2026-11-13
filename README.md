@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.17.2.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.18.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -164,7 +164,8 @@ silently overwritten.
 
 ## Included
 
-- Separate Scanner tools and Crawlers blocklists, each with its own switch.
+- Five independent User-Agent lists: Scanner tools, AI Training Crawlers, Search
+  Indexers, SEO & Backlink Crawlers, and Other Crawlers / Data Collection.
   One literal, case-insensitive User-Agent substring per line.
 - Optional POST login and XML-RPC rate limits, with editable rate and burst.
 - **User enumeration:** optional protection for public WordPress REST user
@@ -176,7 +177,10 @@ silently overwritten.
   on-demand status and selected/all WordPress unban.
 - Private-file preset: environment files, source control, configuration backups,
   cloud credentials, Kubernetes tokens and operating-system secret paths.
-- Separate editable suggestions for scanner tools and bulk / AI crawlers.
+- Per-category editable suggestions and **Analyze current agents**, with declared
+  product recognition, operator/purpose/source information and per-domain counts.
+  Append selected entries, or all recognized names in one category, to unsaved
+  lists; enable switches stay unchanged until explicitly edited.
 - **Filtered URL crawling:** match a path, parameter names and crawler names;
   limit or block them on selected domains. The rate budget is per crawler and
   domain across all IPs, aliases and matching URL combinations.
@@ -189,6 +193,16 @@ silently overwritten.
   create rules or bans. Ordinary image/icon requests are excluded from findings;
   traffic totals still include them. Concrete next steps and domain-specific
   filter candidates help review each finding. Read coverage is shown explicitly.
+- **Analyze PHP 404s:** exact paths, per-domain hits, declared agents and
+  pseudonymous client-pattern evidence. Repeated directory paths are grouped
+  for display; appending always uses exact paths, never wildcard blocks.
+- **Finding filters:** domain, priority, feature, path text, minimum hits/domains
+  and exact domain/path Reviewed / Ignore / Reopen notes. Notes only organize
+  reviews; they never change filtering or bans. Filters apply to the entire
+  saved report, including every CSV chunk.
+- **Lists and CSV:** 20 / 50 / 100 / 500 / All display sizes, with full exports
+  rather than the visible page alone. Review exports expand grouped paths and
+  neutralize spreadsheet formulas. Pagination preserves unsaved settings.
 - **Missing static files:** select a directory and file extensions; return 404
   before PHP for missing files. Existing files keep their current routing.
 - **Activity:** saved on-demand reviews of rule-matching log records, with an
@@ -305,6 +319,24 @@ groups. There are no automatic robots.txt or website-content changes.
 Version 0.10.0 added the User enumeration tab and a two-row tab layout. Existing
 settings, ban history and thresholds are retained; enumeration protection stays
 off until enabled in the panel. Refresh Hestia with **Ctrl+F5** after updating.
+
+Version 0.18.0 adapts the reusable analysis and panel improvements from
+[Webuzo De-Noise 0.4.3](https://github.com/orloxgr/webuzo-de-noise/tree/fb4c2eb569dfedab61bd1952ef2bb41c6a7a9366).
+Existing crawler entries migrate to the five categories without adding names or
+changing effective blocks. Disabled lists stay disabled. Domain-specific bans,
+owner permissions, thresholds and exceptions remain intact. Refresh the panel
+with **Ctrl+F5** after installing.
+
+Hestia keeps its native user/domain/cron discovery, include paths, firewall CLI,
+webmail integration and existing Fail2ban service/WordPress jail. The Webuzo
+package installer, CSF/LFD-specific handling, shared webmail vhost and Nginx-only
+ban backend are not installed on Hestia.
+
+Review notes are root-private under `/var/lib/hestia-de-noise/review-notes.json`,
+keyed by report kind and exact domain/path. Inventory reports share the existing
+report retention. Agent inventories intentionally retain full unknown agent
+declarations; PHP inventories retain exact paths and salted client correlations,
+not raw IPs. Neither launches per-visitor scripts or periodic scans.
 
 Updates preserve the saved policy and domain exceptions. Version 0.2.0 expands
 the existing private-file preset if it was already enabled. It does not insert
@@ -539,8 +571,8 @@ public request-time script is installed. Reviews never modify protection rules,
 ban counters, firewall rules or website files.
 
 Exact aggregates and complete findings are stored in root-private SQLite files
-under `/var/lib/hestia-de-noise/analysis-jobs/`. Display pages contain 20 findings;
-all pages are available. Activity uses the same background workflow and exposes
+under `/var/lib/hestia-de-noise/analysis-jobs/`. Reviews default to 20 findings
+per page; choose 20 / 50 / 100 / 500 / All. All records remain available. Activity uses the same background workflow and exposes
 every retained event in the chosen window, limited to the viewer's domains.
 Opening the panel fetches job metadata rather than rescanning logs. Completed,
 failed and cancelled reports older than the selected history retention are
@@ -705,12 +737,12 @@ removed instead of restored; native panel unbans remain authoritative. The addon
 does not rebuild unrelated firewall chains or change their ports. Restoration
 uses the existing maintenance job, including its normal run after boot.
 
-Firewall additions/removals are processed in resumable batches, up to 100
-operations and approximately ten seconds of work per synchronization. Pending
-work and native failures are visible in IP bans; large queues can take more than
-one sync. Active and completed IP lists are paginated, 50 rows per page; this is
-a display limit, not a total ban cap. Hestia stores individual IPv4 rules in this
-backend; IPset scaling and native IPv6 enforcement remain planned.
+Firewall additions/removals are reconciled by the existing maintenance job.
+Native failures remain visible and pending for reconciliation; independent
+operations continue. Active and completed IP lists default to 50 rows per page;
+choose 20 / 50 / 100 / 500 / All. This is presentation, not a total ban cap.
+Hestia stores individual IPv4 rules in this backend; IPv6 uses the addon-owned
+web-only companion chain. IPset scaling remains planned.
 
 The installer adds only addon-owned code, domain includes, one HTTP-context
 Nginx include, a panel route/menu asset, a cron entry and log rotation. It does not
