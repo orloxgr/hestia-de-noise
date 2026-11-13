@@ -118,6 +118,10 @@ class Native:
         if len(matching) != 1 or '-p tcp ' not in matching[0] or '--dports 80,443 ' not in matching[0]:
             raise ValueError('DENOISE chain has unexpected ports or protocol; refusing to change it')
         rules = self.run('/sbin/iptables', '-S', 'fail2ban-' + CHAIN, timeout=None)
+        return True, records, self.ipv4_rules(rules)
+
+    @staticmethod
+    def ipv4_rules(rules):
         active = set()
         for line in rules.splitlines():
             match = re.fullmatch(r'-A fail2ban-DENOISE -s ([0-9.]+)/32 -j DROP', line)
@@ -125,7 +129,7 @@ class Native:
                 active.add(str(ipaddress.ip_address(match[1])))
             elif line not in ('-N fail2ban-DENOISE', '-A fail2ban-DENOISE -j RETURN'):
                 raise ValueError('DENOISE chain contains unmanaged rules')
-        return True, records, active
+        return active
 
     def inspect(self):
         exists, records, active = self.inspect_ipv4()
@@ -134,15 +138,41 @@ class Native:
 
     def create(self):
         self.command('v-add-firewall-chain', CHAIN, '80,443', 'TCP')
+        exists, _, _ = self.inspect_ipv4()
+        if not exists:
+            # Hestia only adds its INPUT jump when -N creates a new chain.
+            # A reload can also leave our existing chain detached. Validate it
+            # before restoring precisely the owned web-only jump.
+            self.ipv4_rules(self.run('/sbin/iptables', '-S', 'fail2ban-' + CHAIN, timeout=None))
+            self.run('/sbin/iptables', '-I', 'INPUT', '-p', 'tcp', '-m', 'multiport',
+                     '--dports', '80,443', '-j', 'fail2ban-' + CHAIN, timeout=None)
 
     def add(self, address):
         if ipaddress.ip_address(address).version == 6:
             return self.ipv6.add(address)
+        exists, records, active = self.inspect_ipv4()
+        if address in records:
+            if not exists:
+                raise RuntimeError('The web-only DENOISE chain is missing')
+            if address not in active:
+                # v-add-firewall-ban exits early for a saved native record,
+                # even when reboot/reload removed the actual iptables rule.
+                self.run('/sbin/iptables', '-I', 'fail2ban-' + CHAIN, '1',
+                         '-s', address + '/32', '-j', 'DROP', timeout=None)
+            return
         self.command('v-add-firewall-ban', address, CHAIN)
 
     def remove(self, address):
         if ipaddress.ip_address(address).version == 6:
             return self.ipv6.remove(address)
+        _, records, active = self.inspect_ipv4()
+        if address not in records:
+            if address in active:
+                # Respect a native panel unban whose record was removed before
+                # its iptables operation finished; the native CLI is a no-op.
+                self.run('/sbin/iptables', '-D', 'fail2ban-' + CHAIN,
+                         '-s', address + '/32', '-j', 'DROP', timeout=None)
+            return
         self.run('/usr/bin/env', 'HESTIA_F2B_CALLER=1', str(self.root / 'bin/v-delete-firewall-ban'), address, CHAIN, timeout=None)
 
     def drop_chain(self):
@@ -307,10 +337,10 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     if row['ip'] not in records and row['ip'] not in active:
                         ban_history.release(db, row, now)
                         db.execute("UPDATE bans SET status='released',created=?,error='' WHERE ip=?", (now, row['ip']))
-                    elif ipaddress.ip_address(row['ip']).version == 6 and row['ip'] in records and row['ip'] not in active:
+                    elif row['ip'] in records and row['ip'] not in active:
                         db.execute("UPDATE bans SET status='pending',error='' WHERE ip=?", (row['ip'],))
-                    elif row['ip'] not in records or row['ip'] not in active:
-                        raise ValueError('Native ban record and firewall disagree for ' + row['ip'])
+                    elif row['ip'] not in records:
+                        db.execute("UPDATE bans SET status='removing',error='' WHERE ip=?", (row['ip'],))
                 rules = reason_settings(settings)
                 for reason, rule in rules.items():
                     duration = rule['duration_days']

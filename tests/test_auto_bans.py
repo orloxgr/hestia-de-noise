@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 import auto_bans
@@ -29,6 +29,39 @@ class FakeNative:
     def remove(self, ip):
         self.calls.append(('remove', ip)); self.records.discard(ip); self.active.discard(ip)
     def drop_chain(self): self.calls.append(('drop',)); self.exists = False
+
+
+class NativeRepairTests(unittest.TestCase):
+    def setUp(self):
+        self.run = Mock(return_value='')
+        self.native = auto_bans.Native('/fixture/hestia', self.run)
+
+    def test_saved_record_restores_missing_rule_without_native_cli_early_exit(self):
+        with patch.object(self.native, 'inspect_ipv4', return_value=(True, {'198.51.100.7'}, set())):
+            self.native.add('198.51.100.7')
+        self.run.assert_called_once_with('/sbin/iptables', '-I', 'fail2ban-DENOISE', '1',
+                                         '-s', '198.51.100.7/32', '-j', 'DROP', timeout=None)
+
+    def test_matching_record_and_rule_are_noop_and_native_unban_orphan_is_removed(self):
+        with patch.object(self.native, 'inspect_ipv4', return_value=(True, {'198.51.100.7'}, {'198.51.100.7'})):
+            self.native.add('198.51.100.7')
+        self.run.assert_not_called()
+        with patch.object(self.native, 'inspect_ipv4', return_value=(True, set(), {'198.51.100.7'})):
+            self.native.remove('198.51.100.7')
+        self.run.assert_called_once_with('/sbin/iptables', '-D', 'fail2ban-DENOISE',
+                                         '-s', '198.51.100.7/32', '-j', 'DROP', timeout=None)
+
+    def test_detached_chain_requires_valid_owned_rules_before_reattachment(self):
+        self.run.return_value = '-N fail2ban-DENOISE\n-A fail2ban-DENOISE -j RETURN\n'
+        with patch.object(self.native, 'inspect_ipv4', return_value=(False, set(), set())):
+            self.native.create()
+        self.run.assert_any_call('/sbin/iptables', '-I', 'INPUT', '-p', 'tcp', '-m', 'multiport',
+                                 '--dports', '80,443', '-j', 'fail2ban-DENOISE', timeout=None)
+        self.run.reset_mock(); self.run.return_value = '-A fail2ban-DENOISE -j ACCEPT\n'
+        with patch.object(self.native, 'inspect_ipv4', return_value=(False, set(), set())), \
+                self.assertRaisesRegex(ValueError, 'unmanaged rules'):
+            self.native.create()
+        self.assertFalse(any(call.args[:3] == ('/sbin/iptables', '-I', 'INPUT') for call in self.run.call_args_list))
 
 
 @unittest.skipUnless(os.name == 'posix' and os.geteuid() == 0, 'Root-private Linux database and logs')
@@ -120,6 +153,40 @@ class BanLifecycleTests(unittest.TestCase):
         self.native.records.clear(); self.native.active.clear()
         self.assertEqual(self.sync(now=1002)['active'], 0)
         self.assertEqual(self.native.calls.count(('add', '198.51.100.7')), 1)
+
+    def test_reboot_loss_restores_only_current_bans_and_preserves_expiry(self):
+        self.policy['bans']['duration_days'] = 3
+        self.event(); before = self.sync()['rows'][0]
+        self.native.exists = False; self.native.active.clear()
+        result = self.sync(now=1002)
+        self.assertEqual(result['error'], '')
+        self.assertEqual(result['active'], 1)
+        self.assertIn('198.51.100.7', self.native.active)
+        self.assertEqual(result['rows'][0]['created'], before['created'])
+        self.assertEqual(result['rows'][0]['expires'], before['expires'])
+        self.assertEqual(self.native.calls.count(('create',)), 2)
+        self.native.exists = False; self.native.active.clear(); self.native.calls.clear()
+        result = self.sync(now=before['expires'] + 1)
+        self.assertEqual(result['active'], 0)
+        self.assertFalse(any(call[0] in ('add', 'create') for call in self.native.calls))
+
+    def test_partial_native_unban_is_finished_instead_of_rebanned(self):
+        self.event(); self.sync(); self.native.records.clear(); self.native.calls.clear()
+        result = self.sync(now=1002)
+        self.assertEqual(result['error'], '')
+        self.assertEqual(result['active'], 0)
+        self.assertEqual(self.native.calls, [('remove', '198.51.100.7')])
+
+    def test_failed_restoration_leaves_only_that_ban_pending(self):
+        self.event('198.51.100.7'); self.event('198.51.100.8'); self.sync()
+        self.native.active.clear(); original = self.native.add
+        def restore(address):
+            if address == '198.51.100.7': raise RuntimeError('Restore operation failed')
+            original(address)
+        with patch.object(self.native, 'add', side_effect=restore): result = self.sync(now=1002)
+        self.assertEqual(result['active'], 1); self.assertEqual(result['pending'], 1)
+        self.assertIn('198.51.100.8', self.native.active)
+        self.assertIn('Restore operation failed', result['error'])
 
     def test_scope_ignore_self_stale_and_ipv6_behavior_are_explicit(self):
         self.policy['bans']['ignore_ips'] = ['198.51.100.0/25']

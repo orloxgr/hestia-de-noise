@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.17.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.17.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -691,6 +691,13 @@ static assets are excluded by default. Denied User-Agents and crawler rate limit
 are excluded from automatic bans, along with native Hestia IP exclusions; no administrator public IP is inserted
 automatically. Bans use Nginx's configured client address, not arbitrary
 forwarded headers. Never-ban entries do not bypass request filtering.
+
+Automatic synchronization restores saved, still-applicable bans if a reboot or
+firewall reload removes the De-Noise chain, its web-only jump or individual rules.
+Original ban times and expiry are retained. Expired/disabled/exempt bans are
+removed instead of restored; native panel unbans remain authoritative. The addon
+does not rebuild unrelated firewall chains or change their ports. Restoration
+uses the existing maintenance job, including its normal run after boot.
 
 Firewall additions/removals are processed in resumable batches, up to 100
 operations and approximately ten seconds of work per synchronization. Pending

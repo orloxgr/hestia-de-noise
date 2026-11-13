@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.1 · 2026-11-13
+
+- Restore saved IPv4 bans after reboot/firewall reload removes the live De-Noise chain or rules. Queue reconciliation instead of aborting all maintenance on the first saved-record/firewall disagreement.
+- Handle Hestia's early exit for an already recorded IP by restoring only the missing DROP rule. Reattach detached, validated web-only chains without rebuilding other firewall rules.
+- Preserve original ban times and expiry, finish partial native panel unbans, and avoid restoring expired/disabled/exempt bans. Keep per-IP restoration failures pending while continuing independent work; retain ownership and unmanaged-rule checks.
+- Verify reboot loss, detached jumps, individual missing rules, expiry, partial unban and unrelated SSH preservation through regression tests and real iptables in an isolated network namespace.
+
 ## 0.17.0 · 2026-11-13
 
 - Add a local image math CAPTCHA as an alternative to HTTP username/password in WP access, with the existing central → account → domain inheritance. Keep saved HTTP/Off profiles unchanged during upgrade.
