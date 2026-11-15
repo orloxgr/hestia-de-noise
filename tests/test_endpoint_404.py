@@ -37,15 +37,45 @@ class Selections(unittest.TestCase):
         rows=[dict(site='alice/one.test',domain='one.test',path=p,candidate=p,count=1,statuses={'404':1}) for p in ('/backup.zip','/backup.rar','/missing.js')]
         groups=endpoint_inventory.proposals(rows)
         backup=next(g for g in groups if g['category']=='Backup archive filename')
-        import re
         self.assertEqual(backup['site'],'alice/one.test')
-        self.assertTrue(re.fullmatch(backup['pattern'],'/backup.zip'))
-        self.assertFalse(re.fullmatch(backup['pattern'],'/unseen.zip'))
-        self.assertFalse(re.fullmatch(backup['pattern'],'/backup.sql'))
+        self.assertEqual(backup['missing_paths'],['/backup.rar','/backup.zip'])
+        self.assertEqual(backup['block_paths'],[])
+        self.assertIsNone(backup['pattern'])
         self.assertEqual(next(g for g in groups if g['category']=='JavaScript')['action'],'repair')
         probe=endpoint_inventory.decorate({**rows[-1],'domains_404':5})
-        self.assertEqual(probe['recommendation']['action'],'review_block')
+        self.assertEqual(probe['recommendation']['action'],'review')
+        self.assertFalse(probe['eligible_404'])
         self.assertIn('5 domains',probe['advice'])
+
+    def test_common_application_paths_never_become_suggested_bans(self):
+        paths=['/wp-blog-header.php','/wp-trackback.php','/user.php','/upload/upload.php',
+               '/wp-content/themes/twentysixteen/content-index.php','/media/system/js/core.js','/missing.css']
+        rows=[dict(site='alice/one.test',domain='one.test',path=p,candidate=p,count=4,statuses={'404':4},domains_404=33) for p in paths]
+        for row in rows:
+            decorated=endpoint_inventory.decorate(row)
+            self.assertFalse(decorated['eligible_404'],row['path'])
+            self.assertFalse(decorated['eligible_block'],row['path'])
+        for group in endpoint_inventory.proposals(rows):
+            self.assertEqual(group['block_paths'],[])
+            self.assertEqual(group['missing_paths'],[])
+            self.assertIsNone(group['pattern'])
+
+    def test_sensitive_proposals_require_only_404_and_remain_individual_exact_paths(self):
+        paths=['/wp-config.old','/wp-config.php.bak','/.env','/.git/config','/backup.zip']
+        base=dict(site='alice/one.test',domain='one.test',count=1)
+        for path in paths:
+            row=dict(base,path=path,candidate=path,statuses={'404':1})
+            self.assertTrue(endpoint_inventory.decorate(row)['eligible_404'])
+            for statuses in ({'404':1,'200':1},{'404':1,'302':1},{'404':1,'500':1},{'403':1}):
+                result=endpoint_inventory.decorate(dict(row,statuses=statuses))
+                self.assertFalse(result['eligible_404'])
+                self.assertFalse(result['eligible_block'])
+        rows=[dict(base,path=f'/private/{i}/wp-config.old',candidate=f'/private/{i}/wp-config.old',statuses={'404':1}) for i in range(300)]
+        group=endpoint_inventory.proposals(rows)[0]
+        self.assertEqual(len(group['block_paths']),300)
+        self.assertIsNone(group['pattern'])
+        self.assertEqual(group['type'],'exact')
+
 
 
 @unittest.skipUnless(os.name=='posix' and os.geteuid()==0,'Root-private Linux state')

@@ -67,25 +67,33 @@
             document.getElementById('hdn-endpoint404-message').textContent=`${paths.size-before} new exact paths appended. Enabled switch and duration kept. Review domains, then Save & Apply.`;
             return;
         }
-        const suggestion = event.target.closest('[data-hdn-append-endpoint]');
+        const suggestion = event.target.closest('[data-hdn-append-endpoint], [data-hdn-endpoint-group]');
         if (suggestion) {
             const list = document.getElementById('hdn-custom_endpoints-rows');
             const field = (row,key) => row.querySelector('[name$="[' + key + ']"]');
-            const target = suggestion.dataset.hdnEndpointSite, pattern = suggestion.dataset.hdnAppendEndpoint;
-            const duplicate = [...list.querySelectorAll('.hdn-rule')].some(row => field(row,'type').value === (suggestion.dataset.hdnEndpointType || 'exact') &&
-                field(row,'pattern').value === pattern && [...row.querySelector('[name$="[targets][]"]').selectedOptions].some(o => o.value === target));
-            const status = document.getElementById('hdn-endpoint-append-status');
-            if (duplicate) { status.textContent = 'This exact domain/path rule already exists. Your settings were kept.'; return; }
-            document.querySelector('[data-hdn-add="custom_endpoints"]').click();
-            const row = list.querySelector('.hdn-rule:last-child');
-            field(row,'name').value = suggestion.dataset.hdnEndpointName || pattern;
-            field(row,'type').value = suggestion.dataset.hdnEndpointType || 'exact';
-            field(row,'pattern').value = pattern;
-            const domains = row.querySelector('[name$="[targets][]"]');
-            let option = [...domains.options].find(o => o.value === target);
-            if (!option) { option = new Option(target, target); domains.appendChild(option); }
-            option.selected = true;
-            status.textContent = 'Added disabled endpoint rule for this domain, with Also ban IP off. Review, enable if appropriate, then Save & Apply.';
+            const target = suggestion.dataset.hdnEndpointSite;
+            const grouped = suggestion.hasAttribute('data-hdn-endpoint-group');
+            const patterns = grouped ? JSON.parse(suggestion.dataset.hdnEndpointGroup) : [suggestion.dataset.hdnAppendEndpoint];
+            const type = grouped ? 'exact' : (suggestion.dataset.hdnEndpointType || 'exact');
+            let added = 0;
+            for (const pattern of patterns) {
+                const duplicate = [...list.querySelectorAll('.hdn-rule')].some(row => field(row,'type').value === type &&
+                    field(row,'pattern').value === pattern && [...row.querySelector('[name$="[targets][]"]').selectedOptions].some(o => o.value === target));
+                if (duplicate) continue;
+                document.querySelector('[data-hdn-add="custom_endpoints"]').click();
+                const row = list.querySelector('.hdn-rule:last-child');
+                field(row,'name').value = suggestion.dataset.hdnEndpointName || pattern;
+                field(row,'type').value = type;
+                field(row,'pattern').value = pattern;
+                const domains = row.querySelector('[name$="[targets][]"]');
+                let option = [...domains.options].find(o => o.value === target);
+                if (!option) { option = new Option(target, target); domains.appendChild(option); }
+                option.selected = true;
+                added++;
+            }
+            document.getElementById('hdn-endpoint-append-status').textContent = added ?
+                `Added ${added} disabled endpoint rule(s) for this domain, with Also ban IP off. Review, enable if appropriate, then Save & Apply.` :
+                'These domain/path rules already exist. Your settings were kept.';
             return;
         }
         const addAgents = event.target.closest('[data-hdn-filter-agents]');

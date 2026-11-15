@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.1 · 2026-11-15
+
+- Remove suggested block/ban actions for ordinary PHP/core/plugin/theme paths, JS, CSS and application routes. Keep their evidence and investigation/repair advice. Offer 404-list candidates only for sensitive/backup paths with exclusively 404 responses; restrict disabled 403 suggestions to configuration backups and secret/repository paths. Reassess saved reports and CSV with the same criteria.
+- Prepare individual domain-scoped exact 403 rules instead of a large generated alternation regex, preserving disabled state, IP banning off and deduplication.
+- Lay out suggestions as responsive cards with full-width exact-path previews, separate wrapping actions and explicit mouse-over descriptions for 403, 404-list and selection controls. Explain the effect of appending to an already enabled 404 list.
+
 ## 0.20.0 · 2026-11-15
 
 - Review all retained non-image URL paths, including JS, CSS, PHP and application routes. Remove the previous backup/secret-only discovery filter. Keep every response status and identify the same missing path across domains, without assuming every asset 404 is a broken site reference.

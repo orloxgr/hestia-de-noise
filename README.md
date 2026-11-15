@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.20.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.20.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -75,11 +75,14 @@ filters operate on the completed report; CSV exports the complete filtered view.
 investigate successful backup responses, repair missing/referenced assets, or
 review a domain-scoped filename rule. The same path returning 404 across domains
 is shown as context for application fingerprint probes; it is not automatically
-treated as a broken site asset. Suggested regexes match only the exact observed
-filenames and remain scoped to that source domain. They do not extrapolate to
-unseen extensions or all domains. CSV includes the suggested action, pattern,
-scope and exact 404-list candidate. Older saved reports gain suggestions from
-their existing data; run a new review to collect all file types.
+treated as a broken site asset. Ordinary PHP/core/plugin/theme paths, JavaScript,
+CSS and application routes have investigation/repair advice, with no suggested
+block/ban actions. Only sensitive/backup paths with exclusively 404 responses are
+offered for the exact 404 list. Missing configuration backups and secret/repository
+paths also offer disabled domain-scoped 403 rules; ordinary archives do not.
+Each path becomes a separate exact rule, avoiding oversized generated PCRE tokens.
+CSV follows the same eligibility rules and exports a per-path exact candidate.
+Older saved reports are reassessed when opened; run a new review for fresh evidence.
 
 The analysis is read-only and resumable, with progress, cancellation, complete
 pagination/CSV and explicit log coverage. Layered logs may count the same request
@@ -99,7 +102,7 @@ Existing files/routes returning 200, redirects or other statuses keep their
 normal routing; this list never manufactures a 404 or blocks with 403. Earlier
 403 rules still take precedence and do not count as 404s. Observe/Off do not ban.
 
-Use the checkboxes and **Append selected paths to the 404 list** to append results
+Use the checkboxes and **Append selected paths to the 404 list** to append suggested sensitive/backup paths
 in bulk, or append a proposal's complete exact-path set. Entries are deduplicated;
 the existing enable switch, duration and domain selection are preserved. An empty
 new list with no domain selection starts scoped to the selected source domains.

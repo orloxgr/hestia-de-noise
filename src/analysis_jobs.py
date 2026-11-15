@@ -371,12 +371,10 @@ def export_review(state, job, actor, kind='scan', owner=None, domain='all', offs
         raise ValueError('The saved report is incomplete')
     if kind == 'endpoints':
         columns = ['Site','Path','Finding','Hits','HTTP statuses','Methods','Declared agents','Distinct clients','Suggested action','Suggested rule type','Suggested rule','Rule scope','404 instaban candidate','Advice']
-        proposals = {(g['site'],g['category'],g['action']):g for g in analysis.get('suggestions',[])}
         rows = []
         for r in values:
-            action = r['recommendation']['action']; g = proposals.get((r['site'],r['category'],action),{})
-            block = action in ('block','review_block')
-            rows.append([r['domain'],r['path'],r['category'],r['count'],json.dumps(r['statuses']),json.dumps(r['methods']),json.dumps(r['agents']),r['clients'],r['recommendation']['title'],g.get('type','') if block else '',g.get('pattern','') if block else '',r['domain'],r['candidate'] if r.get('missing') else '',r['advice']])
+            block = r.get('eligible_block', False)
+            rows.append([r['domain'],r['path'],r['category'],r['count'],json.dumps(r['statuses']),json.dumps(r['methods']),json.dumps(r['agents']),r['clients'],r['recommendation']['title'],'exact' if block else '',r['candidate'] if block else '',r['domain'],r['candidate'] if r.get('eligible_404') else '',r['advice']])
     elif kind == 'activity':
         columns = ['Time','Site','Rule','Declared agent','Result','HTTP status']
         rows = [[r.get(k,'') for k in ('time','domain','rule','agent','outcome','status')] for r in values]

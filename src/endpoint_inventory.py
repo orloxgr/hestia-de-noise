@@ -43,21 +43,25 @@ def decorate(row):
     errors = sum(n for code,n in statuses.items() if code.startswith('5'))
     security = category in ('WordPress configuration backup','Secret / repository path','Database dump filename','Backup archive filename')
     asset = category in ('JavaScript','Stylesheet','Other static file')
+    # Missing application files are evidence for investigation, not ban suggestions.
+    # In particular, real WP core/plugin/theme paths can themselves return 404.
+    eligible_404 = bool(security and missing and set(statuses) == {'404'} and row.get('candidate') is not None)
+    eligible_block = eligible_404 and category in ('WordPress configuration backup','Secret / repository path')
     action, title, detail, priority = 'keep', 'Keep normal routing', 'Successful application/file requests do not justify a block.', 'low'
     if errors:
         action,title,detail,priority = 'repair','Investigate the failing response',f'{errors} server-error responses for this exact path. Check the application/upstream error log at the recorded times.', 'high'
     elif security and successful:
         action,title,detail,priority = 'review','Check the successful response before blocking',f'{successful} successful/redirected responses for {path}. Check the returned content: intentional download, redirect, soft 404 or exposed backup. Remove any exposed backup and block its public URL.', 'high'
     elif security and missing:
-        action,title,detail,priority = 'block','Proposed domain-scoped filename rule',f'{missing} actual 404 responses for a {category.lower()}. Suggested rule matches only the observed filename(s) on this domain. Add them to the selected-404 list for first-404 bans, or use a 403 rule after review.', 'normal'
+        action,title,detail,priority = 'block','Review missing sensitive / backup filenames',f'{missing} actual 404 responses for a {category.lower()}. Check that this domain does not intentionally publish this URL. Only paths with exclusively 404 responses are offered for the 404 list; a missing file alone does not prove abuse.', 'normal'
     elif asset and missing and row.get('domains_404', 1) > 1:
-        action,title,detail,priority = 'review_block','Review cross-domain missing-file probes',f'This exact path returned 404 on {row["domains_404"]} domains. Check whether it belongs to this site or is an unrelated application fingerprint. If unwanted, append the exact path to the selected-404 list; keep working files/routes accessible.', 'normal'
+        action,title,detail,priority = 'review','Review cross-domain missing-file requests',f'This exact path returned 404 on {row["domains_404"]} domains. Check site references and the source requests to distinguish a missing dependency from an unrelated application fingerprint. No block or ban rule is suggested for an ordinary asset.', 'normal'
     elif asset and missing:
-        action,title,detail,priority = 'repair','Identify the missing asset request',f'{missing} 404 responses for this {category.lower()}. Check whether the site references this URL or a scanner requested an unrelated file. For a referenced asset, restore it or fix the theme/plugin/generated HTML and refresh the affected cached HTML; otherwise consider an exact selected-404 rule.', 'normal'
+        action,title,detail,priority = 'repair','Identify the missing asset request',f'{missing} 404 responses for this {category.lower()}. Check site references. Restore the referenced file or fix the theme/plugin/generated HTML and refresh the affected cached HTML. No block or ban rule is suggested.', 'normal'
     elif category == 'PHP path' and missing:
-        action,title,detail,priority = 'review_block','Review missing PHP path',f'{missing} 404 responses for {path}. Check whether it is a real application/virtual route. If it is an unwanted scan target, append this exact path to the selected-404 list.', 'normal'
+        action,title,detail,priority = 'review','Review missing PHP path',f'{missing} 404 responses for {path}. This may be a core, plugin, theme or application route. Inspect the site and source requests; no block or ban rule is suggested from its filename or 404 status.', 'normal'
     elif missing:
-        action,title,detail,priority = 'repair','Check the missing route / file',f'{missing} 404 responses for {path}. Check internal links and application routing. Add an exact 404-ban selection only if this is an unwanted probe target.', 'normal'
+        action,title,detail,priority = 'repair','Check the missing route / file',f'{missing} 404 responses for {path}. Check internal links and application routing. No block or ban rule is suggested.', 'normal'
     elif asset and successful:
         detail = f'{successful} successful/redirected {category.lower()} requests. This is normal asset delivery; the hit count does not establish bot activity or PHP work.'
     elif statuses and all(code in ('401','403','429') for code in statuses):
@@ -66,6 +70,7 @@ def decorate(row):
     if errors: tags.append('errors')
     if missing: tags.append('unexpected')
     row.update(category=category, successful=successful, missing=missing, advice=detail,
+               eligible_404=eligible_404, eligible_block=eligible_block,
                recommendation=dict(action=action,title=title,detail=detail),
                review_info=dict(priority=priority,priority_label={'high':'High review priority','normal':'Review context','low':'Lower review priority'}[priority],tags=tags,reason=detail))
     return row
@@ -79,19 +84,22 @@ def proposals(rows):
         if action == 'keep': continue
         key = row['site'], row['category'], action
         group = groups.setdefault(key,dict(site=row['site'],domain=row['domain'],category=row['category'],
-            action=action,title=row['recommendation']['title'],paths=[],missing_paths=[],count=0,statuses=Counter()))
+            action=action,title=row['recommendation']['title'],paths=[],missing_paths=[],block_paths=[],count=0,statuses=Counter()))
         group['count'] += row['count']; group['statuses'].update(row['statuses'])
         if row.get('candidate') is not None:
             group['paths'].append(row['candidate'])
-            if row['missing']: group['missing_paths'].append(row['candidate'])
+            if row['eligible_404']: group['missing_paths'].append(row['candidate'])
+            if row['eligible_block']: group['block_paths'].append(row['candidate'])
     for group in groups.values():
         paths = sorted(set(group['paths'])); group['paths'] = paths
         group['missing_paths'] = sorted(set(group['missing_paths']))
+        group['block_paths'] = sorted(set(group['block_paths']))
         group['statuses'] = dict(group['statuses'])
-        group['pattern'] = ('^(?:' + '|'.join(re.escape(unquote(p)) for p in paths) + ')$') if len(paths)>1 else (paths[0] if paths else None)
-        group['type'] = 'regex' if len(paths)>1 else 'exact'
-        group['detail'] = ('A domain-scoped rule for exactly these observed filenames; it does not include unobserved extensions or other domains.' if action in ('block','review_block') else
-                           'Fix these recorded URLs at their source; keep normal asset/application routing. Inspect successful responses before choosing a block.' if action == 'review' else
+        # Each observed path becomes its own exact rule, never an oversized PCRE token.
+        group['pattern'] = group['block_paths'][0] if len(group['block_paths']) == 1 else None
+        group['type'] = 'exact'
+        group['detail'] = ('Only missing sensitive/backup paths are offered below. Check intentional downloads before adding them. PHP/application paths and ordinary assets are investigation findings, not ban recommendations.' if group['action'] == 'block' else
+                           'Inspect these recorded URLs and their responses; keep normal asset/application routing. No block or ban is suggested.' if group['action'] == 'review' else
                            'Restore the missing files or correct the links/generated HTML for the listed paths. Investigate server errors in the application logs.')
     return sorted(groups.values(),key=lambda g:(g['action'] not in ('review','block','review_block'),-g['count'],g['domain'],g['category']))
 

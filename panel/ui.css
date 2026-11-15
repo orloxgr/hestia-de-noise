@@ -94,3 +94,22 @@
 .hdn-review-note small { flex-basis: 100%; }
 
 #hdn-save > i, #hdn-general-save > i { margin-inline-end: 6px; }
+
+/* Endpoint evidence and actions: one full-width path field, then wrapping controls. */
+#hdn-endpoints-output .hdn-endpoint-card { border: 1px solid #8792a680; border-radius: 8px; margin: 12px 0; overflow: hidden; }
+#hdn-endpoints-output .hdn-endpoint-card > summary { cursor: pointer; padding: 14px 16px; background: #8792a610; overflow-wrap: anywhere; }
+#hdn-endpoints-output .hdn-endpoint-card > summary span { margin-inline: 10px; }
+#hdn-endpoints-output .hdn-endpoint-card > summary small { white-space: nowrap; opacity: .8; }
+#hdn-endpoints-output .hdn-endpoint-card-body { padding: 4px 16px 16px; min-width: 0; }
+#hdn-endpoints-output .hdn-endpoint-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 12px 0; font-size: .9em; }
+#hdn-endpoints-output .hdn-endpoint-paths-label { display: block; margin: 14px 0 12px; }
+#hdn-endpoints-output .hdn-endpoint-paths { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; margin-top: 6px; font-family: monospace; }
+#hdn-endpoints-output .hdn-endpoint-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+#hdn-endpoints-output .hdn-endpoint-actions .button { margin: 0; white-space: normal; height: auto; max-width: 100%; }
+#hdn-endpoints-output .hdn-endpoint-help { font-size: .9em; opacity: .85; margin: 10px 0 14px; }
+#hdn-endpoints-output .hdn-endpoint-observed summary { cursor: pointer; }
+#hdn-endpoints-output .hdn-endpoint-observed code { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+    #hdn-endpoints-output .hdn-endpoint-card > summary span { display: block; margin: 6px 0; }
+    #hdn-endpoints-output .hdn-endpoint-actions .button { width: 100%; }
+}

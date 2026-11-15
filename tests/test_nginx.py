@@ -161,6 +161,19 @@ class NativeNginxTests(unittest.TestCase):
         self.assertFalse(any(e['reason']=='endpoint-overlap' for e in events))
         self.assertIn('endpoint-backups',(self.directory/'matches.log').read_text())
 
+    def test_large_suggestion_groups_compile_as_individual_exact_rules(self):
+        import endpoint_inventory
+        rows=[dict(site='alice/enforce.test',domain='enforce.test',path=f'/private/{i}/wp-config.old',
+                   candidate=f'/private/{i}/wp-config.old',count=1,statuses={'404':1}) for i in range(300)]
+        paths=endpoint_inventory.proposals(rows)[0]['block_paths']
+        policy=copy.deepcopy(DEFAULT)
+        policy['custom_endpoints']=[dict(id=f'proposed_{i}',name=path,enabled=False,type='exact',
+            pattern=path,targets=['alice/enforce.test'],also_ban=False,duration_seconds=86400) for i,path in enumerate(paths)]
+        text='pid logs/exact-groups.pid; error_log logs/exact-groups.log; events {} http {\n'+global_config(policy,[])+ '}\n'
+        candidate=self.directory/'exact-groups.conf';candidate.write_text(text)
+        result=subprocess.run([NGINX,'-p',self.directory.as_posix()+'/', '-c',str(candidate),'-t'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+
     def test_invalid_endpoint_pcre_is_rejected_by_native_nginx(self):
         policy=copy.deepcopy(DEFAULT)
         policy['custom_endpoints']=[dict(id='invalid',name='Invalid PCRE',enabled=True,type='regex',

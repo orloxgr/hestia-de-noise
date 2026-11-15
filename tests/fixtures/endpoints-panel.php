@@ -11,14 +11,17 @@ $policy['endpoint_404']=['enabled'=>false,'paths'=>['/kept.php'],'targets'=>['al
 $data = ['sites'=>[['key'=>'alice/one.test','domain'=>'one.test','owner'=>'alice']],
     'analysis'=>['inventory_kind'=>'endpoints','minutes'=>1440,'totals'=>['requests'=>2],'findings_total'=>1,
         'bytes_read'=>1024,'partial'=>false,'note'=>'Fixture only','page'=>1,'pages'=>1,'per_page'=>20,
-        'findings'=>[['domain'=>'one.test','site'=>'alice/one.test','path'=>'/backup.zip','candidate'=>'/backup.zip',
-            'count'=>2,'successful'=>0,'missing'=>2,'category'=>'Backup / database filename','advice'=>'Review first',
+        'findings'=>[['domain'=>'one.test','site'=>'alice/one.test','path'=>'/wp-config.old','candidate'=>'/wp-config.old',
+            'count'=>2,'successful'=>0,'missing'=>2,'eligible_404'=>true,'eligible_block'=>true,'category'=>'Backup / database filename','advice'=>'Review first',
             'statuses'=>['404'=>2],'methods'=>['GET'=>2],'clients'=>1,'first'=>1000,'last'=>1001,
             'agents'=>['Scanner <script>bad()</script>'=>2]]]]];
 $data['analysis']['suggestions']=[['site'=>'alice/one.test','domain'=>'one.test','category'=>'Backup archives','action'=>'block',
-    'title'=>'Proposed filename rule','detail'=>'Exactly the observed filenames','paths'=>['/backup.zip','/backup.rar'],
-    'missing_paths'=>['/backup.zip','/backup.rar'],'count'=>3,'statuses'=>['404'=>3],
-    'pattern'=>'^(?:/backup\.rar|/backup\.zip)$','type'=>'regex']];
+    'title'=>'Proposed filename rule','detail'=>'Exactly the observed filenames','paths'=>['/wp-config.old','/wp-config.bak'],
+    'missing_paths'=>['/wp-config.old','/wp-config.bak'],'block_paths'=>['/wp-config.old','/wp-config.bak'],'count'=>3,'statuses'=>['404'=>3],
+    'pattern'=>null,'type'=>'exact']];
+$data['analysis']['findings'][]=array_replace($data['analysis']['findings'][0],
+    ['path'=>'/wp-blog-header.php','candidate'=>'/wp-blog-header.php','category'=>'PHP path',
+     'eligible_404'=>false,'eligible_block'=>false,'advice'=>'Inspect application routing. No block or ban suggested.']);
 ?>
 <!doctype html><html><head><meta charset="utf-8"><style><?php readfile($install.'/panel/ui.css'); ?></style></head><body>
 <div id="hdn-container"><form id="hdn-settings" method="post"><?php $fields('save'); ?></form>

@@ -150,9 +150,9 @@ class EndpointAnalysis(unittest.TestCase):
             self.assertEqual(total,6);self.assertNotIn('/photo.jpg',by_path)
             self.assertEqual(by_path['/working.js']['recommendation']['action'],'keep')
             self.assertEqual(by_path['/style.css']['recommendation']['action'],'keep')
-            self.assertEqual(by_path['/missing.php']['recommendation']['action'],'review_block')
+            self.assertEqual(by_path['/missing.php']['recommendation']['action'],'review')
             self.assertEqual(by_path['/media/core.js']['domains_404'],2)
-            self.assertEqual(by_path['/media/core.js']['recommendation']['action'],'review_block')
+            self.assertEqual(by_path['/media/core.js']['recommendation']['action'],'review')
         finally: inventory.close()
 
     def test_all_statuses_rotations_privacy_paging_export_and_owner_checks(self):
@@ -186,6 +186,9 @@ class EndpointAnalysis(unittest.TestCase):
             self.assertIn('suggestions',filtered)
             export=analysis_jobs.export_review(root,job,'admin',kind='endpoints')
             self.assertEqual(len(export['rows']),27)
+            successful_backup=next(row for row in export['rows'] if row[1]=='/backup.sql')
+            self.assertEqual(successful_backup[9:11],['',''])
+            self.assertEqual(successful_backup[12],'')
             self.assertNotIn('private-value',json.dumps([page,export]))
             self.assertNotIn('198.51.100.1',json.dumps([page,export]))
             with self.assertRaises(PermissionError): analysis_jobs.status(root,job,'other',kind='endpoints')

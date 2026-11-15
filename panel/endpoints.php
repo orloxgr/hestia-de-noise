@@ -26,7 +26,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <label class="form-label">Unit <select form="hdn-settings" class="form-select" name="<?= $field('duration_unit') ?>">
 <?php foreach (['minutes','hours','days','seconds'] as $choice): ?><option value="<?= $choice ?>" <?= $unit === $choice ? 'selected' : '' ?>><?= ucfirst($choice) ?></option><?php endforeach; ?>
 </select></label></div>
-<button type="button" class="button button-secondary u-mt10" data-hdn-remove>Remove rule</button>
+<button type="button" class="button button-secondary u-mt10" data-hdn-remove title="Removes this rule from the form. Save &amp; Apply to remove the saved protection.">Remove rule</button>
 </div>
 <?php }; ?>
 <?php require __DIR__ . '/endpoint-404.php'; ?>
@@ -38,7 +38,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <div id="hdn-custom_endpoints-rows" data-hdn-list="Custom endpoints" data-hdn-rule-list data-hdn-columns='["ID","Path","Settings"]'>
 <?php foreach ($policy['custom_endpoints'] ?? [] as $i => $row) $renderEndpoint($i, $row); ?>
 </div>
-<button type="button" class="button button-secondary" data-hdn-add="custom_endpoints">Add endpoint rule</button>
+<button type="button" class="button button-secondary" data-hdn-add="custom_endpoints" title="Adds an empty, disabled rule for manual configuration. It takes effect only after you enable it and Save &amp; Apply.">Add endpoint rule</button>
 <template id="hdn-custom_endpoints-template"><?php $renderEndpoint('__INDEX__', ['id'=>'custom_endpoints_1','name'=>'','enabled'=>false,'type'=>'exact','pattern'=>'','targets'=>[],'also_ban'=>false,'duration_seconds'=>86400]); ?></template>
 </section>
 <section class="u-mb20">
@@ -48,8 +48,8 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <div class="hdn-wp-grid"><label class="form-label">Domain <select class="form-select" name="analysis_target"><option value="all">All web domains</option>
 <?php foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; ?><option value="<?= $escape($site['key']) ?>"><?= $escape($site['domain'] . ' Β· ' . $site['owner']) ?></option><?php endforeach; ?>
 </select></label><label class="form-label">Time window (minutes)<input class="form-control" type="number" min="1" name="analysis_minutes" value="1440" required></label></div>
-<button type="submit" class="button button-secondary u-mt10">Analyze endpoint logs</button>
-<button type="button" id="hdn-endpoints-cancel" class="button button-secondary" hidden>Cancel analysis</button>
+<button type="submit" class="button button-secondary u-mt10" title="Reads retained access logs and prepares findings and suggestions. This does not enable protection, add rules or ban IPs.">Analyze endpoint logs</button>
+<button type="button" id="hdn-endpoints-cancel" class="button button-secondary" title="Stops this log review. Protection settings and saved rules stay unchanged." hidden>Cancel analysis</button>
 <p id="hdn-endpoints-progress" class="u-mt10" role="status"></p>
 </form>
 <p class="u-mt10">Read-only review of all retained URL paths except images: JavaScript, stylesheets, PHP, backups and application routes, with every response status. Suggestions distinguish potential filename probes, missing assets and normal requests. Analysis never activates a rule or ban.</p>
