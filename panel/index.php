@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 11, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 12, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'log_rejections' => isset($_POST['log_rejections']), 'mail_protection' => isset($_POST['mail_protection']),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
@@ -188,6 +188,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'enabled' => isset($row['enabled']), 'type' => $row['type'] ?? '', 'pattern' => $row['pattern'] ?? '',
                     'targets' => $row['targets'] ?? [], 'also_ban' => isset($row['also_ban']), 'duration_seconds' => $duration * $factor];
             }
+            $duration404 = filter_var($_POST['endpoint404_duration'] ?? '', FILTER_VALIDATE_INT);
+            $factor404 = ['minutes'=>60,'hours'=>3600,'days'=>86400,'seconds'=>1][$_POST['endpoint404_unit'] ?? ''] ?? null;
+            if ($duration404 === false || $duration404 < 0 || $factor404 === null || $duration404 > intdiv(PHP_INT_MAX,$factor404)) throw new RuntimeException('Invalid selected 404 ban duration');
+            $submitted['endpoint_404'] = ['enabled'=>isset($_POST['endpoint404_enabled']),
+                'paths'=>$list($_POST['endpoint404_paths'] ?? '',true), 'targets'=>$_POST['endpoint404_targets'] ?? [], 'duration_seconds'=>$duration404*$factor404];
             $request['policy'] = $submitted;
             if (is_array($submitted['static_exceptions'])) $request['policy']['static_exceptions'] = (object)$submitted['static_exceptions'];
             foreach (['files', 'queries'] as $kind) {

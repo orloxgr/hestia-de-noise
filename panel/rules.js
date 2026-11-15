@@ -46,24 +46,46 @@
         message.textContent = 'Added ' + rules.length + ' rule(s). Review domains, then Save & Apply.';
     }));
     document.addEventListener('click', event => {
+        const bulk404 = event.target.closest('[data-hdn-append-endpoint404], [data-hdn-endpoint404-group]');
+        if (bulk404) {
+            const field=document.getElementById('hdn-endpoint404-paths');
+            const domainSelect=document.getElementById('hdn-endpoint404-targets');
+            const wasEmpty=!field.value.trim();
+            const selected = bulk404.hasAttribute('data-hdn-endpoint404-group') ?
+                JSON.parse(bulk404.dataset.hdnEndpoint404Group).map(path=>({path,site:bulk404.dataset.hdnEndpointSite})) :
+                [...document.querySelectorAll('[data-hdn-endpoint404-path]:checked')].map(box=>({path:box.dataset.hdnEndpoint404Path,site:box.dataset.hdnEndpointSite}));
+            const paths=new Set(field.value.split(/\r?\n/).map(p=>p.trim()).filter(Boolean));
+            const before=paths.size;
+            selected.forEach(item=>{ if (item.path.startsWith('/') && !/[\r\n?#]/.test(item.path)) paths.add(item.path); });
+            field.value=[...paths].join('\n');
+            if (wasEmpty && !domainSelect.selectedOptions.length) {
+                const sites=new Set(selected.map(item=>item.site));
+                sites.forEach(site=>{ if (![...domainSelect.options].some(o=>o.value===site)) domainSelect.appendChild(new Option(site,site)); });
+                [...domainSelect.options].forEach(option=>{option.selected=sites.has(option.value);});
+            }
+            document.getElementById('hdn-endpoint404-box').open=true;
+            document.getElementById('hdn-endpoint404-message').textContent=`${paths.size-before} new exact paths appended. Enabled switch and duration kept. Review domains, then Save & Apply.`;
+            return;
+        }
         const suggestion = event.target.closest('[data-hdn-append-endpoint]');
         if (suggestion) {
             const list = document.getElementById('hdn-custom_endpoints-rows');
             const field = (row,key) => row.querySelector('[name$="[' + key + ']"]');
             const target = suggestion.dataset.hdnEndpointSite, pattern = suggestion.dataset.hdnAppendEndpoint;
-            const duplicate = [...list.querySelectorAll('.hdn-rule')].some(row => field(row,'type').value === 'exact' &&
+            const duplicate = [...list.querySelectorAll('.hdn-rule')].some(row => field(row,'type').value === (suggestion.dataset.hdnEndpointType || 'exact') &&
                 field(row,'pattern').value === pattern && [...row.querySelector('[name$="[targets][]"]').selectedOptions].some(o => o.value === target));
             const status = document.getElementById('hdn-endpoint-append-status');
             if (duplicate) { status.textContent = 'This exact domain/path rule already exists. Your settings were kept.'; return; }
             document.querySelector('[data-hdn-add="custom_endpoints"]').click();
             const row = list.querySelector('.hdn-rule:last-child');
-            field(row,'name').value = pattern;
+            field(row,'name').value = suggestion.dataset.hdnEndpointName || pattern;
+            field(row,'type').value = suggestion.dataset.hdnEndpointType || 'exact';
             field(row,'pattern').value = pattern;
             const domains = row.querySelector('[name$="[targets][]"]');
             let option = [...domains.options].find(o => o.value === target);
             if (!option) { option = new Option(target, target); domains.appendChild(option); }
             option.selected = true;
-            status.textContent = 'Added disabled exact-path rule for this domain, with Also ban IP off. Review, enable if appropriate, then Save & Apply.';
+            status.textContent = 'Added disabled endpoint rule for this domain, with Also ban IP off. Review, enable if appropriate, then Save & Apply.';
             return;
         }
         const addAgents = event.target.closest('[data-hdn-filter-agents]');
@@ -99,6 +121,11 @@
         }
         const button = event.target.closest('[data-hdn-remove]');
         if (button) button.closest('.hdn-rule').remove();
+    });
+    document.addEventListener('change', event=>{
+        if (event.target.matches('[data-hdn-select-endpoint404]')) {
+            document.querySelectorAll('[data-hdn-endpoint404-path]').forEach(box=>{box.checked=event.target.checked;});
+        }
     });
     document.getElementById('hdn-robots-copy')?.addEventListener('click', async () => {
         const field = document.getElementById('hdn-robots-text');

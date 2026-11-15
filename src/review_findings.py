@@ -114,6 +114,9 @@ def scan_info(row):
 
 def prepare(row, kind):
     row = copy.deepcopy(row)
+    if kind == 'endpoints':
+        import endpoint_inventory
+        return endpoint_inventory.decorate(row)
     if kind == 'php_files':
         if row.get('members'):
             row['members'] = [prepare(r, kind) for r in row['members']]

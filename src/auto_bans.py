@@ -16,6 +16,7 @@ import listing
 import storage
 import log_files
 import endpoints
+import endpoint_404
 
 from policy import site_mode
 from probe_rules import reason_settings, token
@@ -312,6 +313,15 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
     enabled = bool(eligible) and not remove
     if not enabled and not (Path(state) / 'bans.sqlite').exists():
         return report(state)
+    selected404 = policy.get('endpoint_404', endpoint_404.DEFAULT)
+    domains404 = scopes.get(endpoint_404.REASON, set()) if not remove else set()
+    with database(state) as activation:
+        signature = endpoint_404.fingerprint(selected404, domains404)
+        if get(activation, 'selected404-signature') != signature:
+            put(activation, 'selected404-signature', signature)
+            put(activation, 'selected404-start', now)
+        start404 = float(get(activation, 'selected404-start', str(now)))
+        activation.commit()
     if not enabled:
         skip_native = False
         with database(state, create=False) as db:
@@ -366,7 +376,8 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     valid_tokens.update(custom_tokens)
                     sources = chain(events(db), not_found.events(db,
                         [site for site in sites if site['domain'] in eligible and site.get('kind') != 'mail'], 'native')
-                        if settings['enabled'] and settings['any_404']['enabled'] else []) if read_events else []
+                        if (settings['enabled'] and settings['any_404']['enabled']) or domains404 else []) if read_events else []
+                    sources = endpoint_404.expand(sources, selected404, domains404, start404)
                     for stamp, address, domain, reason, event_token, path, method in sources:
                         try:
                             stamp, ip = float(stamp), ipaddress.ip_address(address)

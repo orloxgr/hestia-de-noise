@@ -17,7 +17,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <label class="form-label u-block u-mt10">Domains (empty selection means all web domains)
 <select form="hdn-settings" class="form-select" name="<?= $field('targets') ?>[]" multiple size="4">
 <?php $known = []; foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; $known[] = $site['key']; ?>
-<option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $row['targets'], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
+<option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $row['targets'], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' Β· ' . $site['owner']) ?></option>
 <?php endforeach; foreach (array_diff($row['targets'], $known) as $old): ?><option value="<?= $escape($old) ?>" selected><?= $escape($old) ?> (unavailable)</option><?php endforeach; ?>
 </select></label>
 <label class="form-label u-block u-mt10"><input form="hdn-settings" type="checkbox" name="<?= $field('also_ban') ?>" <?= $row['also_ban'] ? 'checked' : '' ?>> Also ban IP after the first matching request in Enforce</label>
@@ -29,6 +29,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <button type="button" class="button button-secondary u-mt10" data-hdn-remove>Remove rule</button>
 </div>
 <?php }; ?>
+<?php require __DIR__ . '/endpoint-404.php'; ?>
 <section class="u-mb20">
 <h2 class="u-mb10">Custom endpoint rules</h2>
 <p class="u-mb10">In Enforce, matching requests return 403 before reaching the application, including existing files. Observe records matches; Off does nothing. Matching uses the decoded URL path, without query strings. PCRE is case-sensitive unless you use (?i). Rules are evaluated in list order; the first match determines the optional ban.</p>
@@ -45,12 +46,12 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <form method="post" id="hdn-endpoints-scan" data-hdn-context="<?= $escape(($actor ?? '') . ':all') ?>">
 <?php $fields('endpoints_start'); ?>
 <div class="hdn-wp-grid"><label class="form-label">Domain <select class="form-select" name="analysis_target"><option value="all">All web domains</option>
-<?php foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; ?><option value="<?= $escape($site['key']) ?>"><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option><?php endforeach; ?>
+<?php foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; ?><option value="<?= $escape($site['key']) ?>"><?= $escape($site['domain'] . ' Β· ' . $site['owner']) ?></option><?php endforeach; ?>
 </select></label><label class="form-label">Time window (minutes)<input class="form-control" type="number" min="1" name="analysis_minutes" value="1440" required></label></div>
 <button type="submit" class="button button-secondary u-mt10">Analyze endpoint logs</button>
 <button type="button" id="hdn-endpoints-cancel" class="button button-secondary" hidden>Cancel analysis</button>
 <p id="hdn-endpoints-progress" class="u-mt10" role="status"></p>
 </form>
-<p class="u-mt10">Read-only suggestions from retained native access logs: backup/database filenames and secret/repository paths. Includes every response status, not just 404s. No rules or bans are created by analysis.</p>
+<p class="u-mt10">Read-only review of all retained URL paths except images: JavaScript, stylesheets, PHP, backups and application routes, with every response status. Suggestions distinguish potential filename probes, missing assets and normal requests. Analysis never activates a rule or ban.</p>
 <?php require __DIR__ . '/endpoint-output.php'; ?>
 </section>

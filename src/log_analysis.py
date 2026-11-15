@@ -195,7 +195,7 @@ def recommendations(group, title):
     if title == 'Recorded slow request timings':
         return [dict(title='Measure the origin work', detail='Compare recorded upstream timings, cache state, PHP workers and slow database queries for this route. Optimize the responsible site component before choosing a crawler limit.')]
     if title == 'Repeated PHP-path 404 responses':
-        return [dict(title='Review the missing-PHP list', detail='Check whether the route belongs to the application. Only after confirming it is an unwanted probe, consider adding the literal path in IP bans → selected missing PHP files, scoped to this domain. Keep legitimate virtual routes out.')]
+        return [dict(title='Review the missing-PHP list', detail='Check whether the route belongs to the application. Only after confirming it is an unwanted probe, consider adding the literal path in IP bans β†’ selected missing PHP files, scoped to this domain. Keep legitimate virtual routes out.')]
     return [dict(title='Inspect the route before filtering', detail='Identify the responsible plugin, visitors and integrations on this domain. Preserve functional REST, AJAX and cart requests. Frequency alone does not justify a block.')]
 
 
@@ -440,6 +440,7 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
                     elapsed_seconds=round(time.monotonic() - started, 3), partial=partial, limits={},
                     totals=dict(totals), findings=suggestions,
                     findings_total=inventory_total if inventory_kind else (groups.suggestion_count() if report_path is not None else len(suggestions)),
+                    endpoint_scope='all-non-image-paths' if inventory_kind == 'endpoints' else None,
                     inventory_kind=inventory_kind, paths_total=groups.paths_total if inventory_kind else None,
                     categories={key: value['title'] for key, value in agent_catalog.CATEGORIES.items()} if inventory_kind else {},
                     findings_database=report_path is not None, coverage=coverage, errors=errors,

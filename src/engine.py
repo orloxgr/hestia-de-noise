@@ -465,7 +465,7 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     ban_status = {}
     if owner is None:
         try:
-            ban_status = auto_bans.report(STATE, policy['bans']['enabled'] or any(r['enabled'] and r['also_ban'] for r in policy['custom_endpoints']),
+            ban_status = auto_bans.report(STATE, policy['bans']['enabled'] or policy['endpoint_404']['enabled'] or any(r['enabled'] and r['also_ban'] for r in policy['custom_endpoints']),
                 listing.get('bans_page', 1), listing.get('bans_view', 'active'), listing.get('bans_per_page', 50))
         except (OSError, ValueError) as error:
             ban_status = {'error': str(error)}
@@ -739,17 +739,19 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') in (6, 7, 8, 9, 10, 11):
+        if incoming.get('schema') in (6, 7, 8, 9, 10, 11, 12):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
             incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
-                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10, 11) else {}}}
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10, 11, 12) else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
-        if incoming.get('schema') != 11:
+        if incoming.get('schema') != 12:
+            policy['endpoint_404'] = previous['endpoint_404']
+        if incoming.get('schema') not in (11, 12):
             policy['custom_endpoints'] = previous['custom_endpoints']
-        if incoming.get('schema') not in (9, 10, 11):
+        if incoming.get('schema') not in (9, 10, 11, 12):
             policy['enumeration'] = previous['enumeration']
-        if incoming.get('schema') not in (8, 9, 10, 11):
+        if incoming.get('schema') not in (8, 9, 10, 11, 12):
             for key in ('log_rejections', 'mail_protection'):
                 policy[key] = previous[key]
             for key in ('exclude_static', 'min_distinct_paths'):
@@ -770,7 +772,7 @@ def dispatch(request):
             for key in ('missing_files', 'suspicious_queries'):
                 policy['bans'][key] = previous['bans'][key]
             policy['probe_exceptions'] = previous['probe_exceptions']
-        if policy['bans']['enabled'] or any(r['enabled'] and r['also_ban'] for r in policy['custom_endpoints']):
+        if policy['bans']['enabled'] or policy['endpoint_404']['enabled'] or any(r['enabled'] and r['also_ban'] for r in policy['custom_endpoints']):
             for command in ('v-add-firewall-chain', 'v-list-firewall-ban', 'v-add-firewall-ban', 'v-delete-firewall-ban'):
                 if not (HESTIA / 'bin' / command).is_file():
                     raise ValueError('Automatic bans require native Hestia firewall commands: ' + command)

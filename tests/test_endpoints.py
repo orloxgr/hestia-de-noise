@@ -14,6 +14,7 @@ import auto_bans
 import endpoints
 import engine
 import log_analysis
+import endpoint_inventory
 from policy import DEFAULT, validate
 from test_auto_bans import FakeNative
 
@@ -37,6 +38,7 @@ class EndpointPolicy(unittest.TestCase):
         saved=copy.deepcopy(DEFAULT); saved['custom_endpoints']=[rule(enabled=False)]
         for schema in (10,11):
             incoming=copy.deepcopy(DEFAULT); incoming['schema']=schema
+            incoming.pop('endpoint_404')
             if schema==10: incoming.pop('custom_endpoints')
             with patch.object(engine,'authorize',return_value=(True,'admin')), patch.object(engine,'load',return_value=saved), \
                  patch.object(engine,'collect',return_value=[]),patch.object(engine,'snapshot',return_value={}),patch.object(engine,'apply') as apply:
@@ -44,10 +46,10 @@ class EndpointPolicy(unittest.TestCase):
             self.assertEqual(apply.call_args.args[0]['custom_endpoints'], saved['custom_endpoints'] if schema==10 else [])
 
     def test_schema10_migration_has_no_active_new_rules(self):
-        old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old['schema'] = 10
+        old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old['schema'] = 10
         old['mode'] = 'enforce'; old['bans']['ignore_ips'] = ['198.51.100.2']
         current = validate(old)
-        self.assertEqual(current['schema'], 11)
+        self.assertEqual(current['schema'], 12)
         self.assertEqual(current['custom_endpoints'], [])
         self.assertEqual(current['bans']['ignore_ips'], ['198.51.100.2/32'])
         self.assertEqual(current['mode'], 'enforce')
@@ -137,6 +139,22 @@ class EndpointBans(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'posix' and os.geteuid() == 0, 'Root-private Linux analysis reports')
 class EndpointAnalysis(unittest.TestCase):
+    def test_all_file_types_actions_and_cross_domain_404_context(self):
+        inventory=endpoint_inventory.Inventory()
+        try:
+            one=dict(key='alice/one.test',domain='one.test');two=dict(key='alice/two.test',domain='two.test')
+            for path,status in [('/working.js','200'),('/style.css','200'),('/missing.php','404'),('/app/','200'),('/photo.jpg','404'),('/media/core.js','404')]:
+                inventory.observe(one,path,status,'Browser',1000,address='198.51.100.1',method='GET')
+            inventory.observe(two,'/media/core.js','404','Browser',1000,address='198.51.100.1',method='GET')
+            rows,total=inventory.finish(False);by_path={r['path']:r for r in rows}
+            self.assertEqual(total,6);self.assertNotIn('/photo.jpg',by_path)
+            self.assertEqual(by_path['/working.js']['recommendation']['action'],'keep')
+            self.assertEqual(by_path['/style.css']['recommendation']['action'],'keep')
+            self.assertEqual(by_path['/missing.php']['recommendation']['action'],'review_block')
+            self.assertEqual(by_path['/media/core.js']['domains_404'],2)
+            self.assertEqual(by_path['/media/core.js']['recommendation']['action'],'review_block')
+        finally: inventory.close()
+
     def test_all_statuses_rotations_privacy_paging_export_and_owner_checks(self):
         import gzip
         with tempfile.TemporaryDirectory() as temporary:
@@ -154,7 +172,7 @@ class EndpointAnalysis(unittest.TestCase):
                 result=log_analysis.scan(sites,'all',60,root,now=1001,report_path=path/'report.sqlite',inventory_kind='endpoints')
             analysis_jobs.write(path,'result.json',result); analysis_jobs.write(path,'status.json',dict(state='complete'))
             page=analysis_jobs.status(root,job,'admin',kind='endpoints')['analysis']
-            self.assertEqual(page['findings_total'],26)
+            self.assertEqual(page['findings_total'],27)
             self.assertEqual(len(page['findings']),20)
             first=page['findings'][0]
             self.assertEqual(first['statuses'],{'200':1,'404':1})
@@ -162,8 +180,12 @@ class EndpointAnalysis(unittest.TestCase):
             self.assertEqual(first['clients'],1)
             self.assertEqual(first['methods'],{'GET':2})
             self.assertEqual(first['agents'],{'sqlmap':2})
+            filtered=analysis_jobs.status(root,job,'admin',kind='endpoints',filters={'query':'.sql'})['analysis']
+            self.assertEqual(filtered['findings_total'],1)
+            self.assertEqual(filtered['findings'][0]['path'],'/backup.sql')
+            self.assertIn('suggestions',filtered)
             export=analysis_jobs.export_review(root,job,'admin',kind='endpoints')
-            self.assertEqual(len(export['rows']),26)
+            self.assertEqual(len(export['rows']),27)
             self.assertNotIn('private-value',json.dumps([page,export]))
             self.assertNotIn('198.51.100.1',json.dumps([page,export]))
             with self.assertRaises(PermissionError): analysis_jobs.status(root,job,'other',kind='endpoints')

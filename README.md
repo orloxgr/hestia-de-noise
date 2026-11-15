@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.19.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.20.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -64,13 +64,22 @@ Never-ban IPs, native exclusions, server addresses, expiry, manual unban and
 reboot reconciliation retain their existing behavior. Activity identifies the
 rule; ban details retain its name and the triggering path without query values.
 
-**Analyze endpoint logs** reviews retained native web access logs, including
-compressed rotations, for the selected domain/time window. The initial
-suggestion catalogue covers backup/database filenames and secret/repository
-paths. It keeps all response statuses, including successful/redirected requests,
-with per-domain counts, methods, declared agents and distinct-client counts.
-Frequency, a filename, a declared agent or a 404 alone does not prove abuse.
-Review intended downloads and application routes before enabling a rule.
+**Analyze endpoint logs** reviews all retained URL paths except images, including
+JavaScript, stylesheets, PHP, backups, secret paths and ordinary application
+routes. It reads native logs and compressed rotations for the selected time
+window, retaining every response status, per-domain counts, methods, declared
+agents and distinct-client counts. Domain, path, characteristic and priority
+filters operate on the completed report; CSV exports the complete filtered view.
+
+**Suggested rules and fixes** shows a concrete next action: keep normal delivery,
+investigate successful backup responses, repair missing/referenced assets, or
+review a domain-scoped filename rule. The same path returning 404 across domains
+is shown as context for application fingerprint probes; it is not automatically
+treated as a broken site asset. Suggested regexes match only the exact observed
+filenames and remain scoped to that source domain. They do not extrapolate to
+unseen extensions or all domains. CSV includes the suggested action, pattern,
+scope and exact 404-list candidate. Older saved reports gain suggestions from
+their existing data; run a new review to collect all file types.
 
 The analysis is read-only and resumable, with progress, cancellation, complete
 pagination/CSV and explicit log coverage. Layered logs may count the same request
@@ -79,6 +88,30 @@ no visitor data is sent to a service. **Append disabled endpoint rule** prepares
 an exact rule for that source domain, with IP banning off. It preserves existing
 edits and requires review and **Save & Apply**. Upgrades introduce an empty
 endpoint list and preserve saved policy, including saves from an older open panel.
+
+### Bulk exact paths: instaban after a real 404
+
+In **Endpoints → Instaban after HTTP 404 for any of these paths**, paste one exact
+path per line, with any extension. Choose domains, a ban duration (0 = permanent)
+and enable the list. In **Enforce**, the first actual final **404** for a selected
+path creates a native Hestia website firewall ban when maintenance reads it.
+Existing files/routes returning 200, redirects or other statuses keep their
+normal routing; this list never manufactures a 404 or blocks with 403. Earlier
+403 rules still take precedence and do not count as 404s. Observe/Off do not ban.
+
+Use the checkboxes and **Append selected paths to the 404 list** to append results
+in bulk, or append a proposal's complete exact-path set. Entries are deduplicated;
+the existing enable switch, duration and domain selection are preserved. An empty
+new list with no domain selection starts scoped to the selected source domains.
+Review and **Save & Apply**. A missing asset genuinely used by the site should be
+repaired rather than added to a ban selection. Images are excluded from review;
+manual exact-path selections have no extension restriction.
+
+The list starts disabled and empty on upgrade, independently of the older probe
+ban switch. It counts requests from activation/re-enabling onward, not old retained
+404s retroactively. Native final-404 logs and structured Nginx events share the
+existing durable ban lifecycle, exclusions, self-IP protection, expiry and manual
+unban handling. Duplicate log records cannot create duplicate bans.
 
 ## Central, account and domain WordPress access and countries
 

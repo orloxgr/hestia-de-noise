@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.0 · 2026-11-15
+
+- Review all retained non-image URL paths, including JS, CSS, PHP and application routes. Remove the previous backup/secret-only discovery filter. Keep every response status and identify the same missing path across domains, without assuming every asset 404 is a broken site reference.
+- Add concrete grouped rules/fixes, exact observed-filename regex proposals scoped to the source domain, saved-report filters and review notes. Include proposed action, rule, scope and exact 404-list candidate in CSV. Normal delivery remains normal; missing assets, application errors and filename probes receive different recommendations. Existing saved reports gain suggestions; a new scan collects the broader path coverage.
+- Add a bulk exact-path 404 instaban list in Endpoints, with any file extension, domain selection and exact duration. Ban on the first real final 404 in Enforce; do not change routing or manufacture a rejection. Read native access logs and structured final-404 events, deduplicate through the existing ban lifecycle, preserve exclusions/self-IP protection, and count from activation rather than retroactively banning retained history.
+- Append selected 404 paths or complete proposal path sets in bulk, preserving enable switches, durations and existing selections. Keep the new list disabled/empty on upgrade and preserve it when an older open settings panel saves. Remove the old browser-only path-search length reset; control-character validation remains.
+
 ## 0.19.0 · 2026-11-15
 
 - Add named custom endpoint rules in Endpoints: exact paths or native PCRE regex, per-domain/all-web scope, 403 in Enforce and match logging in Observe. The first matching rule determines the action; existing files are included. No query/header/cookie matching or new automatic block defaults.

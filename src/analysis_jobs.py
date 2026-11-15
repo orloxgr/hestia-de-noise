@@ -182,6 +182,8 @@ def finding_rows(path, analysis):
 
 
 def php_features(kind):
+    if kind == 'endpoints':
+        return {'security':'Backup / secret paths','asset':'JavaScript, stylesheets and other assets','application':'PHP paths','activity':'Application / other paths','errors':'Server errors','unexpected':'Missing paths (404)'}
     return review_findings.php_findings.TAGS if kind == 'php_files' else {
         k:v for k,v in review_findings.FEATURES.items() if k not in review_findings.php_findings.TAGS}
 
@@ -229,7 +231,7 @@ def finding_view(state, path, analysis, kind, chosen):
 
 
 def mark_review(state, job, actor, kind, domain, item, value):
-    if kind not in ('scan', 'php_files') or not all(isinstance(x, str) for x in (domain,item,value)):
+    if kind not in ('scan', 'php_files', 'endpoints') or not all(isinstance(x, str) for x in (domain,item,value)):
         raise ValueError('Invalid review note selection')
     path = owned(state, job, actor, kind=kind)
     if read(path, 'status.json')['state'] != 'complete':
@@ -247,7 +249,7 @@ def mark_review(state, job, actor, kind, domain, item, value):
 def status(state, job, actor, page=1, kind="scan", owner=None, domain='all', per_page=20, filters=None):
     listing.size(per_page)
     chosen = review_findings.filters(filters)
-    if filters is not None and kind not in ('scan', 'php_files'):
+    if filters is not None and kind not in ('scan', 'php_files', 'endpoints'):
         raise ValueError('Finding filters apply only to log and PHP reviews')
     if type(page) is not int or page < 1:
         raise ValueError('Invalid report page')
@@ -280,13 +282,16 @@ def status(state, job, actor, page=1, kind="scan", owner=None, domain='all', per
     result = {'id': job, **value, 'selection': {key: request[key] for key in ('target', 'minutes', 'verify_google')}}
     if value['state'] == 'complete':
         analysis = read(path, 'result.json')
-        if kind in ('scan', 'php_files'):
+        if kind in ('scan', 'php_files', 'endpoints'):
             values, view = finding_view(state, path, analysis, kind, chosen)
             meta = listing.pagination(len(values), page, per_page)
             limit, offset = listing.bounds(meta)
             analysis.update(view, review_total=analysis['findings_total'], findings_total=len(values),
                 findings=values[offset:] if limit == -1 else values[offset:offset+limit],
                 page=meta['page'], pages=meta['pages'], per_page=per_page)
+            if kind == 'endpoints':
+                import endpoint_inventory
+                analysis['suggestions'] = endpoint_inventory.proposals(values)
             result['analysis'] = analysis
             return result
         if kind == 'activity':
@@ -338,14 +343,14 @@ def export_review(state, job, actor, kind='scan', owner=None, domain='all', offs
         raise ValueError('Invalid review export selection')
     # status validates job ownership, kind and current account scope before reads.
     report = status(state, job, actor, kind=kind, owner=owner, domain=domain,
-                    per_page='all' if kind in ('scan','php_files') else 500, filters=filters)
+                    per_page='all' if kind in ('scan','php_files','endpoints') else 500, filters=filters)
     if report['state'] != 'complete':
         raise ValueError('Complete the review before exporting')
     analysis = report['analysis']; total = analysis['findings_total']
     if offset > total:
         raise ValueError('Invalid export offset')
     path = owned(state, job, actor, kind, owner)
-    if kind in ('scan', 'php_files'):
+    if kind in ('scan', 'php_files', 'endpoints'):
         values = analysis['findings'][offset:offset+500]
     elif analysis.get('findings_database'):
         with report_database(path) as connection:
@@ -365,9 +370,13 @@ def export_review(state, job, actor, kind='scan', owner=None, domain='all', offs
     if not values and offset < total:
         raise ValueError('The saved report is incomplete')
     if kind == 'endpoints':
-        columns = ['Site', 'Path', 'Finding', 'Hits', 'HTTP statuses', 'Methods', 'Declared agents', 'Distinct clients', 'Advice']
-        rows = [[r['domain'],r['path'],r['category'],r['count'],json.dumps(r['statuses']),
-                 json.dumps(r['methods']),json.dumps(r['agents']),r['clients'],r['advice']] for r in values]
+        columns = ['Site','Path','Finding','Hits','HTTP statuses','Methods','Declared agents','Distinct clients','Suggested action','Suggested rule type','Suggested rule','Rule scope','404 instaban candidate','Advice']
+        proposals = {(g['site'],g['category'],g['action']):g for g in analysis.get('suggestions',[])}
+        rows = []
+        for r in values:
+            action = r['recommendation']['action']; g = proposals.get((r['site'],r['category'],action),{})
+            block = action in ('block','review_block')
+            rows.append([r['domain'],r['path'],r['category'],r['count'],json.dumps(r['statuses']),json.dumps(r['methods']),json.dumps(r['agents']),r['clients'],r['recommendation']['title'],g.get('type','') if block else '',g.get('pattern','') if block else '',r['domain'],r['candidate'] if r.get('missing') else '',r['advice']])
     elif kind == 'activity':
         columns = ['Time','Site','Rule','Declared agent','Result','HTTP status']
         rows = [[r.get(k,'') for k in ('time','domain','rule','agent','outcome','status')] for r in values]

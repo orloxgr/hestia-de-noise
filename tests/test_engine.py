@@ -207,7 +207,7 @@ class AuthorizationTests(unittest.TestCase):
         saved = copy.deepcopy(DEFAULT)
         saved['bans']['missing_files'].update(enabled=True, maxretry=4)
         saved['probe_exceptions']['queries'] = {'alice/example.test': ['/manager.php']}
-        incoming = copy.deepcopy(DEFAULT); incoming.pop('custom_endpoints'); incoming['schema'] = 4; incoming.pop('probe_exceptions'); incoming.pop('domain_bans')
+        incoming = copy.deepcopy(DEFAULT); incoming.pop('custom_endpoints'); incoming.pop('endpoint_404'); incoming['schema'] = 4; incoming.pop('probe_exceptions'); incoming.pop('domain_bans')
         for field in ('ai_agents', 'search_agents', 'seo_agents'):incoming.pop(field);incoming.pop(field + '_enabled')
         incoming.pop('enumeration')
         for key in ('missing_files', 'suspicious_queries', 'any_404'): incoming['bans'].pop(key)

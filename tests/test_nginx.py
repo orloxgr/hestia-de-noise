@@ -23,7 +23,7 @@ class Origin(BaseHTTPRequestHandler):
     hits = 0
     def do_GET(self):
         type(self).hits += 1
-        self.send_response(200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'OK')
+        self.send_response(404 if self.path.split('?',1)[0] == '/selected-missing.js' else 200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'OK')
     do_POST = do_GET
 
     def log_message(self, *args):
@@ -46,6 +46,8 @@ class NativeNginxTests(unittest.TestCase):
             probe.bind(('127.0.0.1', 0)); cls.port = probe.getsockname()[1]
         policy = copy.deepcopy(DEFAULT)
         policy['mode'] = 'enforce'
+        policy['endpoint_404'] = dict(enabled=True,paths=['/selected-missing.js','/existing.js','/local404.js'],
+            targets=['alice/enforce.test','alice/observe.test','alice/off.test'],duration_seconds=120)
         policy['custom_endpoints'] = [
             dict(id='backups',name='Backup scans',enabled=True,type='regex',
                  pattern=r'(?i)^/bak(?|\.sql\.gz|\.sql\.zip|\.sql\.zst)$',
@@ -97,7 +99,7 @@ class NativeNginxTests(unittest.TestCase):
             text += 'server { listen 127.0.0.1:' + str(cls.port) + '; server_name ' + host + ' www.' + host + ';\n'
             text += site_config(policy, site, cls.directory.as_posix()).replace('/var/log/hestia-de-noise/matches.log',
                                                      (cls.directory / 'matches.log').as_posix()).replace('/var/log/hestia-de-noise/ban-events.log', (cls.directory / 'ban-events.log').as_posix())
-            text += 'location / { proxy_pass http://127.0.0.1:' + str(cls.origin_port) + '; }\n}\n'
+            text += 'location = /local404.js { return 404; }\nlocation / { proxy_pass http://127.0.0.1:' + str(cls.origin_port) + '; }\n}\n'
         text += '}\n'
         (cls.directory / 'nginx.conf').write_text(text)
         cls.command = [NGINX, '-p', cls.directory.as_posix() + '/', '-c', 'nginx.conf']
@@ -169,6 +171,20 @@ class NativeNginxTests(unittest.TestCase):
         self.assertNotEqual(result.returncode,0)
         self.assertIn('pcre',result.stderr.lower())
         self.assertEqual(self.request('/'),200)
+
+    def test_selected_404_paths_use_real_final_status_without_forcing_routing(self):
+        self.assertEqual(self.request('/existing.js'),200)
+        self.assertEqual(self.request('/selected-missing.js?token=never-record'),404)
+        self.assertEqual(self.request('/local404.js'),404)
+        self.assertEqual(self.request('/selected-missing.js',host='observe.test'),404)
+        self.assertEqual(self.request('/selected-missing.js',host='off.test'),404)
+        time.sleep(.02)
+        import json
+        events=[json.loads(line) for line in (self.directory/'ban-events.log').read_text().splitlines() if line.startswith('{')]
+        selected=[e for e in events if e['reason']=='endpoint-404-list']
+        self.assertEqual({e['path'] for e in selected},{'/selected-missing.js','/local404.js'})
+        self.assertTrue(all(e['domain']=='enforce.test' for e in selected))
+        self.assertNotIn('never-record',json.dumps(selected))
 
     def test_agent_blocks_case_insensitive_literal_and_observe_off_allow(self):
         self.assertEqual(self.request(agent='Some CRAWLER v1'), 403)
