@@ -17,6 +17,9 @@ from policy import DEFAULT, MARKER, VERSION, validate
 import storage
 import wordpress
 import captcha_runtime
+import progress
+
+META = json.loads((SOURCE / 'addon.json').read_text())
 
 BASE = Path('/opt/hestia-de-noise')
 ROUTE = engine.HESTIA / 'web/plugins/de-noise'
@@ -76,6 +79,7 @@ def check_pointer():
 
 
 def preflight():
+    progress.stage('Checking platform, native Hestia, PHP syntax and current Nginx configuration')
     if os.name != 'posix' or os.geteuid() != 0:
         raise ValueError('Run this installer as root on the Ubuntu Hestia server')
     os_release = Path('/etc/os-release').read_text()
@@ -104,9 +108,12 @@ def prepare_logs():
 
 def install():
     preflight()
+    progress.stage('Waiting for the De-Noise operation lock')
     with engine.locked():
+        progress.stage('Recovering pending configuration transactions')
         engine.recover()
         wordpress.recover(engine.STATE, engine.run)
+        progress.stage('Preparing addon-owned directories and logs')
         directory(BASE)
         directory(BASE / 'releases')
         previous = check_pointer()
@@ -119,12 +126,14 @@ def install():
         stage = BASE / 'releases' / ('release-' + secrets.token_hex(10))
         stage.mkdir(mode=0o755)
         for name in ('src', 'panel', 'config', 'wordpress'):
+            progress.stage('Staging release files: ' + name)
             for item in (SOURCE / name).rglob('*'):
                 if item.is_symlink():
                     raise ValueError('Source symlinks are not supported')
             shutil.copytree(SOURCE / name, stage / name,
                             ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         shutil.copyfile(SOURCE / 'addon.json', stage / 'addon.json')
+        progress.stage('Setting release permissions and synchronizing files to disk')
         for folder, _, files in os.walk(stage):
             os.chmod(folder, 0o755)
             for filename in files:
@@ -150,6 +159,7 @@ def install():
                             captcha_runtime.unit_files(captcha_runtime.worker_group()).items()})
         before = {}
         try:
+            progress.stage('Publishing panel, CLI, maintenance and CAPTCHA integration')
             for path, (data, mode) in integration.items():
                 before[path] = managed_file(path, data, mode)
             pointer(stage)
@@ -159,7 +169,9 @@ def install():
             sites = engine.collect()
             if sites and not any(site['supported'] for site in sites):
                 raise RuntimeError('None of the existing proxy configurations has a supported native include point')
+            progress.stage('Applying saved protection policy to discovered domains')
             result = engine.apply(policy, sites)
+            progress.stage('Synchronizing existing WordPress login protection')
             result['wordpress'] = wordpress.install(engine.STATE, engine.run)
         except Exception:
             for path, old in before.items():
@@ -172,15 +184,17 @@ def install():
             if previous:
                 engine.run('/usr/bin/systemctl', 'try-restart', captcha_runtime.NAME + '.service')
             raise
-        print(json.dumps({'ok': True, 'version': VERSION, 'mode': policy['mode'],
-                          'panel': '/plugins/de-noise/', **result,
-                          'unsupported': [{'owner': s['owner'], 'domain': s['domain'], 'reason': s['reason']}
-                                          for s in sites if not s['supported']]}))
+        return {'ok': True, 'version': VERSION, 'mode': policy['mode'],
+                'panel': '/plugins/de-noise/', **result,
+                'unsupported': [{'owner': s['owner'], 'domain': s['domain'], 'reason': s['reason']}
+                                for s in sites if not s['supported']]}
 
 
 def uninstall():
     preflight()
+    progress.stage('Waiting for the De-Noise operation lock before removing managed protection')
     with engine.locked():
+        progress.stage('Recovering transactions before removing managed protection')
         engine.recover()
         wordpress.recover(engine.STATE, engine.run)
         directory(BASE)
@@ -190,6 +204,7 @@ def uninstall():
         cron_before = storage.owned(CRON)
         storage.replace(CRON, None)
         try:
+            progress.stage('Removing managed bans, Nginx rules and WordPress companions')
             if (engine.STATE / 'bans.sqlite').exists():
                 auto_bans.cleanup(validate(engine.load('policy.json', DEFAULT)), engine.collect(),
                                   engine.STATE, auto_bans.Native(engine.HESTIA, engine.run))
@@ -207,17 +222,15 @@ def uninstall():
             engine.run('/usr/bin/systemctl', 'daemon-reload')
         # Retain root-private policy, logs and immutable releases. No recursive
         # deletion of server data, shared plugin directories or other addons.
-        print(json.dumps({'ok': True, 'uninstalled': True,
-                          'retained': [str(engine.STATE), str(BASE), str(LOGS)]}))
+        return {'ok': True, 'uninstalled': True,
+                'retained': [str(engine.STATE), str(BASE), str(LOGS)]}
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uninstall', action='store_true')
+    parser.add_argument('--json', action='store_true', help='Write the final result as JSON to stdout; progress stays on stderr')
     args = parser.parse_args()
-    try:
-        uninstall() if args.uninstall else install()
-    except Exception as error:
-        print(str(error), file=sys.stderr)
-        print(json.dumps({'ok': False, 'error_type': type(error).__name__, 'error': str(error)}))
-        raise SystemExit(1)
+    raise SystemExit(progress.execute(uninstall if args.uninstall else install,
+                                     title=META['title'], version=VERSION, json_output=args.json,
+                                     action='Removal' if args.uninstall else 'Installation'))

@@ -73,7 +73,10 @@ class InstallerTests(unittest.TestCase):
     def test_update_uses_saved_policy_and_publishes_real_panel_route(self):
         with patch.object(installer.engine, 'apply', return_value={'changed_files': 0}) as apply, \
                 contextlib.redirect_stdout(io.StringIO()):
-            installer.install()
+            result = installer.install()
+        self.assertEqual(result['mode'], 'enforce')
+        self.assertEqual(result['changed_files'], 0)
+        self.assertIs(result['ok'], True)
         self.assertEqual(apply.call_args.args[0], self.policy)
         self.assertIn(b'exec /usr/bin/python3 -I ', self.locations['BRIDGE'].read_bytes())
         self.assertIn(b'current', self.locations['BRIDGE'].read_bytes())

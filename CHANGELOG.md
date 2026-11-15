@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.3 · 2026-11-15
+
+- Show timestamped installer stages, actual work counts where available and a current-stage heartbeat during slow work or lock waits. Reporting adds no work deadline and stays silent outside the administrator installer.
+- Replace the default final JSON dump with a readable success/failure summary, installed version, full result details and elapsed time. Retain explicit `--json` mode with progress/diagnostics on stderr and one JSON document on stdout; preserve native failure details and nonzero exit status.
+- Keep panel, background and internal JSON interfaces unchanged. Respect `NO_COLOR` and plain redirected logs; a closed reporting stream cannot cancel completed installation work.
+
 ## 0.18.2 · 2026-11-13
 
 - Explain Back, Synchronize now and Disable everywhere with mouse-over descriptions, including saved versus unsaved settings and the scope of global deactivation.

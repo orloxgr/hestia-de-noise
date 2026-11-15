@@ -28,6 +28,7 @@ import captcha_runtime
 import country_database
 import agent_catalog
 import listing as list_sizes
+import progress
 
 REVIEW_ACTIONS = ('review_mark', 'review_export', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'agents_export', 'agents_candidates') + tuple(kind + '_' + action for kind in ('agents', 'php_files') for action in ('start', 'status', 'cancel'))
 
@@ -127,8 +128,10 @@ def inspect_site(site):
 
 def collect():
     sites = []
+    progress.stage('Reading native Hestia accounts and domain include points')
     users = hestia('v-list-users')
-    for owner, user in sorted(users.items()):
+    for number, (owner, user) in enumerate(sorted(users.items()), 1):
+        progress.stage('Account ' + str(number) + '/' + str(len(users)) + ': ' + owner + ' - checking web and mail domains')
         account(owner)
         for name, row in sorted(hestia('v-list-web-domains', owner).items()):
             domain(name)
@@ -162,6 +165,7 @@ def collect():
                 sites.append(inspect_site({'key': owner + '/' + host, 'owner': owner, 'domain': host,
                     'mail_domain': name, 'kind': 'mail', 'template': 'native-webmail',
                     'aliases': names[0].decode('ascii'), 'suspended': user.get('SUSPENDED') == 'yes'}))
+    progress.stage('Inventory complete: ' + str(len(users)) + ' accounts, ' + str(len(sites)) + ' domains')
     return sites
 
 
@@ -304,6 +308,7 @@ def recover():
 
 
 def apply(policy, sites, remove=False, access=None, geography=None):
+    progress.stage('Preparing managed Nginx rules and domain protection settings')
     policy = validate(policy)
     access = access_settings() if access is None else access_protection.validate(access, target)
     metadata = geography[1] if geography else geo_metadata()
@@ -378,13 +383,16 @@ def apply(policy, sites, remove=False, access=None, geography=None):
               'enumeration_changes': companion_changes}
     storage.replace(STATE / 'transaction.json', storage.json_bytes(record), 0o600)
     try:
+        progress.stage('Applying managed WordPress enumeration companions and ' + str(len(changes)) + ' changed configuration files')
         enumeration.apply(companion_changes)
         for name, text in changes.items():
             replace_rule(Path(name), text)
         if captcha_enabled:
             captcha_runtime.enable(run)
+        progress.stage('Validating candidate Nginx configuration')
         verify(desired)
         if changes:
+            progress.stage('Reloading Nginx with the validated configuration')
             reload_nginx()
         changed_roots = {row['root'] for row in companion_changes if row['after'] is not None}
         for site in sites:

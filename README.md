@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.18.2.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.18.3.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -779,3 +779,18 @@ configured `www`/canonical alias redirect. The test reads the displayed question
 image rather than adding any production answer endpoint or verification bypass.
 It does not change
 protection settings or install a browser on the server.
+
+## Installer console output
+
+The installer prints timestamped installation/update stages to stderr and a readable
+final summary to stdout, including the version, actual result details and elapsed
+time. During slow work or a lock wait it reports the current stage every ten seconds;
+this is progress reporting, not an execution deadline. Failures show the last stage,
+specific cause and technical diagnostics, and exit with a nonzero status.
+
+Add `--json` to the same install command for a single machine-readable JSON result
+on stdout; progress stays on stderr. Panel/API, internal CLI and background-job
+interfaces retain their existing JSON output and do not emit installer progress.
+Terminal color is optional; redirected logs are plain text and `NO_COLOR` disables
+color. Existing credentials, settings and private data follow the same preservation
+rules as before.
