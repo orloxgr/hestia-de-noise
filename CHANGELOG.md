@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.2 · 2026-11-15
+
+- Organize Endpoints into native Hestia accordions: exact-path 404 bans, custom rules, log analysis/suggestions, WordPress login limits and XML-RPC limits. Show persistent chevrons on section and suggestion headers in both open and closed states, with keyboard focus and responsive spacing.
+- Open the custom rules section when appending a suggestion or adding a rule. Keep form associations, submitted settings, rule behavior and background review IDs intact.
+
 ## 0.20.1 · 2026-11-15
 
 - Remove suggested block/ban actions for ordinary PHP/core/plugin/theme paths, JS, CSS and application routes. Keep their evidence and investigation/repair advice. Offer 404-list candidates only for sensitive/backup paths with exclusively 404 responses; restrict disabled 403 suggestions to configuration backups and secret/repository paths. Reassess saved reports and CSV with the same criteria.

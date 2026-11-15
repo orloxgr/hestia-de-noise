@@ -17,7 +17,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <label class="form-label u-block u-mt10">Domains (empty selection means all web domains)
 <select form="hdn-settings" class="form-select" name="<?= $field('targets') ?>[]" multiple size="4">
 <?php $known = []; foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; $known[] = $site['key']; ?>
-<option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $row['targets'], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' Β· ' . $site['owner']) ?></option>
+<option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $row['targets'], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
 <?php endforeach; foreach (array_diff($row['targets'], $known) as $old): ?><option value="<?= $escape($old) ?>" selected><?= $escape($old) ?> (unavailable)</option><?php endforeach; ?>
 </select></label>
 <label class="form-label u-block u-mt10"><input form="hdn-settings" type="checkbox" name="<?= $field('also_ban') ?>" <?= $row['also_ban'] ? 'checked' : '' ?>> Also ban IP after the first matching request in Enforce</label>
@@ -30,8 +30,9 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 </div>
 <?php }; ?>
 <?php require __DIR__ . '/endpoint-404.php'; ?>
-<section class="u-mb20">
-<h2 class="u-mb10">Custom endpoint rules</h2>
+<details class="box-collapse hdn-endpoint-section u-mb20" id="hdn-custom-endpoints-box">
+<summary class="box-collapse-header">Custom endpoint rules</summary>
+<div class="box-collapse-content">
 <p class="u-mb10">In Enforce, matching requests return 403 before reaching the application, including existing files. Observe records matches; Off does nothing. Matching uses the decoded URL path, without query strings. PCRE is case-sensitive unless you use (?i). Rules are evaluated in list order; the first match determines the optional ban.</p>
 <p class="u-mb10">Also ban IP uses the native Hestia firewall for all websites on this server. Never-ban IPs, server addresses and native exclusions still apply. The automatic maintenance job applies the ban after reading the matching request. The checkbox works independently of the IP bans master switch.</p>
 <p id="hdn-custom_endpoints-message" role="status" class="u-mb10"></p>
@@ -40,13 +41,14 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 </div>
 <button type="button" class="button button-secondary" data-hdn-add="custom_endpoints" title="Adds an empty, disabled rule for manual configuration. It takes effect only after you enable it and Save &amp; Apply.">Add endpoint rule</button>
 <template id="hdn-custom_endpoints-template"><?php $renderEndpoint('__INDEX__', ['id'=>'custom_endpoints_1','name'=>'','enabled'=>false,'type'=>'exact','pattern'=>'','targets'=>[],'also_ban'=>false,'duration_seconds'=>86400]); ?></template>
-</section>
-<section class="u-mb20">
-<h3 class="u-mb10">Analyze endpoint logs</h3>
+</div></details>
+<details class="box-collapse hdn-endpoint-section u-mb20" id="hdn-endpoint-analysis-box" <?= (($data['analysis']['inventory_kind'] ?? '') === 'endpoints') ? 'open' : '' ?>>
+<summary class="box-collapse-header">Analyze endpoint logs and suggestions</summary>
+<div class="box-collapse-content">
 <form method="post" id="hdn-endpoints-scan" data-hdn-context="<?= $escape(($actor ?? '') . ':all') ?>">
 <?php $fields('endpoints_start'); ?>
 <div class="hdn-wp-grid"><label class="form-label">Domain <select class="form-select" name="analysis_target"><option value="all">All web domains</option>
-<?php foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; ?><option value="<?= $escape($site['key']) ?>"><?= $escape($site['domain'] . ' Β· ' . $site['owner']) ?></option><?php endforeach; ?>
+<?php foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; ?><option value="<?= $escape($site['key']) ?>"><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option><?php endforeach; ?>
 </select></label><label class="form-label">Time window (minutes)<input class="form-control" type="number" min="1" name="analysis_minutes" value="1440" required></label></div>
 <button type="submit" class="button button-secondary u-mt10" title="Reads retained access logs and prepares findings and suggestions. This does not enable protection, add rules or ban IPs.">Analyze endpoint logs</button>
 <button type="button" id="hdn-endpoints-cancel" class="button button-secondary" title="Stops this log review. Protection settings and saved rules stay unchanged." hidden>Cancel analysis</button>
@@ -54,4 +56,5 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 </form>
 <p class="u-mt10">Read-only review of all retained URL paths except images: JavaScript, stylesheets, PHP, backups and application routes, with every response status. Suggestions distinguish potential filename probes, missing assets and normal requests. Analysis never activates a rule or ban.</p>
 <?php require __DIR__ . '/endpoint-output.php'; ?>
-</section>
+</div></details>
+<?php require __DIR__ . '/endpoint-rates.php'; ?>

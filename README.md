@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.20.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.20.2.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -44,6 +44,10 @@ for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
 
 ## Custom endpoint rules and log suggestions
+
+Endpoints groups exact-path 404 bans, custom rules, log analysis/suggestions,
+WordPress login limits and XML-RPC limits into separate Hestia accordions with
+visible open/close chevrons. Appending a suggestion opens its destination section.
 
 Open **Endpoints → Custom endpoint rules** as administrator. Add a named exact
 path or **native PCRE regular expression**, enabled on all web domains or a

@@ -72,15 +72,6 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <?php $reviewKind = 'agents'; require $install . '/panel/inventory.php'; unset($reviewKind); ?>
 <?php elseif ($key === 'endpoints'): ?>
     <?php require $install . '/panel/endpoints.php'; ?>
-    <h2 class="u-mb20">Endpoint rate limits</h2>
-    <?php foreach (['login' => 'WordPress login — POST /wp-login.php', 'xmlrpc' => 'WordPress XML-RPC — POST /xmlrpc.php'] as $endpoint => $name): ?>
-    <h3 class="u-mb10"><?= $escape($name) ?></h3>
-    <label class="form-label u-block u-mb10"><input form="hdn-settings" type="checkbox" name="<?= $endpoint ?>_enabled" <?= !empty($policy[$endpoint]['enabled']) ? 'checked' : '' ?>> Enabled</label>
-    <label class="form-label" for="<?= $endpoint ?>-rate">Requests per minute, per client and domain</label>
-    <input form="hdn-settings" class="form-control u-mb10" id="<?= $endpoint ?>-rate" type="number" min="1" name="<?= $endpoint ?>_rate" value="<?= $escape($policy[$endpoint]['rate'] ?? 5) ?>" required>
-    <label class="form-label" for="<?= $endpoint ?>-burst">Burst allowance</label>
-    <input form="hdn-settings" class="form-control u-mb20" id="<?= $endpoint ?>-burst" type="number" min="0" name="<?= $endpoint ?>_burst" value="<?= $escape($policy[$endpoint]['burst'] ?? 3) ?>" required>
-    <?php endforeach; ?>
 <?php elseif ($key === 'filters' || $key === 'static'): ?>
     <?php $ruleModule = $key; require $install . '/panel/rules.php'; unset($ruleModule); ?>
 <?php elseif ($key === 'bans'): ?>

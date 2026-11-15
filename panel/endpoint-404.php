@@ -3,7 +3,8 @@ $selected404 = $policy['endpoint_404'] ?? ['enabled'=>false,'paths'=>[],'targets
 $seconds404=$selected404['duration_seconds'];$unit404='seconds';$duration404=$seconds404;
 foreach (['days'=>86400,'hours'=>3600,'minutes'=>60] as $label=>$factor) if ($seconds404%$factor===0) { $unit404=$label;$duration404=intdiv($seconds404,$factor);break; }
 ?>
-<details class="u-mb20" id="hdn-endpoint404-box"><summary>Instaban after HTTP 404 for any of these paths</summary>
+<details class="box-collapse hdn-endpoint-section u-mb20" id="hdn-endpoint404-box"><summary class="box-collapse-header">Instaban after HTTP 404 for any of these paths</summary>
+<div class="box-collapse-content">
 <p class="u-mt10">One actual final 404 response for an exact selected path triggers a server-wide website IP ban in Enforce. Existing files/routes that return 200, redirects or other statuses keep their normal routing. This list does not create a 404 or a 403. Off and Observe do not ban. Maintenance applies the ban after reading the request.</p>
 <label class="form-label u-block"><input form="hdn-settings" type="checkbox" name="endpoint404_enabled" <?= $selected404['enabled']?'checked':'' ?>> Enabled</label>
 <label class="form-label u-block u-mt10">Exact paths — one per line, any extension
@@ -15,4 +16,4 @@ foreach (['days'=>86400,'hours'=>3600,'minutes'=>60] as $label=>$factor) if ($se
 </select></label>
 <p>New or re-enabled selections count requests from activation onward. Earlier retained 404s are not retroactively banned. Native exclusions, Never-ban IPs and server-address protection apply. Appending results keeps this switch and your duration unchanged; review and Save &amp; Apply.</p>
 <p id="hdn-endpoint404-message" role="status"></p>
-</details>
+</div></details>

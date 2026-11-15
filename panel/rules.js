@@ -11,6 +11,7 @@
     });
     document.querySelectorAll('[data-hdn-add]').forEach(button => button.addEventListener('click', () => {
         const module = button.dataset.hdnAdd;
+        if (module === 'custom_endpoints') document.getElementById('hdn-custom-endpoints-box').open = true;
         const list = document.getElementById('hdn-' + module + '-rows');
         const preset = (presets[module] || []).find(item => item.key === button.dataset.hdnRulePreset);
         const existing = [...list.querySelectorAll('.hdn-rule')];
