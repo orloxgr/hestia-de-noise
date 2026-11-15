@@ -273,7 +273,7 @@ def native_log_paths(site, root):
 
 
 def scan(sites, target, minutes, state=None, verify_google=False, now=None, progress=None, cancelled=None, report_path=None, inventory_kind=None):
-    if inventory_kind not in (None, 'agents', 'php_files'):
+    if inventory_kind not in (None, 'agents', 'php_files', 'endpoints'):
         raise ValueError('Invalid traffic inventory')
     chosen = selection(sites, target, minutes)
     if type(verify_google) is not bool:
@@ -282,7 +282,10 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
     started = time.monotonic(); cutoff = now - minutes * 60
     ranges, verification = (google_ranges(state, now) if verify_google else ([], 'Not requested; crawler names are unverified claims'))
     if inventory_kind:
-        from traffic_inventory import Inventory
+        if inventory_kind == 'endpoints':
+            from endpoint_inventory import Inventory
+        else:
+            from traffic_inventory import Inventory
         groups = Inventory(inventory_kind, report_path)
     else:
         groups = Groups(report_path)
@@ -365,7 +368,8 @@ def scan(sites, target, minutes, state=None, verify_google=False, now=None, prog
                     records += 1; totals['requests'] += 1; totals['status_' + status] += 1
                     if progress: progress(dict(records=totals['requests'], bytes=bytes_read, files_done=index, files_total=len(files), domain=site['domain']))
                     if inventory_kind:
-                        groups.observe(site, path_only, status, agent, at, address=address)
+                        arguments = {'method': method} if inventory_kind == 'endpoints' else {}
+                        groups.observe(site, path_only, status, agent, at, address=address, **arguments)
                         continue
                     decoded_path = unquote(unquote(path_only))
                     if IMAGE.search(decoded_path):

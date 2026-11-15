@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($request['action'] === 'save') {
             $agents = is_string($_POST['agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['agents'])) : [];
             $tools = is_string($_POST['tool_agents'] ?? null) ? preg_split('/\r\n|\r|\n/', trim($_POST['tool_agents'])) : [];
-            $submitted = ['schema' => 10, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
+            $submitted = ['schema' => 11, 'mode' => $_POST['mode'] ?? '', 'agents' => array_values(array_filter($agents, static fn($line) => trim($line) !== '')),
                 'log_rejections' => isset($_POST['log_rejections']), 'mail_protection' => isset($_POST['mail_protection']),
                 'tool_agents' => array_values(array_filter($tools, static fn($line) => trim($line) !== '')),
                 'agents_enabled' => isset($_POST['agents_enabled']), 'tool_agents_enabled' => isset($_POST['tool_agents_enabled']),
@@ -175,6 +175,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $submitted[$module][] = $rule;
                 }
             }
+            $submitted['custom_endpoints'] = [];
+            if (!is_array($_POST['custom_endpoints'] ?? [])) throw new RuntimeException('Invalid custom endpoint list');
+            foreach ($_POST['custom_endpoints'] ?? [] as $row) {
+                if (!is_array($row)) throw new RuntimeException('Invalid endpoint row');
+                $duration = filter_var($row['duration'] ?? '', FILTER_VALIDATE_INT);
+                $factor = ['minutes' => 60, 'hours' => 3600, 'days' => 86400, 'seconds' => 1][$row['duration_unit'] ?? ''] ?? null;
+                if ($duration === false || $duration < 0 || $factor === null || $duration > intdiv(PHP_INT_MAX, $factor)) {
+                    throw new RuntimeException('Use a nonnegative endpoint ban duration');
+                }
+                $submitted['custom_endpoints'][] = ['id' => $row['id'] ?? '', 'name' => $row['name'] ?? '',
+                    'enabled' => isset($row['enabled']), 'type' => $row['type'] ?? '', 'pattern' => $row['pattern'] ?? '',
+                    'targets' => $row['targets'] ?? [], 'also_ban' => isset($row['also_ban']), 'duration_seconds' => $duration * $factor];
+            }
             $request['policy'] = $submitted;
             if (is_array($submitted['static_exceptions'])) $request['policy']['static_exceptions'] = (object)$submitted['static_exceptions'];
             foreach (['files', 'queries'] as $kind) {
@@ -216,11 +229,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['automatic'] = isset($_POST['geoip_automatic']);
         } elseif ($request['action'] === 'activity_start') {
             $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
-        } elseif (in_array($request['action'], ['log_scan', 'log_scan_start', 'agents_start', 'php_files_start'], true)) {
+        } elseif (in_array($request['action'], ['log_scan', 'log_scan_start', 'agents_start', 'php_files_start', 'endpoints_start'], true)) {
             $request['target'] = $_POST['analysis_target'] ?? '';
             $request['minutes'] = filter_var($_POST['analysis_minutes'] ?? '', FILTER_VALIDATE_INT);
             $request['verify_google'] = isset($_POST['analysis_verify_google']);
-        } elseif (in_array($request['action'], ['log_scan_status', 'log_scan_cancel', 'activity_status', 'activity_cancel', 'agents_status', 'agents_cancel', 'php_files_status', 'php_files_cancel'], true)) {
+        } elseif (in_array($request['action'], ['log_scan_status', 'log_scan_cancel', 'activity_status', 'activity_cancel', 'agents_status', 'agents_cancel', 'php_files_status', 'php_files_cancel', 'endpoints_status', 'endpoints_cancel'], true)) {
             $request['job'] = $_POST['analysis_job'] ?? '';
             $request['page'] = filter_var($_POST['analysis_page'] ?? 1, FILTER_VALIDATE_INT);
             $value = $_POST['analysis_per_page'] ?? 20;
@@ -267,18 +280,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['filters'] = is_string($_POST['review_filters']) ? json_decode($_POST['review_filters'], true) : false;
             if (!is_array($request['filters'])) $request['filters'] = false;
         }
-        if (!in_array($request['action'], ['save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'review_export', 'review_mark', 'agents_start', 'agents_status', 'agents_cancel', 'agents_export', 'agents_candidates', 'php_files_start', 'php_files_status', 'php_files_cancel'], true)) {
+        if (!in_array($request['action'], ['save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'review_export', 'review_mark', 'agents_start', 'agents_status', 'agents_cancel', 'agents_export', 'agents_candidates', 'php_files_start', 'endpoints_start', 'php_files_status', 'php_files_cancel', 'endpoints_status', 'endpoints_cancel'], true)) {
             $error = 'Unsupported operation.';
         } else {
-            $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_') || str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_') || in_array($request['action'], ['review_mark', 'review_export'], true);
+            $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_') || str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_') || str_starts_with($request['action'], 'endpoints_') || in_array($request['action'], ['review_mark', 'review_export'], true);
             if ($isReview) session_write_close();
             $result = $bridge($request);
             if ($isReview && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ?? '') === '1') {
                 if (!empty($result['job']['analysis'])) {
                     $data = ['analysis' => $result['job']['analysis']];
                     ob_start();
-                    if (str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_')) {
-                        $reviewKind = str_starts_with($request['action'], 'agents_') ? 'agents' : 'php_files';
+                    if (str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_') || str_starts_with($request['action'], 'endpoints_')) {
+                        $reviewKind = str_starts_with($request['action'], 'agents_') ? 'agents' : (str_starts_with($request['action'], 'endpoints_') ? 'endpoints' : 'php_files');
                         require $install . '/panel/inventory-output.php';
                     } else require $install . (str_starts_with($request['action'], 'activity_') ? '/panel/activity-output.php' : '/panel/analysis-output.php');
                     $result['report'] = ob_get_clean();

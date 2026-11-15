@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.18.3.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.19.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -42,6 +42,43 @@ Updates preserve the existing settings.
 Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
+
+## Custom endpoint rules and log suggestions
+
+Open **Endpoints → Custom endpoint rules** as administrator. Add a named exact
+path or **native PCRE regular expression**, enabled on all web domains or a
+selected domain list. Matching uses Nginx's normalized, decoded `$uri`, without
+the query string. Exact paths are case-sensitive; regexes are case-sensitive
+unless they include `(?i)`. For example, `^/bak\.sql\.(?:gz|zip|zst)$` matches
+three specific backup filenames. Patterns are checked by native `nginx -t`
+inside the existing rollback transaction; they are not restricted to Python's
+regex syntax. The first matching endpoint rule wins.
+
+**Enforce** returns **403** before the application, even when the file exists.
+**Observe** logs the match without blocking; **Off** does nothing. Optional
+**Also ban IP** bans after the first matching Enforce request, when automatic
+maintenance next reads the event. Choose minutes, hours, days or seconds;
+**0 means permanent**. This is a server-wide website firewall ban using the
+existing native Hestia CLI, independent of the older IP bans master switch.
+Never-ban IPs, native exclusions, server addresses, expiry, manual unban and
+reboot reconciliation retain their existing behavior. Activity identifies the
+rule; ban details retain its name and the triggering path without query values.
+
+**Analyze endpoint logs** reviews retained native web access logs, including
+compressed rotations, for the selected domain/time window. The initial
+suggestion catalogue covers backup/database filenames and secret/repository
+paths. It keeps all response statuses, including successful/redirected requests,
+with per-domain counts, methods, declared agents and distinct-client counts.
+Frequency, a filename, a declared agent or a 404 alone does not prove abuse.
+Review intended downloads and application routes before enabling a rule.
+
+The analysis is read-only and resumable, with progress, cancellation, complete
+pagination/CSV and explicit log coverage. Layered logs may count the same request
+more than once; early blocks/cache hits may be absent. Reports stay root-private;
+no visitor data is sent to a service. **Append disabled endpoint rule** prepares
+an exact rule for that source domain, with IP banning off. It preserves existing
+edits and requires review and **Save & Apply**. Upgrades introduce an empty
+endpoint list and preserve saved policy, including saves from an older open panel.
 
 ## Central, account and domain WordPress access and countries
 

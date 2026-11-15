@@ -71,6 +71,7 @@ $activeTab = isset($tabs[$activeTab ?? '']) ? $activeTab : array_key_first($tabs
     <p class="u-mt10">Lists describe crawler purposes, not whether requests are malicious. Suggested entries are optional. To limit crawlers only on particular URLs, use Filtered URLs.</p>
     <?php $reviewKind = 'agents'; require $install . '/panel/inventory.php'; unset($reviewKind); ?>
 <?php elseif ($key === 'endpoints'): ?>
+    <?php require $install . '/panel/endpoints.php'; ?>
     <h2 class="u-mb20">Endpoint rate limits</h2>
     <?php foreach (['login' => 'WordPress login — POST /wp-login.php', 'xmlrpc' => 'WordPress XML-RPC — POST /xmlrpc.php'] as $endpoint => $name): ?>
     <h3 class="u-mb10"><?= $escape($name) ?></h3>

@@ -354,6 +354,7 @@
     initializeReview('hdn-activity-scan', 'hdn-activity', 'activity', 'activity', 'Refresh activity');
     initializeReview('hdn-agents-scan', 'hdn-agents', 'agents', 'agents', 'Analyze current agents');
     initializeReview('hdn-php_files-scan', 'hdn-php_files', 'php_files', 'bans', 'Analyze PHP 404s');
+    initializeReview('hdn-endpoints-scan', 'hdn-endpoints', 'endpoints', 'endpoints', 'Analyze endpoint logs');
     const appendLines = (field, values, insensitive = false) => {
         const lines = field.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
         const key = value => insensitive ? value.toLowerCase() : value;

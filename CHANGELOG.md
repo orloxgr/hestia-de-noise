@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0 · 2026-11-15
+
+- Add named custom endpoint rules in Endpoints: exact paths or native PCRE regex, per-domain/all-web scope, 403 in Enforce and match logging in Observe. The first matching rule determines the action; existing files are included. No query/header/cookie matching or new automatic block defaults.
+- Add optional first-match native Hestia firewall IP bans with exact seconds/minutes/hours/days duration (0 = permanent), independent of the existing global probe-ban switch. Preserve exclusions, self-IP protection, manual unban, expiry and reboot reconciliation; retain rule name and path in ban evidence and identify the rule in Activity.
+- Add read-only Analyze endpoint logs for backup/database and secret/repository path suggestions from retained native logs, including compressed rotations and every response status. Show domain/path counts, successful responses, methods, declared agents, distinct clients, coverage, pagination and complete CSV. Appending prepares a disabled domain-scoped exact rule with banning off; analysis never enables protection.
+- Preserve existing policy on upgrade and custom rules when an older open settings panel saves. Validate PCRE with native Nginx and the existing apply/rollback transaction; escape config syntax without imposing arbitrary regex/list limits.
+
 ## 0.18.3 · 2026-11-15
 
 - Show timestamped installer stages, actual work counts where available and a current-stage heartbeat during slow work or lock waits. Reporting adds no work deadline and stays silent outside the administrator installer.

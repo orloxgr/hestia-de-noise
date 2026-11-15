@@ -46,6 +46,26 @@
         message.textContent = 'Added ' + rules.length + ' rule(s). Review domains, then Save & Apply.';
     }));
     document.addEventListener('click', event => {
+        const suggestion = event.target.closest('[data-hdn-append-endpoint]');
+        if (suggestion) {
+            const list = document.getElementById('hdn-custom_endpoints-rows');
+            const field = (row,key) => row.querySelector('[name$="[' + key + ']"]');
+            const target = suggestion.dataset.hdnEndpointSite, pattern = suggestion.dataset.hdnAppendEndpoint;
+            const duplicate = [...list.querySelectorAll('.hdn-rule')].some(row => field(row,'type').value === 'exact' &&
+                field(row,'pattern').value === pattern && [...row.querySelector('[name$="[targets][]"]').selectedOptions].some(o => o.value === target));
+            const status = document.getElementById('hdn-endpoint-append-status');
+            if (duplicate) { status.textContent = 'This exact domain/path rule already exists. Your settings were kept.'; return; }
+            document.querySelector('[data-hdn-add="custom_endpoints"]').click();
+            const row = list.querySelector('.hdn-rule:last-child');
+            field(row,'name').value = pattern;
+            field(row,'pattern').value = pattern;
+            const domains = row.querySelector('[name$="[targets][]"]');
+            let option = [...domains.options].find(o => o.value === target);
+            if (!option) { option = new Option(target, target); domains.appendChild(option); }
+            option.selected = true;
+            status.textContent = 'Added disabled exact-path rule for this domain, with Also ban IP off. Review, enable if appropriate, then Save & Apply.';
+            return;
+        }
         const addAgents = event.target.closest('[data-hdn-filter-agents]');
         if (addAgents) {
             const field = addAgents.closest('.hdn-rule').querySelector('[name$="[agents]"]');

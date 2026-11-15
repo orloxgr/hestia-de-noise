@@ -71,7 +71,7 @@ def cleanup(state):
 
 
 def start(state, sites, actor, target, minutes, verify_google=False, kind="scan", owner=None):
-    if kind not in ('scan', 'activity', 'agents', 'php_files'):
+    if kind not in ('scan', 'activity', 'agents', 'php_files', 'endpoints'):
         raise ValueError('Invalid review type')
     if owner is not None and (not isinstance(owner, str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_-]*', owner)):
         raise PermissionError('Invalid account context')
@@ -334,7 +334,7 @@ def status(state, job, actor, page=1, kind="scan", owner=None, domain='all', per
 
 def export_review(state, job, actor, kind='scan', owner=None, domain='all', offset=0, filters=None):
     """Export complete saved results in transfer chunks, retaining ownership scope."""
-    if kind not in ('scan', 'activity', 'php_files') or type(offset) is not int or offset < 0:
+    if kind not in ('scan', 'activity', 'php_files', 'endpoints') or type(offset) is not int or offset < 0:
         raise ValueError('Invalid review export selection')
     # status validates job ownership, kind and current account scope before reads.
     report = status(state, job, actor, kind=kind, owner=owner, domain=domain,
@@ -364,7 +364,11 @@ def export_review(state, job, actor, kind='scan', owner=None, domain='all', offs
         values = values[offset:offset+500]
     if not values and offset < total:
         raise ValueError('The saved report is incomplete')
-    if kind == 'activity':
+    if kind == 'endpoints':
+        columns = ['Site', 'Path', 'Finding', 'Hits', 'HTTP statuses', 'Methods', 'Declared agents', 'Distinct clients', 'Advice']
+        rows = [[r['domain'],r['path'],r['category'],r['count'],json.dumps(r['statuses']),
+                 json.dumps(r['methods']),json.dumps(r['agents']),r['clients'],r['advice']] for r in values]
+    elif kind == 'activity':
         columns = ['Time','Site','Rule','Declared agent','Result','HTTP status']
         rows = [[r.get(k,'') for k in ('time','domain','rule','agent','outcome','status')] for r in values]
     elif kind == 'php_files':
@@ -452,7 +456,7 @@ def worker(state, job):
                 result = log_analysis.scan(sites, request['target'], request['minutes'], state,
                     request['verify_google'], now=request.get('requested_at'), progress=progress,
                     cancelled=lambda: (path / 'cancel.json').exists(), report_path=path / 'report.sqlite',
-                    inventory_kind=request['kind'] if request.get('kind') in ('agents', 'php_files') else None)
+                    inventory_kind=request['kind'] if request.get('kind') in ('agents', 'php_files', 'endpoints') else None)
             write(path, 'result.json', result)
             write(path, 'status.json', dict(state='complete', progress=progress_value))
     except InterruptedError:

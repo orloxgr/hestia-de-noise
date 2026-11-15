@@ -1,5 +1,6 @@
 <?php
 if (!isset($data, $escape)) { http_response_code(403); exit; }
+if (($reviewKind ?? '') === 'endpoints') { require __DIR__ . '/endpoint-output.php'; return; }
 $analysis = $data['analysis'] ?? null;
 $kind = $analysis['inventory_kind'] ?? $reviewKind;
 $prefix = 'hdn-' . $kind;

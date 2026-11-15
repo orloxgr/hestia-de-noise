@@ -46,6 +46,19 @@ class NativeNginxTests(unittest.TestCase):
             probe.bind(('127.0.0.1', 0)); cls.port = probe.getsockname()[1]
         policy = copy.deepcopy(DEFAULT)
         policy['mode'] = 'enforce'
+        policy['custom_endpoints'] = [
+            dict(id='backups',name='Backup scans',enabled=True,type='regex',
+                 pattern=r'(?i)^/bak(?|\.sql\.gz|\.sql\.zip|\.sql\.zst)$',
+                 targets=['alice/enforce.test','alice/observe.test','alice/off.test'],also_ban=True,duration_seconds=120),
+            dict(id='literal_endpoint',name='Literal endpoint',enabled=True,type='exact',pattern='/back[up]+$.zip',
+                 targets=[],also_ban=False,duration_seconds=86400),
+            dict(id='existing_endpoint',name='Existing endpoint',enabled=True,type='exact',pattern='/backup.zip',
+                 targets=['alice/enforce.test'],also_ban=False,duration_seconds=86400),
+            dict(id='quoted_regex',name='Quoted punctuation',enabled=True,type='regex',pattern=r'^/quote";#\.zip$',
+                 targets=[],also_ban=False,duration_seconds=86400),
+            dict(id='overlap',name='Later overlapping ban rule',enabled=True,type='regex',pattern=r'^/backup\.zip$',
+                 targets=[],also_ban=True,duration_seconds=120)]
+        (cls.directory/'backup.zip').write_text('existing file')
         cls.literal = 'Odd";${literal}#(a)+[b]\\c'
         policy['agents'] = ['Crawler', cls.literal]
         policy['scanners'] = True
@@ -121,6 +134,41 @@ class NativeNginxTests(unittest.TestCase):
         response = connection.getresponse()
         status = response.status; response.read(); connection.close()
         return status
+
+    def test_custom_endpoints_native_pcre_exact_scope_modes_and_event_privacy(self):
+        before = Origin.hits
+        self.assertEqual(self.request('/bak.sql.gz?token=private-endpoint-value'),403)
+        self.assertEqual(self.request('/BAK.sql.zip'),403)
+        self.assertEqual(self.request('/bak.sql.zst'),403)
+        self.assertEqual(self.request('/backup.zip'),403)  # Existing file intentionally blocked.
+        self.assertEqual(self.request('/back[up]+$.zip'),403)
+        self.assertEqual(self.request('/quote%22%3B%23.zip'),403)
+        self.assertEqual(Origin.hits,before)
+        self.assertEqual(self.request('/backu.zip'),200)
+        self.assertEqual(self.request('/bak.sql.gz',host='other.test'),200)
+        self.assertEqual(self.request('/bak.sql.gz',host='observe.test'),200)
+        self.assertEqual(self.request('/bak.sql.gz',host='off.test'),200)
+        self.assertEqual(self.request('/bak.sql.gz',host='www.enforce.test'),403)
+        time.sleep(.02)
+        import json
+        events=[json.loads(line) for line in (self.directory/'ban-events.log').read_text().splitlines() if line.startswith('{')]
+        endpoint=[e for e in events if e['reason']=='endpoint-backups']
+        self.assertTrue(endpoint)
+        self.assertTrue(all(e['domain']=='enforce.test' for e in endpoint))
+        self.assertTrue(all('?' not in e['path'] for e in endpoint))
+        self.assertFalse(any(e['reason']=='endpoint-overlap' for e in events))
+        self.assertIn('endpoint-backups',(self.directory/'matches.log').read_text())
+
+    def test_invalid_endpoint_pcre_is_rejected_by_native_nginx(self):
+        policy=copy.deepcopy(DEFAULT)
+        policy['custom_endpoints']=[dict(id='invalid',name='Invalid PCRE',enabled=True,type='regex',
+            pattern='^(unclosed',targets=[],also_ban=False,duration_seconds=60)]
+        text='events {} http {\n'+global_config(policy,[])+ '}\n'
+        candidate=self.directory/'invalid-endpoint.conf';candidate.write_text(text)
+        result=subprocess.run([NGINX,'-p',self.directory.as_posix()+'/', '-c',str(candidate),'-t'],capture_output=True,text=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('pcre',result.stderr.lower())
+        self.assertEqual(self.request('/'),200)
 
     def test_agent_blocks_case_insensitive_literal_and_observe_off_allow(self):
         self.assertEqual(self.request(agent='Some CRAWLER v1'), 403)

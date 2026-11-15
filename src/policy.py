@@ -8,9 +8,10 @@ import probe_rules
 import enumeration
 import access_protection
 import agent_catalog
+import endpoints
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.18.3'
+VERSION = '0.19.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -21,7 +22,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 10, 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 11, 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
            'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
@@ -42,7 +43,8 @@ DEFAULT = {'schema': 10, 'mode': 'observe', 'agents': [], 'scanners': False,
            'domain_bans': {'allow_users': True, 'sites': {}}}
 DEFAULT.update({field: [] for field in ('ai_agents', 'search_agents', 'seo_agents')})
 DEFAULT.update({field + '_enabled': True for field in ('ai_agents', 'search_agents', 'seo_agents')})
-V9_KEYS = set(DEFAULT) - {field + suffix for field in ('ai_agents', 'search_agents', 'seo_agents') for suffix in ('', '_enabled')}
+V10_KEYS = set(DEFAULT) - {'custom_endpoints'}
+V9_KEYS = V10_KEYS - {field + suffix for field in ('ai_agents', 'search_agents', 'seo_agents') for suffix in ('', '_enabled')}
 LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
 V7_KEYS = V9_KEYS - {'log_rejections', 'mail_protection', 'enumeration'}
 PRIVATE_PATTERNS = [
@@ -143,8 +145,11 @@ def validate(raw):
             data[field + '_enabled'] = data['agents_enabled']
         data['agents'] = [value for value in previous if agent_catalog.classify(value) not in ('ai_agents', 'search_agents', 'seo_agents')]
         data['schema'] = 10
-    if data.get('schema') != 10 or set(data) != set(DEFAULT):
+    if data.get('schema') == 10 and set(data) == V10_KEYS:
+        data.update(schema=11, custom_endpoints=[])
+    if data.get('schema') != 11 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
+    endpoints.validate(data['custom_endpoints'], target)
     enumeration.validate(data['enumeration'], target)
     if data['mode'] not in MODES or type(data['scanners']) is not bool:
         raise ValueError('Invalid mode or private-file setting')
@@ -387,6 +392,7 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
     web_sites = [site for site in sites if site.get('kind') != 'mail']
     lines += enumeration.compiled(policy, web_sites, pattern, parameter_pattern)
     lines += probe_rules.compile_maps(policy, web_sites, pattern, exact_uri_pattern)
+    lines += endpoints.compile_maps(policy, web_sites, scope_map, exact_uri_pattern, probe_rules.event_format)
     lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
     for site in sites:
         if site.get('supported', True) and not site.get('suspended'):
@@ -436,10 +442,10 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
     lines += ['    ' + pattern('(?:^|:)login(?:$|:)') + ' login;',
               '    ' + pattern('(?:^|:)xmlrpc(?:$|:)') + ' xmlrpc;']
-    lines += ['}', 'map "$hdn_domain_blocked:$hdn_match_base" $hdn_match {',
-              '    default $hdn_match_base;', '    ~^1: domain-ban;', '}',
+    lines += ['}', 'map "$hdn_domain_blocked:$hdn_endpoint:$hdn_match_base" $hdn_match {',
+              '    default $hdn_match_base;', '    ~^1: domain-ban;', '    ~^0:endpoint- $hdn_endpoint;', '}',
               'map $hdn_match $hdn_block {', '    default 0;', '    private-file 1;',
-              '    agent 1;', '    ~^filter-block- 1;', '}',
+              '    agent 1;', '    ~^filter-block- 1;', '    ~^endpoint- 1;', '}',
               'map "$hdn_mode:$hdn_static_candidate" $hdn_static_reject {', '    default 0;', '    ~^enforce:static- 1;', '}',
               # The JSON-escaped User-Agent follows the legacy fields, separated
               # by a tab. Never record IPs, URLs, queries or other headers here.
@@ -509,6 +515,8 @@ def site_config(policy, site, document_root=None, access_settings=None):
     lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']
     if policy['bans']['enabled']:
         lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_bans if=$hdn_autoban_log;']
+    if any(rule['enabled'] and rule['also_ban'] and applies(rule, site) for rule in policy['custom_endpoints']):
+        lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_endpoint_bans if=$hdn_endpoint_ban_log;']
     if any(local.values()):
         lines += ['access_log /var/log/hestia-de-noise/ban-events.log hdn_domain_bans if=$hdn_domain_autoban_log;']
     if (policy['bans']['enabled'] and policy['bans']['any_404']['enabled']) or local.get('any_404'):

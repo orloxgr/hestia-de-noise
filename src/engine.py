@@ -30,7 +30,7 @@ import agent_catalog
 import listing as list_sizes
 import progress
 
-REVIEW_ACTIONS = ('review_mark', 'review_export', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'agents_export', 'agents_candidates') + tuple(kind + '_' + action for kind in ('agents', 'php_files') for action in ('start', 'status', 'cancel'))
+REVIEW_ACTIONS = ('review_mark', 'review_export', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'agents_export', 'agents_candidates') + tuple(kind + '_' + action for kind in ('agents', 'php_files', 'endpoints') for action in ('start', 'status', 'cancel'))
 
 HESTIA = Path('/usr/local/hestia')
 STATE = Path('/var/lib/hestia-de-noise')
@@ -465,7 +465,7 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
     ban_status = {}
     if owner is None:
         try:
-            ban_status = auto_bans.report(STATE, policy['bans']['enabled'],
+            ban_status = auto_bans.report(STATE, policy['bans']['enabled'] or any(r['enabled'] and r['also_ban'] for r in policy['custom_endpoints']),
                 listing.get('bans_page', 1), listing.get('bans_view', 'active'), listing.get('bans_per_page', 50))
         except (OSError, ValueError) as error:
             ban_status = {'error': str(error)}
@@ -570,7 +570,7 @@ def dispatch(request):
                 request['actor'], request.get('category'), request.get('offset', 0))}
         if set(request) - {'actor', 'owner', 'action', 'target', 'minutes', 'verify_google', 'listing', 'job', 'page', 'offset', 'per_page', 'filters'}:
             raise ValueError('Only log-analysis selections can be submitted')
-        for kind in ('agents', 'php_files'):
+        for kind in ('agents', 'php_files', 'endpoints'):
             if not request['action'].startswith(kind + '_'):
                 continue
             operation = request['action'][len(kind) + 1:]
@@ -739,15 +739,17 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') in (6, 7, 8, 9, 10):
+        if incoming.get('schema') in (6, 7, 8, 9, 10, 11):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
             incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
-                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10) else {}}}
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10, 11) else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
-        if incoming.get('schema') not in (9, 10):
+        if incoming.get('schema') != 11:
+            policy['custom_endpoints'] = previous['custom_endpoints']
+        if incoming.get('schema') not in (9, 10, 11):
             policy['enumeration'] = previous['enumeration']
-        if incoming.get('schema') not in (8, 9, 10):
+        if incoming.get('schema') not in (8, 9, 10, 11):
             for key in ('log_rejections', 'mail_protection'):
                 policy[key] = previous[key]
             for key in ('exclude_static', 'min_distinct_paths'):
@@ -768,7 +770,7 @@ def dispatch(request):
             for key in ('missing_files', 'suspicious_queries'):
                 policy['bans'][key] = previous['bans'][key]
             policy['probe_exceptions'] = previous['probe_exceptions']
-        if policy['bans']['enabled']:
+        if policy['bans']['enabled'] or any(r['enabled'] and r['also_ban'] for r in policy['custom_endpoints']):
             for command in ('v-add-firewall-chain', 'v-list-firewall-ban', 'v-add-firewall-ban', 'v-delete-firewall-ban'):
                 if not (HESTIA / 'bin' / command).is_file():
                     raise ValueError('Automatic bans require native Hestia firewall commands: ' + command)
