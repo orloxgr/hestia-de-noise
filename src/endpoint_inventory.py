@@ -71,6 +71,8 @@ def decorate(row):
     if missing: tags.append('unexpected')
     row.update(category=category, successful=successful, missing=missing, advice=detail,
                eligible_404=eligible_404, eligible_block=eligible_block,
+               can_append=row.get('candidate') is not None,
+               can_append_404=bool(missing and row.get('candidate') is not None),
                recommendation=dict(action=action,title=title,detail=detail),
                review_info=dict(priority=priority,priority_label={'high':'High review priority','normal':'Review context','low':'Lower review priority'}[priority],tags=tags,reason=detail))
     return row
@@ -81,14 +83,13 @@ def proposals(rows):
     for raw in rows:
         row = decorate(raw)
         action = row['recommendation']['action']
-        if action == 'keep': continue
         key = row['site'], row['category'], action
         group = groups.setdefault(key,dict(site=row['site'],domain=row['domain'],category=row['category'],
             action=action,title=row['recommendation']['title'],paths=[],missing_paths=[],block_paths=[],count=0,statuses=Counter()))
         group['count'] += row['count']; group['statuses'].update(row['statuses'])
         if row.get('candidate') is not None:
             group['paths'].append(row['candidate'])
-            if row['eligible_404']: group['missing_paths'].append(row['candidate'])
+            if row['can_append_404']: group['missing_paths'].append(row['candidate'])
             if row['eligible_block']: group['block_paths'].append(row['candidate'])
     for group in groups.values():
         paths = sorted(set(group['paths'])); group['paths'] = paths
@@ -98,8 +99,9 @@ def proposals(rows):
         # Each observed path becomes its own exact rule, never an oversized PCRE token.
         group['pattern'] = group['block_paths'][0] if len(group['block_paths']) == 1 else None
         group['type'] = 'exact'
-        group['detail'] = ('Only missing sensitive/backup paths are offered below. Check intentional downloads before adding them. PHP/application paths and ordinary assets are investigation findings, not ban recommendations.' if group['action'] == 'block' else
+        group['detail'] = ('Review missing sensitive/backup filenames and intentional downloads. Manual append actions are available independently of this recommendation.' if group['action'] == 'block' else
                            'Inspect these recorded URLs and their responses; keep normal asset/application routing. No block or ban is suggested.' if group['action'] == 'review' else
+                           'Successful application/file delivery does not justify a block. Manual append remains available if you choose to create a rule.' if group['action'] == 'keep' else
                            'Restore the missing files or correct the links/generated HTML for the listed paths. Investigate server errors in the application logs.')
     return sorted(groups.values(),key=lambda g:(g['action'] not in ('review','block','review_block'),-g['count'],g['domain'],g['category']))
 

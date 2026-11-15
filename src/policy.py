@@ -12,7 +12,7 @@ import endpoints
 import endpoint_404
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.20.2'
+VERSION = '0.20.3'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']

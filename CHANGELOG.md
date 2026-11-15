@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.3 · 2026-11-15
+
+- Restore manual append for every exact endpoint finding, independent of classification and recommendation: per-row and grouped disabled domain-scoped 403 rules, and per-row/group/page append to the exact 404 list for any recorded 404, including JS, CSS, PHP and mixed-status paths. Keep advice separate from manual capabilities; retain observed successes and real-final-404 ban behavior.
+- Include all finding categories in grouped results and export every available exact 404-list path. Keep exact-path deduplication, existing switches/durations/scopes, and individual rules instead of giant generated regexes.
+
 ## 0.20.2 · 2026-11-15
 
 - Organize Endpoints into native Hestia accordions: exact-path 404 bans, custom rules, log analysis/suggestions, WordPress login limits and XML-RPC limits. Show persistent chevrons on section and suggestion headers in both open and closed states, with keyboard focus and responsive spacing.

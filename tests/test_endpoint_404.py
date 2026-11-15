@@ -45,6 +45,7 @@ class Selections(unittest.TestCase):
         probe=endpoint_inventory.decorate({**rows[-1],'domains_404':5})
         self.assertEqual(probe['recommendation']['action'],'review')
         self.assertFalse(probe['eligible_404'])
+        self.assertTrue(probe['can_append_404'])
         self.assertIn('5 domains',probe['advice'])
 
     def test_common_application_paths_never_become_suggested_bans(self):
@@ -55,12 +56,14 @@ class Selections(unittest.TestCase):
             decorated=endpoint_inventory.decorate(row)
             self.assertFalse(decorated['eligible_404'],row['path'])
             self.assertFalse(decorated['eligible_block'],row['path'])
+            self.assertTrue(decorated['can_append'],row['path'])
+            self.assertTrue(decorated['can_append_404'],row['path'])
         for group in endpoint_inventory.proposals(rows):
             self.assertEqual(group['block_paths'],[])
-            self.assertEqual(group['missing_paths'],[])
+            self.assertEqual(group['missing_paths'],group['paths'])
             self.assertIsNone(group['pattern'])
 
-    def test_sensitive_proposals_require_only_404_and_remain_individual_exact_paths(self):
+    def test_sensitive_recommendations_require_only_404_but_manual_append_does_not(self):
         paths=['/wp-config.old','/wp-config.php.bak','/.env','/.git/config','/backup.zip']
         base=dict(site='alice/one.test',domain='one.test',count=1)
         for path in paths:
@@ -70,11 +73,28 @@ class Selections(unittest.TestCase):
                 result=endpoint_inventory.decorate(dict(row,statuses=statuses))
                 self.assertFalse(result['eligible_404'])
                 self.assertFalse(result['eligible_block'])
+                self.assertTrue(result['can_append'])
+                self.assertEqual(result['can_append_404'],'404' in statuses)
         rows=[dict(base,path=f'/private/{i}/wp-config.old',candidate=f'/private/{i}/wp-config.old',statuses={'404':1}) for i in range(300)]
         group=endpoint_inventory.proposals(rows)[0]
         self.assertEqual(len(group['block_paths']),300)
         self.assertIsNone(group['pattern'])
         self.assertEqual(group['type'],'exact')
+
+    def test_append_available_for_successful_and_mixed_status_findings_without_changing_advice(self):
+        base=dict(site='alice/one.test',domain='one.test',count=2)
+        for path in ['/working.js','/missing.css','/wp-blog-header.php','/application/route']:
+            for statuses in ({'200':2},{'404':1,'200':1},{'404':2}):
+                row=endpoint_inventory.decorate(dict(base,path=path,candidate=path,statuses=statuses))
+                self.assertTrue(row['can_append'])
+                self.assertEqual(row['can_append_404'],'404' in statuses)
+                group=endpoint_inventory.proposals([row])[0]
+                self.assertEqual(group['paths'],[path])
+                self.assertEqual(group['missing_paths'],[path] if '404' in statuses else [])
+                self.assertFalse(row['eligible_block'])
+        redacted=endpoint_inventory.decorate(dict(base,path='/[redacted-path]',candidate=None,statuses={'404':2}))
+        self.assertFalse(redacted['can_append'])
+        self.assertFalse(redacted['can_append_404'])
 
 
 

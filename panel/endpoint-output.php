@@ -9,20 +9,20 @@ $endpointAnalysis = $data['analysis'] ?? null;
 <?php if (($analysis['endpoint_scope'] ?? '') !== 'all-non-image-paths'): ?><p>This older saved review covered backup/secret paths only. Run Analyze endpoint logs again to include JavaScript, CSS, PHP and other routes.</p><?php endif; ?>
 <?php require __DIR__ . '/review-filters.php'; ?>
 <?php if (!empty($analysis['suggestions'])): ?>
-<h4 class="u-mt20">Suggested rules and fixes</h4>
+<h4 class="u-mt20">Grouped findings and advice</h4>
 <div data-hdn-list="Endpoint suggestions">
 <?php foreach ($analysis['suggestions'] as $proposal): ?>
 <details class="hdn-endpoint-card" data-hdn-list-row><summary><strong><?= $escape($proposal['domain']) ?></strong><span><?= $escape($proposal['category'].' — '.$proposal['title']) ?></span><small><?= $escape($proposal['count']) ?> hits</small></summary>
 <div class="hdn-endpoint-card-body">
 <p><?= $escape($proposal['detail']) ?></p>
 <div class="hdn-endpoint-meta"><span>Domain: <strong><?= $escape($proposal['domain']) ?></strong></span><span><?= count($proposal['paths']) ?> observed paths</span><span>HTTP <?= $escape(json_encode($proposal['statuses'])) ?></span></div>
-<?php if (!empty($proposal['block_paths']) || !empty($proposal['missing_paths'])): ?>
-<label class="form-label hdn-endpoint-paths-label">Exact paths to review<textarea class="form-control hdn-endpoint-paths" rows="<?= min(6,max(2,count($proposal['missing_paths']))) ?>" readonly spellcheck="false"><?= $escape(implode("\n",$proposal['missing_paths'])) ?></textarea></label>
+<?php if (!empty($proposal['paths'])): ?>
+<label class="form-label hdn-endpoint-paths-label">Exact paths to review<textarea class="form-control hdn-endpoint-paths" rows="<?= min(6,max(2,count($proposal['paths']))) ?>" readonly spellcheck="false"><?= $escape(implode("\n",$proposal['paths'])) ?></textarea></label>
 <div class="hdn-endpoint-actions">
-<?php if (!empty($proposal['block_paths'])): ?>
-<button type="button" class="button button-secondary" title="Adds one disabled exact 403 rule per sensitive path, scoped to this domain, with IP banning off. Once enabled and saved, a 403 rule also blocks existing files; it does not wait for a 404." data-hdn-endpoint-group="<?= $escape(json_encode($proposal['block_paths'])) ?>" data-hdn-endpoint-site="<?= $escape($proposal['site']) ?>" data-hdn-endpoint-name="<?= $escape($proposal['category']) ?>">Prepare disabled 403 rules</button>
+<?php if (!empty($proposal['paths'])): ?>
+<button type="button" class="button button-secondary" title="Adds one disabled exact 403 rule per selected path, scoped to this domain, with IP banning off. Once enabled and saved, a 403 rule also blocks existing files; it does not wait for a 404." data-hdn-endpoint-group="<?= $escape(json_encode($proposal['paths'])) ?>" data-hdn-endpoint-site="<?= $escape($proposal['site']) ?>" data-hdn-endpoint-name="<?= $escape($proposal['category']) ?>">Prepare disabled 403 rules</button>
 <?php endif; ?>
-<?php if (!empty($proposal['missing_paths'])): ?><button type="button" class="button button-secondary" title="Adds these exact missing sensitive/backup paths to the 404-ban list. Keeps the current Enabled switch, duration and domain selection. After Save &amp; Apply, an enabled list bans an IP after its first real 404; existing files keep normal routing. Review the list domains before saving." data-hdn-endpoint404-group="<?= $escape(json_encode($proposal['missing_paths'])) ?>" data-hdn-endpoint-site="<?= $escape($proposal['site']) ?>">Add <?= count($proposal['missing_paths']) ?> paths to 404 list</button><?php endif; ?>
+<?php if (!empty($proposal['missing_paths'])): ?><button type="button" class="button button-secondary" title="Adds these exact paths with recorded 404 responses to the 404-ban list. Keeps the current Enabled switch, duration and domain selection. After Save &amp; Apply, an enabled list bans an IP after its first real 404; existing files keep normal routing. Review the list domains before saving." data-hdn-endpoint404-group="<?= $escape(json_encode($proposal['missing_paths'])) ?>" data-hdn-endpoint-site="<?= $escape($proposal['site']) ?>">Add <?= count($proposal['missing_paths']) ?> paths to 404 list</button><?php endif; ?>
 </div>
 <p class="hdn-endpoint-help">Preparing a 403 rule leaves it disabled. Adding to an already enabled 404 list takes effect when you Save &amp; Apply.</p>
 <?php endif; ?>
@@ -32,18 +32,19 @@ $endpointAnalysis = $data['analysis'] ?? null;
 </div>
 <?php endif; ?>
 <?php $reviewPage = $analysis; require __DIR__ . '/review-pagination.php'; ?>
-<div class="hdn-endpoint-actions u-mt10"><label><input type="checkbox" title="Selects only the suggested sensitive/backup 404 paths on this results page." data-hdn-select-endpoint404> Select suggested sensitive/backup 404 paths on this page</label>
-<button type="button" class="button button-secondary" title="Adds only the checked sensitive/backup paths to the exact 404 list. Keeps its Enabled switch, duration and domains. Review scope before Save &amp; Apply; an enabled list bans on the first real 404." data-hdn-append-endpoint404>Append selected paths to the 404 list</button></div>
+<div class="hdn-endpoint-actions u-mt10"><label><input type="checkbox" title="Selects all exact paths with recorded 404 responses on this results page, regardless of extension or recommendation." data-hdn-select-endpoint404> Select all 404 paths on this page</label>
+<button type="button" class="button button-secondary" title="Adds only the checked paths with recorded 404 responses to the exact 404 list. Keeps its Enabled switch, duration and domains. Review scope before Save &amp; Apply; an enabled list bans on the first real 404." data-hdn-append-endpoint404>Append selected paths to the 404 list</button></div>
 
-<p>Ordinary PHP/application paths, JavaScript and CSS remain investigation findings, without suggested block/ban actions. Suggestions are limited to missing sensitive/backup filenames with only 404 responses; check intentional downloads before using them.</p>
+<p>Append is available for every exact finding, independently of the recommendation. Any path with a recorded 404 can be added to the 404 list, including JS, CSS and PHP. Appending is your manual selection; the analysis does not label every 404 as malicious.</p>
 <p id="hdn-endpoint-append-status" role="status"></p>
 <?php foreach ($analysis['findings'] ?? [] as $row): ?>
-<details class="u-mt10"><summary><?php if (!empty($row['eligible_404'])): ?><input type="checkbox" data-hdn-endpoint404-path="<?= $escape($row['candidate']) ?>" data-hdn-endpoint-site="<?= $escape($row['site']) ?>" aria-label="Select exact 404 path <?= $escape($row['path']) ?>"> <?php endif; ?><strong><?= $escape($row['domain']) ?></strong> · <code><?= $escape($row['path']) ?></code> · <?= $escape($row['count']) ?> hits<?= $row['successful'] ? ' · successful/redirected responses present' : '' ?></summary>
+<details class="u-mt10"><summary><?php if (!empty($row['can_append_404'])): ?><input type="checkbox" data-hdn-endpoint404-path="<?= $escape($row['candidate']) ?>" data-hdn-endpoint-site="<?= $escape($row['site']) ?>" aria-label="Select exact 404 path <?= $escape($row['path']) ?>"> <?php endif; ?><strong><?= $escape($row['domain']) ?></strong> · <code><?= $escape($row['path']) ?></code> · <?= $escape($row['count']) ?> hits<?= $row['successful'] ? ' · successful/redirected responses present' : '' ?></summary>
 <p><?= $escape($row['category'] . ' — ' . $row['advice']) ?></p>
 <p>HTTP statuses: <?= $escape(json_encode($row['statuses'])) ?> · Methods: <?= $escape(json_encode($row['methods'])) ?> · Distinct clients: <?= $escape($row['clients']) ?></p>
 <p><?= $escape(gmdate('Y-m-d H:i:s',(int)$row['first'])) ?> – <?= $escape(gmdate('Y-m-d H:i:s',(int)$row['last'])) ?> UTC</p>
 <table class="table" data-hdn-list="Endpoint agents"><thead><tr><th>Declared agent (unverified)</th><th>Hits</th></tr></thead><tbody><?php foreach ($row['agents'] as $agent => $hits): ?><tr><td><?= $escape($agent) ?></td><td><?= $escape($hits) ?></td></tr><?php endforeach; ?></tbody></table>
-<?php if (!empty($row['eligible_block'])): ?><button type="button" class="button button-secondary u-mt10" title="Prepares a disabled exact 403 rule for this domain, with IP banning off. Enabling and saving it blocks this URL even if a file exists." data-hdn-append-endpoint="<?= $escape($row['candidate']) ?>" data-hdn-endpoint-site="<?= $escape($row['site']) ?>">Append disabled endpoint rule</button><?php endif; ?>
+<?php if (!empty($row['can_append'])): ?><button type="button" class="button button-secondary u-mt10" title="Prepares a disabled exact 403 rule for this domain, with IP banning off. Enabling and saving it blocks this URL even if a file exists." data-hdn-append-endpoint="<?= $escape($row['candidate']) ?>" data-hdn-endpoint-site="<?= $escape($row['site']) ?>">Append disabled endpoint rule</button><?php endif; ?>
+<?php if (!empty($row['can_append_404'])): ?><button type="button" class="button button-secondary u-mt10" title="Adds this exact path to the 404 list, preserving its Enabled switch, duration and domains. After Save &amp; Apply, an enabled list bans on a real 404, not on 200 or redirects." data-hdn-endpoint404-group="<?= $escape(json_encode([$row['candidate']])) ?>" data-hdn-endpoint-site="<?= $escape($row['site']) ?>">Append path to 404 list</button><?php endif; ?>
 <?php $reviewRow=$row; require __DIR__ . '/review-note-controls.php'; ?>
 </details>
 <?php endforeach; if (empty($analysis['findings'])): ?><p>No matching non-image URL paths in these logs and time window.</p><?php endif; ?>

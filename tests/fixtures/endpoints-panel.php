@@ -12,7 +12,7 @@ $data = ['sites'=>[['key'=>'alice/one.test','domain'=>'one.test','owner'=>'alice
     'analysis'=>['inventory_kind'=>'endpoints','minutes'=>1440,'totals'=>['requests'=>2],'findings_total'=>1,
         'bytes_read'=>1024,'partial'=>false,'note'=>'Fixture only','page'=>1,'pages'=>1,'per_page'=>20,
         'findings'=>[['domain'=>'one.test','site'=>'alice/one.test','path'=>'/wp-config.old','candidate'=>'/wp-config.old',
-            'count'=>2,'successful'=>0,'missing'=>2,'eligible_404'=>true,'eligible_block'=>true,'category'=>'Backup / database filename','advice'=>'Review first',
+            'count'=>2,'successful'=>0,'missing'=>2,'eligible_404'=>true,'eligible_block'=>true,'can_append'=>true,'can_append_404'=>true,'category'=>'Backup / database filename','advice'=>'Review first',
             'statuses'=>['404'=>2],'methods'=>['GET'=>2],'clients'=>1,'first'=>1000,'last'=>1001,
             'agents'=>['Scanner <script>bad()</script>'=>2]]]]];
 $data['analysis']['suggestions']=[['site'=>'alice/one.test','domain'=>'one.test','category'=>'Backup archives','action'=>'block',
@@ -22,6 +22,19 @@ $data['analysis']['suggestions']=[['site'=>'alice/one.test','domain'=>'one.test'
 $data['analysis']['findings'][]=array_replace($data['analysis']['findings'][0],
     ['path'=>'/wp-blog-header.php','candidate'=>'/wp-blog-header.php','category'=>'PHP path',
      'eligible_404'=>false,'eligible_block'=>false,'advice'=>'Inspect application routing. No block or ban suggested.']);
+foreach (['/missing.js','/missing.css','/application/route','/working.js'] as $path) {
+    $success=$path==='/working.js';
+    $mixed=$path==='/missing.js';
+    $data['analysis']['findings'][]=array_replace($data['analysis']['findings'][0],
+        ['path'=>$path,'candidate'=>$path,'eligible_block'=>false,'eligible_404'=>false,
+         'can_append'=>true,'can_append_404'=>!$success,'successful'=>($success||$mixed)?1:0,
+         'missing'=>$success?0:1,'statuses'=>$success?['200'=>1]:($mixed?['200'=>1,'404'=>1]:['404'=>1])]);
+}
+$data['analysis']['findings_total']=count($data['analysis']['findings']);
+$data['analysis']['suggestions'][]=['site'=>'alice/one.test','domain'=>'one.test','category'=>'JavaScript','action'=>'review',
+    'title'=>'Review requests','detail'=>'Manual actions are independent of this recommendation.',
+    'paths'=>['/missing.js','/working.js'],'missing_paths'=>['/missing.js'],'block_paths'=>[],
+    'count'=>3,'statuses'=>['404'=>1,'200'=>2],'pattern'=>null,'type'=>'exact'];
 ?>
 <!doctype html><html><head><meta charset="utf-8"><style><?php readfile($install.'/panel/ui.css'); ?></style></head><body>
 <div id="hdn-container"><form id="hdn-settings" method="post"><?php $fields('save'); ?></form>

@@ -188,7 +188,7 @@ class EndpointAnalysis(unittest.TestCase):
             self.assertEqual(len(export['rows']),27)
             successful_backup=next(row for row in export['rows'] if row[1]=='/backup.sql')
             self.assertEqual(successful_backup[9:11],['',''])
-            self.assertEqual(successful_backup[12],'')
+            self.assertEqual(successful_backup[12],'/backup.sql')
             self.assertNotIn('private-value',json.dumps([page,export]))
             self.assertNotIn('198.51.100.1',json.dumps([page,export]))
             with self.assertRaises(PermissionError): analysis_jobs.status(root,job,'other',kind='endpoints')
