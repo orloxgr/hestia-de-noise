@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.20.3.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.21.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -98,19 +98,28 @@ an exact rule for that source domain, with IP banning off. It preserves existing
 edits and requires review and **Save & Apply**. Upgrades introduce an empty
 endpoint list and preserve saved policy, including saves from an older open panel.
 
-### Bulk exact paths: instaban after a real 404
+### Bulk exact paths: ban after a configurable number of real 404s
 
-In **Endpoints → Instaban after HTTP 404 for any of these paths**, paste one exact
+In **Endpoints → Ban after repeated HTTP 404s for selected paths**, paste one exact
 path per line, with any extension. Choose domains, a ban duration (0 = permanent)
-and enable the list. In **Enforce**, the first actual final **404** for a selected
-path creates a native Hestia website firewall ban when maintenance reads it.
+and enable the list. Choose **Ban after X attempts** and **Counting window (seconds)**.
+In **Enforce**, actual final **404** responses are counted per IP across selected
+paths and domains, including repeated requests to the same path. A native Hestia
+website firewall ban is created when maintenance sees the threshold reached within
+the window. Set X to 1 for first-404 behavior; existing configurations retain X=1.
+Changing selections, attempt threshold or window starts fresh counting from activation.
+Overlapping structured/native log records are reconciled by source multiplicities
+per second/IP/domain/path/method, without summing both layers or collapsing genuine
+same-second repeats within a source.
 Existing files/routes returning 200, redirects or other statuses keep their
 normal routing; this list never manufactures a 404 or blocks with 403. Earlier
 403 rules still take precedence and do not count as 404s. Observe/Off do not ban.
 
 Use the checkboxes and **Append selected paths to the 404 list** to append selected exact paths with recorded 404s
-in bulk, or append a proposal's complete exact-path set. Entries are deduplicated;
-the existing enable switch, duration and domain selection are preserved. An empty
+in bulk, or CTRL-select individual paths in a group and append only those selections.
+Groups also provide Select all / Clear selection. An empty selection appends nothing.
+Every multi-select list displays **Press CTRL to select/deselect**. Entries are deduplicated;
+the existing enable switch, attempt threshold, counting window, duration and domain selection are preserved. An empty
 new list with no domain selection starts scoped to the selected source domains.
 Review and **Save & Apply**. A missing asset genuinely used by the site should be
 repaired rather than added to a ban selection. Images are excluded from review;

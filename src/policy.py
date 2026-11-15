@@ -12,7 +12,7 @@ import endpoints
 import endpoint_404
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.20.3'
+VERSION = '0.21.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -23,7 +23,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 12, 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 13, 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
            'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
@@ -151,7 +151,14 @@ def validate(raw):
         data.update(schema=11, custom_endpoints=[])
     if data.get('schema') == 11 and set(data) == V11_KEYS:
         data.update(schema=12, endpoint_404=copy.deepcopy(endpoint_404.DEFAULT))
-    if data.get('schema') != 12 or set(data) != set(DEFAULT):
+    if data.get('schema') == 12 and set(data) == set(DEFAULT):
+        selected = data.get('endpoint_404')
+        if not isinstance(selected, dict):
+            raise ValueError('Invalid selected endpoint 404 settings')
+        selected.setdefault('maxretry', 1)
+        selected.setdefault('findtime', 300)
+        data['schema'] = 13
+    if data.get('schema') != 13 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     endpoints.validate(data['custom_endpoints'], target)
     endpoint_404.validate(data['endpoint_404'], target)

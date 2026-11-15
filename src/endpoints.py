@@ -62,7 +62,7 @@ def ban_rules(policy, sites, mode):
     settings = policy.get('endpoint_404', {})
     if settings.get('enabled') and settings.get('paths'):
         key = 'endpoint-404-list'
-        rules[key] = dict(maxretry=1, findtime=0, duration_days=0, duration_seconds=settings['duration_seconds'], rule_name='Selected endpoint 404 paths')
+        rules[key] = dict(maxretry=settings.get('maxretry',1), findtime=settings.get('findtime',300), duration_days=0, duration_seconds=settings['duration_seconds'], rule_name='Selected endpoint 404 paths')
         scopes[key] = {site['domain'] for site in sites if site.get('supported') and not site.get('suspended') and site.get('kind') != 'mail'
                        and mode(policy, site) == 'enforce' and (not settings['targets'] or site['key'] in settings['targets'])}
         tokens[key] = {'selected-404'}

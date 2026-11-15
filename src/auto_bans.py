@@ -317,7 +317,9 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
     domains404 = scopes.get(endpoint_404.REASON, set()) if not remove else set()
     with database(state) as activation:
         signature = endpoint_404.fingerprint(selected404, domains404)
-        if get(activation, 'selected404-signature') != signature:
+        changed404 = get(activation, 'selected404-signature') != signature
+        endpoint_404.prepare_counts(activation, now, selected404.get('findtime',300), reset=changed404)
+        if changed404:
             put(activation, 'selected404-signature', signature)
             put(activation, 'selected404-start', now)
         start404 = float(get(activation, 'selected404-start', str(now)))
@@ -377,7 +379,7 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                     sources = chain(events(db), not_found.events(db,
                         [site for site in sites if site['domain'] in eligible and site.get('kind') != 'mail'], 'native')
                         if (settings['enabled'] and settings['any_404']['enabled']) or domains404 else []) if read_events else []
-                    sources = endpoint_404.expand(sources, selected404, domains404, start404)
+                    sources = endpoint_404.expand(sources, selected404, domains404, start404, db=db)
                     for stamp, address, domain, reason, event_token, path, method in sources:
                         try:
                             stamp, ip = float(stamp), ipaddress.ip_address(address)
@@ -386,8 +388,8 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         rule = rules.get(reason)
                         custom = reason.startswith('endpoint-')
                         if (not rule or not 0 <= stamp <= now + 5
-                                or (not custom and stamp < now - rule['findtime'])
-                                or (custom and rule['duration_seconds'] and stamp + rule['duration_seconds'] <= now)
+                                or ((not custom or reason == endpoint_404.REASON) and stamp < now - rule['findtime'])
+                                or (custom and reason != endpoint_404.REASON and rule['duration_seconds'] and stamp + rule['duration_seconds'] <= now)
                                 or domain not in scopes.get(reason, set()) or exempt(str(ip))
                                 or (reason in valid_tokens and event_token not in valid_tokens[reason])):
                             continue
@@ -412,6 +414,9 @@ def synchronize(policy, sites, state, native, now=None, remove=False, read_event
                         elif reason == 'missing-file':
                             count = db.execute('SELECT COUNT(DISTINCT token) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
                                                (address, reason, now-rule['findtime'])).fetchone()[0]
+                        elif reason == endpoint_404.REASON:
+                            count = db.execute('SELECT COUNT(*) FROM strikes WHERE ip=? AND reason=? AND stamp>=?',
+                                (address, reason, now-rule['findtime'])).fetchone()[0]
                         elif custom:
                             count = 1
                         elif reason == 'suspicious-query':

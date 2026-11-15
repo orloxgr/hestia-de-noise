@@ -86,7 +86,7 @@ def capture(db, address, reason, rule, count, now, site=None):
     table = 'domain_strikes' if site is not None else 'strikes'
     where = 's.ip=?'
     args = [address]
-    if not reason.startswith('endpoint-'):
+    if not reason.startswith('endpoint-') or reason == 'endpoint-404-list':
         where += ' AND s.stamp>=?'
         args.append(now - rule['findtime'])
     if site is not None:

@@ -46,15 +46,26 @@
         });
         message.textContent = 'Added ' + rules.length + ' rule(s). Review domains, then Save & Apply.';
     }));
+    const findingSelection = (button, only404=false) => {
+        const select = button.closest('.hdn-endpoint-card')?.querySelector('[data-hdn-finding-paths]');
+        return select ? [...select.selectedOptions].filter(o=>!only404 || o.dataset.hdnHas404==='1').map(o=>o.value) : null;
+    };
     document.addEventListener('click', event => {
+        const chooseFindings=event.target.closest('[data-hdn-select-findings]');
+        if (chooseFindings) {
+            const select=chooseFindings.closest('.hdn-endpoint-card').querySelector('[data-hdn-finding-paths]');
+            [...select.options].forEach(option=>{option.selected=chooseFindings.dataset.hdnSelectFindings==='all';});
+            return;
+        }
         const bulk404 = event.target.closest('[data-hdn-append-endpoint404], [data-hdn-endpoint404-group]');
         if (bulk404) {
             const field=document.getElementById('hdn-endpoint404-paths');
             const domainSelect=document.getElementById('hdn-endpoint404-targets');
             const wasEmpty=!field.value.trim();
             const selected = bulk404.hasAttribute('data-hdn-endpoint404-group') ?
-                JSON.parse(bulk404.dataset.hdnEndpoint404Group).map(path=>({path,site:bulk404.dataset.hdnEndpointSite})) :
+                (findingSelection(bulk404,true) ?? JSON.parse(bulk404.dataset.hdnEndpoint404Group)).map(path=>({path,site:bulk404.dataset.hdnEndpointSite})) :
                 [...document.querySelectorAll('[data-hdn-endpoint404-path]:checked')].map(box=>({path:box.dataset.hdnEndpoint404Path,site:box.dataset.hdnEndpointSite}));
+            if (!selected.length) { document.getElementById('hdn-endpoint-append-status').textContent='Select one or more paths with recorded 404 responses to append.'; return; }
             const paths=new Set(field.value.split(/\r?\n/).map(p=>p.trim()).filter(Boolean));
             const before=paths.size;
             selected.forEach(item=>{ if (item.path.startsWith('/') && !/[\r\n?#]/.test(item.path)) paths.add(item.path); });
@@ -65,7 +76,7 @@
                 [...domainSelect.options].forEach(option=>{option.selected=sites.has(option.value);});
             }
             document.getElementById('hdn-endpoint404-box').open=true;
-            document.getElementById('hdn-endpoint404-message').textContent=`${paths.size-before} new exact paths appended. Enabled switch and duration kept. Review domains, then Save & Apply.`;
+            document.getElementById('hdn-endpoint404-message').textContent=`${paths.size-before} new exact paths appended. Enabled switch, attempt threshold, counting window and duration kept. Review domains, then Save & Apply.`;
             return;
         }
         const suggestion = event.target.closest('[data-hdn-append-endpoint], [data-hdn-endpoint-group]');
@@ -74,7 +85,8 @@
             const field = (row,key) => row.querySelector('[name$="[' + key + ']"]');
             const target = suggestion.dataset.hdnEndpointSite;
             const grouped = suggestion.hasAttribute('data-hdn-endpoint-group');
-            const patterns = grouped ? JSON.parse(suggestion.dataset.hdnEndpointGroup) : [suggestion.dataset.hdnAppendEndpoint];
+            const patterns = grouped ? (findingSelection(suggestion) ?? JSON.parse(suggestion.dataset.hdnEndpointGroup)) : [suggestion.dataset.hdnAppendEndpoint];
+            if (!patterns.length) { document.getElementById('hdn-endpoint-append-status').textContent='Select one or more exact paths to append.'; return; }
             const type = grouped ? 'exact' : (suggestion.dataset.hdnEndpointType || 'exact');
             let added = 0;
             for (const pattern of patterns) {

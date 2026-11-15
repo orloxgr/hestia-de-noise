@@ -27,6 +27,22 @@ class Selections(unittest.TestCase):
             engine.dispatch(dict(action='save',actor='admin',policy=old))
         self.assertEqual(apply.call_args.args[0]['endpoint_404'],saved['endpoint_404'])
 
+    def test_schema12_upgrade_and_old_panel_preserve_attempt_controls(self):
+        old=copy.deepcopy(DEFAULT);old['schema']=12
+        old['endpoint_404'].pop('maxretry');old['endpoint_404'].pop('findtime')
+        upgraded=validate(old)
+        self.assertEqual(upgraded['endpoint_404']['maxretry'],1)
+        self.assertEqual(upgraded['endpoint_404']['findtime'],300)
+        saved=copy.deepcopy(DEFAULT);saved['endpoint_404'].update(maxretry=3,findtime=600)
+        with patch.object(engine,'authorize',return_value=(True,'admin')),patch.object(engine,'load',return_value=saved),patch.object(engine,'collect',return_value=[]),patch.object(engine,'snapshot',return_value={}),patch.object(engine,'apply') as apply:
+            engine.dispatch(dict(action='save',actor='admin',policy=old))
+        self.assertEqual(apply.call_args.args[0]['endpoint_404']['maxretry'],3)
+        self.assertEqual(apply.call_args.args[0]['endpoint_404']['findtime'],600)
+        for key in ('maxretry','findtime'):
+            for bad in (0,-1,True,1.5):
+                invalid=copy.deepcopy(DEFAULT);invalid['endpoint_404'][key]=bad
+                with self.assertRaises(ValueError):validate(invalid)
+
     def test_any_extension_exact_list_and_nonnegative_duration(self):
         p=copy.deepcopy(DEFAULT);p['endpoint_404']['paths']=['/probe.js','/db.sql.gz','/route','/styles.css','/probe.js']
         self.assertEqual(len(validate(p)['endpoint_404']['paths']),4)
@@ -105,7 +121,7 @@ class Final404(unittest.TestCase):
         self.events=self.root/'events';self.events.write_text('')
         self.logs=self.root/'logs';self.logs.mkdir()
         self.native=FakeNative();self.policy=copy.deepcopy(DEFAULT);self.policy['mode']='enforce'
-        self.policy['endpoint_404']=dict(enabled=True,paths=['/probe.js','/db.sql.gz'],targets=['alice/one.test'],duration_seconds=120)
+        self.policy['endpoint_404']=dict(enabled=True,paths=['/probe.js','/db.sql.gz'],targets=['alice/one.test'],duration_seconds=120,maxretry=1,findtime=300)
         self.sites=[dict(key='alice/'+d,domain=d,supported=True,suspended=False) for d in ('one.test','two.test')]
         for module,field,value in ((auto_bans,'LOG',self.events),(not_found,'LOG_ROOT',self.logs)):
             p=patch.object(module,field,value);p.start();self.addCleanup(p.stop)
@@ -148,6 +164,64 @@ class Final404(unittest.TestCase):
                 token='selected-404',path='/probe.js',method='GET'))+'\n')
         self.assertEqual(self.sync(1001)['active'],1)
         self.assertEqual(self.native.calls.count(('add','198.51.100.7')),1)
+
+    def threshold(self, attempts=3, window=60):
+        self.policy['endpoint_404'].update(maxretry=attempts,findtime=window)
+        self.sync(950)
+
+    def structured(self, at, path='/probe.js'):
+        with self.events.open('a') as f:
+            f.write(json.dumps(dict(v=1,ts=str(at),ip='198.51.100.7',domain='one.test',reason=endpoint_404.REASON,
+                token='selected-404',path=path,method='GET'))+'\n')
+
+    def test_attempt_threshold_counts_real_404s_across_selected_paths_only(self):
+        self.threshold()
+        self.request(at=1000);self.assertEqual(self.sync(1001)['active'],0)
+        self.request(at=1002,path='/db.sql.gz');self.assertEqual(self.sync(1003)['active'],0)
+        self.request(at=1004,status=200);self.request(at=1004,path='/unselected.js')
+        self.assertEqual(self.sync(1005)['active'],0)
+        self.request(at=1006);result=self.sync(1007)
+        self.assertEqual(result['active'],1)
+        details=result['rows'][0]['diagnostics']
+        self.assertEqual((details['count'],details['maxretry'],details['findtime']),(3,3,60))
+        self.assertEqual(len(details['samples']),3)
+
+    def test_counting_window_can_exceed_ban_duration_when_processing_backlog(self):
+        self.threshold(3,300)
+        self.request(at=1000);self.request(at=1190);self.request(at=1192)
+        result=self.sync(1193)
+        self.assertEqual(result['active'],1)
+        self.assertEqual(result['rows'][0]['diagnostics']['count'],3)
+        self.assertEqual(result['rows'][0]['expires'],1312)
+
+    def test_expired_attempts_do_not_complete_the_threshold(self):
+        self.threshold(2,30)
+        self.request(at=1000);self.assertEqual(self.sync(1001)['active'],0)
+        self.request(at=1040);self.assertEqual(self.sync(1041)['active'],0)
+        self.request(at=1042);self.assertEqual(self.sync(1043)['active'],1)
+
+    def test_log_layer_duplicates_do_not_count_twice_even_across_maintenance_runs(self):
+        self.threshold()
+        self.structured(1000.25);self.assertEqual(self.sync(1001)['active'],0)
+        self.request(at=1000);self.assertEqual(self.sync(1002)['active'],0)
+        self.request(at=1003);self.structured(1003.5)
+        self.assertEqual(self.sync(1004)['active'],0)
+        self.request(at=1005);self.assertEqual(self.sync(1006)['active'],1)
+
+    def test_genuine_same_second_repeats_count_without_summing_log_layers(self):
+        self.threshold()
+        self.request(at=1000);self.request(at=1000)
+        self.structured(1000.1);self.structured(1000.2)
+        self.assertEqual(self.sync(1001)['active'],0)
+        self.request(at=1000)
+        self.assertEqual(self.sync(1002)['active'],1)
+
+    def test_counter_change_starts_fresh_without_retroactive_ban(self):
+        self.threshold()
+        self.request(at=1000);self.assertEqual(self.sync(1001)['active'],0)
+        self.policy['endpoint_404']['maxretry']=1
+        self.assertEqual(self.sync(1002)['active'],0)
+        self.request(at=1003);self.assertEqual(self.sync(1004)['active'],1)
 
 
 if __name__=='__main__':unittest.main()

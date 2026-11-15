@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.0 · 2026-11-15
+
+- Add configurable attempts and counting window to selected-path final-404 bans. Count repeated requests per IP across selected paths/domains, preserve real-status routing, self/exclusion checks and expiry. Reconcile overlapping native/structured log source counts without summing duplicate layers; retain genuine same-second repeats within each source. Capture the actual threshold/window in ban details.
+- Migrate policy schema 12 to 13 with threshold 1 and a 300-second window. Preserve existing paths/scopes/durations and saved attempt controls when an older open panel submits. Reset counting activation when threshold/window changes.
+- Replace grouped finding previews with native multiple-selection lists. Append only selected paths, with Select all / Clear selection, independent manual 403 and observed-404 actions, and no action for an empty selection. Keep per-row/page append and existing settings.
+- Display Press CTRL to select/deselect beside every native multiple-select list, including domains, findings and cloned rule templates.
+
 ## 0.20.3 · 2026-11-15
 
 - Restore manual append for every exact endpoint finding, independent of classification and recommendation: per-row and grouped disabled domain-scoped 403 rules, and per-row/group/page append to the exact 404 list for any recorded 404, including JS, CSS, PHP and mixed-status paths. Keep advice separate from manual capabilities; retain observed successes and real-final-404 ban behavior.

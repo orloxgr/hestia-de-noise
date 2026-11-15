@@ -47,7 +47,7 @@ class NativeNginxTests(unittest.TestCase):
         policy = copy.deepcopy(DEFAULT)
         policy['mode'] = 'enforce'
         policy['endpoint_404'] = dict(enabled=True,paths=['/selected-missing.js','/existing.js','/local404.js'],
-            targets=['alice/enforce.test','alice/observe.test','alice/off.test'],duration_seconds=120)
+            targets=['alice/enforce.test','alice/observe.test','alice/off.test'],duration_seconds=120,maxretry=1,findtime=300)
         policy['custom_endpoints'] = [
             dict(id='backups',name='Backup scans',enabled=True,type='regex',
                  pattern=r'(?i)^/bak(?|\.sql\.gz|\.sql\.zip|\.sql\.zst)$',

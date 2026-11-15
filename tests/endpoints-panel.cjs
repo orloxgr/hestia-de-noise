@@ -47,15 +47,20 @@ const puppeteer = require(process.env.HDN_PUPPETEER || 'puppeteer-core');
         assert.equal(result.valid,true);
         assert.equal((await page.$$('[data-hdn-append-endpoint="/wp-blog-header.php"], [data-hdn-endpoint404-path="/wp-blog-header.php"]')).length,2);
         assert.ok(await page.$eval('[data-hdn-endpoint-group]',e=>e.title.includes('existing files')));
-        assert.ok(await page.$eval('[data-hdn-endpoint404-group]',e=>e.title.includes('first real 404')));
+        assert.ok(await page.$eval('[data-hdn-endpoint404-group]',e=>e.title.includes('configured 404 threshold')));
         await page.click('[data-hdn-select-endpoint404]');
         await page.click('[data-hdn-append-endpoint404]');
         assert.deepEqual(await page.$eval('#hdn-endpoint404-paths',e=>e.value.split('\n')),['/kept.php','/wp-config.old','/wp-blog-header.php','/missing.js','/missing.css','/application/route']);
         assert.equal(await page.$eval('#hdn-endpoint404-box',e=>e.open),true);
         assert.equal(await page.$eval('[name="endpoint404_enabled"]',e=>e.checked),false);
+        assert.equal(await page.$eval('[name="endpoint404_maxretry"]',e=>e.value),'3');
+        assert.equal(await page.$eval('[name="endpoint404_findtime"]',e=>e.value),'600');
         assert.equal(await page.$eval('[name="endpoint404_duration"]',e=>e.value),'2');
         assert.equal(await page.$eval('[name="endpoint404_unit"]',e=>e.value),'hours');
         await page.$eval('[data-hdn-endpoint-group]',e=>e.closest('details').open=true);
+        await page.click('[data-hdn-endpoint-group]');
+        assert.equal((await page.$$('#hdn-custom_endpoints-rows .hdn-rule')).length,2);
+        await page.select('[data-hdn-finding-paths]','/wp-config.bak');
         await page.click('[data-hdn-endpoint-group]');
         await page.click('[data-hdn-endpoint-group]');
         assert.equal((await page.$$('#hdn-custom_endpoints-rows .hdn-rule')).length,3);
@@ -73,12 +78,24 @@ const puppeteer = require(process.env.HDN_PUPPETEER || 'puppeteer-core');
         assert.equal(await page.$eval('#hdn-custom_endpoints-rows .hdn-rule:last-child [name$="[also_ban]"]',e=>e.checked),false);
         const groupIndex=await page.$$eval('[data-hdn-endpoint-group]',nodes=>nodes.findIndex(e=>JSON.parse(e.dataset.hdnEndpointGroup).includes('/missing.js')));
         assert.ok(groupIndex>=0);
-        await page.$$eval('[data-hdn-endpoint-group]',(nodes,i)=>{nodes[i].closest('details').open=true;nodes[i].click();},groupIndex);
+        await page.$$eval('[data-hdn-endpoint-group]',(nodes,i)=>{nodes[i].closest('details').open=true;const select=nodes[i].closest('.hdn-endpoint-card').querySelector('[data-hdn-finding-paths]');[...select.options].forEach(o=>o.selected=o.value==='/missing.js');nodes[i].click();},groupIndex);
         assert.equal((await page.$$('#hdn-custom_endpoints-rows .hdn-rule')).length,5);
+        await page.$$eval('[data-hdn-endpoint-group]',(nodes,i)=>{
+            const card=nodes[i].closest('.hdn-endpoint-card');
+            const select=card.querySelector('[data-hdn-finding-paths]');
+            [...select.options].forEach(o=>o.selected=o.value==='/working.js');
+            card.querySelector('[data-hdn-endpoint404-group]').click();
+        },groupIndex);
+        assert.ok(!(await page.$eval('#hdn-endpoint404-paths',e=>e.value.split('\n'))).includes('/working.js'));
+        await page.$$eval('[data-hdn-endpoint-group]',(nodes,i)=>nodes[i].closest('.hdn-endpoint-card').querySelector('[data-hdn-select-findings="all"]').click(),groupIndex);
+        assert.deepEqual(await page.$$eval('[data-hdn-finding-paths]',(nodes,i)=>[...nodes[i].selectedOptions].map(o=>o.value),groupIndex),['/missing.js','/working.js']);
+        await page.$$eval('[data-hdn-endpoint-group]',(nodes,i)=>nodes[i].closest('.hdn-endpoint-card').querySelector('[data-hdn-select-findings="none"]').click(),groupIndex);
+        assert.equal(await page.$$eval('[data-hdn-finding-paths]',(nodes,i)=>nodes[i].selectedOptions.length,groupIndex),0);
+        assert.ok(await page.$$eval('select[multiple]',nodes=>nodes.every(e=>e.nextElementSibling?.textContent.includes('Press CTRL to select/deselect'))));
         for (const width of [1280,390]) {
             await page.setViewport({width,height:1200});
             const layout=await page.$eval('.hdn-endpoint-card',card=>{
-                const field=card.querySelector('textarea').getBoundingClientRect();
+                const field=card.querySelector('[data-hdn-finding-paths]').getBoundingClientRect();
                 const buttons=[...card.querySelectorAll('.hdn-endpoint-actions button')].map(e=>e.getBoundingClientRect());
                 return {overflow:document.documentElement.scrollWidth>window.innerWidth,
                     below:buttons.every(b=>b.top>=field.bottom),

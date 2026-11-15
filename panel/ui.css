@@ -133,3 +133,5 @@
 @media (max-width: 640px) {
     #hdn-container .hdn-endpoint-section > .box-collapse-content { padding: 14px 12px; }
 }
+
+.hdn-select-help { display: block; margin-top: 6px; font-size: .88em; font-weight: normal; opacity: .85; }

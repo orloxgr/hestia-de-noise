@@ -76,7 +76,7 @@
 <select form="hdn-settings" class="form-select u-mb20" id="bans-targets" name="bans_targets[]" multiple size="4">
 <?php foreach ($data['sites'] ?? [] as $site): ?>
 <option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $ban['targets'] ?? [], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
-<?php endforeach; ?></select>
+<?php endforeach; ?></select><small class="hdn-select-help">Press CTRL to select/deselect</small>
 <label class="form-label" for="bans-ignore">Never ban — one IP address or CIDR network per line</label>
 <textarea form="hdn-settings" class="form-control u-mb20" id="bans-ignore" name="bans_ignore_ips" rows="4" spellcheck="false"><?= $escape(implode("\n", $ban['ignore_ips'] ?? [])) ?></textarea>
 <p class="u-mb20">Never-ban entries bypass automatic IP bans only. Unselected 404s count only when general 404 bans are enabled. Crawler limits and User-Agent blocks do not count as 404s. Observe/Off domains do not trigger bans. Native IPv6 firewall bans are unavailable in this backend.</p>

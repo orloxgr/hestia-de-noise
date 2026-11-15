@@ -13,6 +13,6 @@
 <?php foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; ?>
 <option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $policy['enumeration']['targets'] ?? [], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
 <?php endforeach; ?>
-</select>
+</select><small class="hdn-select-help">Press CTRL to select/deselect</small>
 <p>Nginx rejects requests without WordPress credentials before PHP. Enforce also installs a small, owned WordPress MU plugin to verify requests that present credentials. Disable removes that file; existing plugins and wp-config.php are not edited. No additional WordPress plugin is required.</p>
 <p class="u-mt10">Uses the standard WordPress document root and wp-content/mu-plugins directory. Custom content directories report an error instead of silently applying incomplete protection. Existing public names and names printed in articles are not rewritten.</p>

@@ -19,7 +19,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <?php $known = []; foreach ($data['sites'] ?? [] as $site): if (($site['kind'] ?? 'web') !== 'web') continue; $known[] = $site['key']; ?>
 <option value="<?= $escape($site['key']) ?>" <?= in_array($site['key'], $row['targets'], true) ? 'selected' : '' ?>><?= $escape($site['domain'] . ' · ' . $site['owner']) ?></option>
 <?php endforeach; foreach (array_diff($row['targets'], $known) as $old): ?><option value="<?= $escape($old) ?>" selected><?= $escape($old) ?> (unavailable)</option><?php endforeach; ?>
-</select></label>
+</select><small class="hdn-select-help">Press CTRL to select/deselect</small></label>
 <label class="form-label u-block u-mt10"><input form="hdn-settings" type="checkbox" name="<?= $field('also_ban') ?>" <?= $row['also_ban'] ? 'checked' : '' ?>> Also ban IP after the first matching request in Enforce</label>
 <div class="hdn-wp-grid u-mt10"><label class="form-label">Ban duration (0 = permanent)
 <input form="hdn-settings" class="form-control" type="number" min="0" name="<?= $field('duration') ?>" value="<?= $escape($duration) ?>" required></label>
