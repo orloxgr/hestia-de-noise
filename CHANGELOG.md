@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.0 · 2026-11-16
+
+- Add a Global exceptions box to Disable XML-RPC with a general IPv4/IPv6/CIDR field and its own Allow Jetpack button, using the same append workflow as each site's box. Keep global and site lists independently editable; neither button changes switches, site selections or other lists.
+- Combine global and per-site exceptions for XML-RPC on protected sites and their aliases, including sites selected later. Continue enforcing other De-Noise rules, firewall bans and XML-RPC rate limits.
+- Migrate schema 15 to 16 with an empty global list while retaining existing policy. Preserve saved global exceptions when older panels submit and allow the current form to clear them explicitly.
+
 ## 0.23.1 · 2026-11-16
 
 - Add Allow Jetpack beside each site's XML-RPC exceptions. Download the current official IP list on demand and append missing ranges without replacing manual entries, concurrent edits, switches or domain selections. Keep Save & Apply explicit; do not automatically save or enable protection.

@@ -152,5 +152,8 @@
 #hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions summary:focus-visible,
 #hdn-xmlrpc-block-box .hdn-xmlrpc-help > summary:focus-visible { outline: 2px solid #7e8be1; outline-offset: 3px; }
 #hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions textarea { font-family: monospace; resize: vertical; min-width: 0; }
-#hdn-xmlrpc-block-sites .hdn-jetpack-status { display: block; white-space: normal; overflow-wrap: anywhere; margin-bottom: 6px; }
-#hdn-xmlrpc-block-sites .hdn-jetpack-status:empty { display: none; }
+#hdn-xmlrpc-block-box .hdn-jetpack-status { display: block; white-space: normal; overflow-wrap: anywhere; margin-bottom: 6px; }
+#hdn-xmlrpc-block-box .hdn-jetpack-status:empty { display: none; }
+#hdn-xmlrpc-block-box .hdn-xmlrpc-global { border: 1px solid #8792a680; border-radius: 6px; padding: 14px; }
+#hdn-xmlrpc-block-box .hdn-xmlrpc-global h3 { margin-top: 0; }
+#hdn-xmlrpc-block-box .hdn-xmlrpc-global textarea { font-family: monospace; resize: vertical; }

@@ -214,6 +214,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($values) $addresses[$site] = $values;
                     }
                     $submitted['xmlrpc_block']['exceptions'] = (object)$addresses;
+                    if (($_POST['xmlrpc_global_present'] ?? '') === '1') {
+                        $submitted['schema'] = 16;
+                        if (!is_string($_POST['xmlrpc_global_exceptions'] ?? '')) throw new RuntimeException('Invalid global XML-RPC IP exceptions');
+                        $submitted['xmlrpc_block']['global_exceptions'] = $list($_POST['xmlrpc_global_exceptions'] ?? '', true);
+                    }
                 }
             }
             $request['policy'] = $submitted;

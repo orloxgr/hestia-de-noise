@@ -5,7 +5,8 @@ import ipaddress
 import urllib.error
 import urllib.request
 
-DEFAULT = {'enabled': False, 'targets': [], 'exceptions': {}}
+DEFAULT = {'enabled': False, 'targets': [], 'exceptions': {},
+           'global_exceptions': []}
 PATH = r'^/(?:[^/]+/)*xmlrpc\.php(?:/.*)?$'
 JETPACK_URL = 'https://jetpack.com/ips-v4.txt'
 
@@ -49,6 +50,20 @@ def validate(settings, target):
         if networks:
             exceptions[site] = networks
     settings['exceptions'] = exceptions
+    addresses = settings['global_exceptions']
+    if not isinstance(addresses, list):
+        raise ValueError('Global XML-RPC exceptions must be IP addresses or CIDRs, one per line')
+    normalized = []
+    for address in addresses:
+        if not isinstance(address, str) or '%' in address:
+            raise ValueError('Invalid global XML-RPC exception IP address or CIDR')
+        try:
+            network = str(ipaddress.ip_network(address, strict=False))
+        except ValueError as error:
+            raise ValueError('Invalid global XML-RPC exception IP address or CIDR: ' + address) from error
+        if network not in normalized:
+            normalized.append(network)
+    settings['global_exceptions'] = normalized
 
 
 def compile_maps(settings, sites, scope_map, pattern):
@@ -67,7 +82,10 @@ def compile_maps(settings, sites, scope_map, pattern):
         # Hestia's canonical server_name covers aliases without trusting Host/XFF.
         allowed_hosts.append('    ' + site.get('domain', site['key'].split('/')[1]) + ' $' + variable + ';')
     lines += ['map $server_name $hdn_xmlrpc_exempt {', '    default 0;', *allowed_hosts, '}']
+    lines += ['geo $remote_addr $hdn_xmlrpc_global_exempt {', '    default 0;']
+    lines += ['    ' + network + ' 1;' for network in settings['global_exceptions']]
+    lines += ['}']
     return lines + [
         'map $uri $hdn_xmlrpc_disabled_path {', '    default 0;', '    ' + pattern(PATH) + ' 1;', '}',
-        'map "$hdn_mode:$hdn_xmlrpc_disabled_site:$hdn_xmlrpc_disabled_path:$hdn_xmlrpc_exempt" $hdn_xmlrpc_disabled {',
-        '    default 0;', '    ~^(observe|enforce):1:1:0$ 1;', '}']
+        'map "$hdn_mode:$hdn_xmlrpc_disabled_site:$hdn_xmlrpc_disabled_path:$hdn_xmlrpc_exempt:$hdn_xmlrpc_global_exempt" $hdn_xmlrpc_disabled {',
+        '    default 0;', '    ~^(observe|enforce):1:1:0:0$ 1;', '}']

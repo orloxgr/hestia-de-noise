@@ -13,7 +13,7 @@ import endpoint_404
 import xmlrpc_block
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.23.1'
+VERSION = '0.24.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -24,7 +24,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 15, 'xmlrpc_block': copy.deepcopy(xmlrpc_block.DEFAULT), 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 16, 'xmlrpc_block': copy.deepcopy(xmlrpc_block.DEFAULT), 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
            'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
@@ -167,7 +167,12 @@ def validate(raw):
         if isinstance(block, dict) and set(block) == {'enabled', 'targets'}:
             block['exceptions'] = {}
             data['schema'] = 15
-    if data.get('schema') != 15 or set(data) != set(DEFAULT):
+    if data.get('schema') == 15 and set(data) == set(DEFAULT):
+        block = data['xmlrpc_block']
+        if isinstance(block, dict) and set(block) == {'enabled', 'targets', 'exceptions'}:
+            block['global_exceptions'] = []
+            data['schema'] = 16
+    if data.get('schema') != 16 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     xmlrpc_block.validate(data['xmlrpc_block'], target)
     endpoints.validate(data['custom_endpoints'], target)

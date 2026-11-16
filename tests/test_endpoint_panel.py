@@ -65,5 +65,16 @@ class SaveParser(unittest.TestCase):
                                    xmlrpc_block_exceptions=invalid))
             self.assertNotEqual(result.returncode,0)
 
+    def test_global_form_preserves_local_fields_and_can_explicitly_clear_global_list(self):
+        for text, expected in (('192.0.2.10\n2001:db8::/32',['192.0.2.10','2001:db8::/32']),('',[])):
+            result=self.parse(dict(self.base(),xmlrpc_block_present='1',xmlrpc_exceptions_present='1',
+                                   xmlrpc_global_present='1',xmlrpc_global_exceptions=text,
+                                   xmlrpc_block_exceptions={'alice/one.test':'198.51.100.1'}))
+            self.assertEqual(result.returncode,0,result.stderr)
+            policy=json.loads(result.stdout)
+            self.assertEqual(policy['schema'],16)
+            self.assertEqual(policy['xmlrpc_block']['global_exceptions'],expected)
+            self.assertEqual(policy['xmlrpc_block']['exceptions'],{'alice/one.test':['198.51.100.1']})
+
 
 if __name__=='__main__':unittest.main()

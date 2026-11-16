@@ -46,7 +46,7 @@ class NativeNginxTests(unittest.TestCase):
             probe.bind(('127.0.0.1', 0)); cls.port = probe.getsockname()[1]
         policy = copy.deepcopy(DEFAULT)
         policy['mode'] = 'enforce'
-        policy['xmlrpc_block'] = dict(exceptions={}, enabled=True,targets=['alice/xmlrpc-deny.test','alice/xmlrpc-observe.test','alice/xmlrpc-off.test'])
+        policy['xmlrpc_block'] = dict(global_exceptions=['127.0.0.8/30'], exceptions={}, enabled=True,targets=['alice/xmlrpc-deny.test','alice/xmlrpc-observe.test','alice/xmlrpc-off.test'])
         policy['xmlrpc_block']['targets'].append('alice/xmlrpc-allow.test')
         policy['xmlrpc_block']['exceptions'] = {'alice/xmlrpc-allow.test':['127.0.0.2','127.0.0.4/30','::1']}
         policy['endpoint_404'] = dict(enabled=True,paths=['/selected-missing.js','/existing.js','/local404.js'],
@@ -189,6 +189,14 @@ class NativeNginxTests(unittest.TestCase):
             self.skipTest('IPv6 loopback unavailable')
         self.assertEqual(self.request('/xmlrpc.php',host='xmlrpc-allow.test',ipv6=True),200)
         self.assertEqual(self.request('/xmlrpc.php',host='xmlrpc-deny.test',ipv6=True),403)
+
+    def test_global_xmlrpc_exceptions_apply_to_multiple_sites_and_aliases_without_bypassing_other_rules(self):
+        for host in ('xmlrpc-allow.test','xmlrpc-deny.test','www.xmlrpc-deny.test'):
+            self.assertEqual(self.request('/xmlrpc.php',host=host,source='127.0.0.10'),200)
+            self.assertEqual(self.request('/shop/xmlrpc.php',host=host,source='127.0.0.9'),200)
+            self.assertEqual(self.request('/xmlrpc.php',host=host,source='127.0.0.11',agent='Crawler'),403)
+        self.assertEqual(self.request('/xmlrpc.php',host='xmlrpc-deny.test',source='127.0.0.12'),403)
+        self.assertEqual(self.request('/xmlrpc.php',host='xmlrpc-deny.test',source='127.0.0.12',headers={'X-Forwarded-For':'127.0.0.10'}),403)
 
     def test_custom_endpoints_native_pcre_exact_scope_modes_and_event_privacy(self):
         before = Origin.hits

@@ -747,26 +747,28 @@ def dispatch(request):
         if not isinstance(incoming, dict):
             raise ValueError('Expected policy settings')
         previous = policy
-        if incoming.get('schema') in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
+        if incoming.get('schema') in (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
             if not isinstance(incoming.get('domain_bans'), dict):
                 raise ValueError('Invalid domain automatic-ban policy')
             incoming = {**incoming, 'domain_bans': {**incoming.get('domain_bans', {}),
-                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10, 11, 12, 13, 14, 15) else {}}}
+                'sites': previous['domain_bans']['sites'] if incoming.get('schema') in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16) else {}}}
         policy = validate({**incoming, 'overrides': previous['overrides']})
-        if incoming.get('schema') not in (14, 15):
+        if incoming.get('schema') not in (14, 15, 16):
             policy['xmlrpc_block'] = previous['xmlrpc_block']
         elif incoming.get('schema') == 14:
             policy['xmlrpc_block']['exceptions'] = previous['xmlrpc_block']['exceptions']
-        if incoming.get('schema') not in (12, 13, 14, 15):
+        if incoming.get('schema') in (14, 15):
+            policy['xmlrpc_block']['global_exceptions'] = previous['xmlrpc_block']['global_exceptions']
+        if incoming.get('schema') not in (12, 13, 14, 15, 16):
             policy['endpoint_404'] = previous['endpoint_404']
         if incoming.get('schema') == 12:
             for key in ('maxretry', 'findtime'):
                 policy['endpoint_404'][key] = previous['endpoint_404'][key]
-        if incoming.get('schema') not in (11, 12, 13, 14, 15):
+        if incoming.get('schema') not in (11, 12, 13, 14, 15, 16):
             policy['custom_endpoints'] = previous['custom_endpoints']
-        if incoming.get('schema') not in (9, 10, 11, 12, 13, 14, 15):
+        if incoming.get('schema') not in (9, 10, 11, 12, 13, 14, 15, 16):
             policy['enumeration'] = previous['enumeration']
-        if incoming.get('schema') not in (8, 9, 10, 11, 12, 13, 14, 15):
+        if incoming.get('schema') not in (8, 9, 10, 11, 12, 13, 14, 15, 16):
             for key in ('log_rejections', 'mail_protection'):
                 policy[key] = previous[key]
             for key in ('exclude_static', 'min_distinct_paths'):

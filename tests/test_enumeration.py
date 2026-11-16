@@ -22,7 +22,7 @@ class EnumerationPolicyTests(unittest.TestCase):
         old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old.pop('xmlrpc_block'); old.pop('enumeration'); old['schema'] = 8
         for field in ('ai_agents', 'search_agents', 'seo_agents'):old.pop(field);old.pop(field + '_enabled')
         upgraded = validate(old)
-        self.assertEqual(upgraded['schema'], 15)
+        self.assertEqual(upgraded['schema'], 16)
         self.assertEqual(upgraded['enumeration'], enumeration.SETTINGS)
         for value in ('yes', 1, None):
             bad = copy.deepcopy(DEFAULT); bad['enumeration']['enabled'] = value

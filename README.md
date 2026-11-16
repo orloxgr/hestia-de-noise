@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.23.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.24.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -57,6 +57,13 @@ In **Observe**, matches appear in Activity without blocking. **Off** keeps norma
 routing. Activity labels the action **XML-RPC disabled**. This does not ban IPs
 and is separate from the existing XML-RPC POST rate limit.
 
+The **Global exceptions** box has an **Allowed IPs / CIDRs — all sites** field
+and its own **Allow Jetpack** button. Global entries allow XML-RPC on every site
+where the XML-RPC block is enabled, including aliases and sites selected later.
+Use it for Jetpack or any other trusted source that needs access across sites.
+Per-site exceptions are combined with the global list; clearing the global field
+removes only global entries after Save & Apply.
+
 Each site's **Allowed IPs / CIDRs** field accepts IPv4/IPv6 addresses and CIDR
 ranges, one per line. Those sources can use XML-RPC on that site and its aliases;
 all other sources remain blocked. These exceptions do not bypass other rules,
@@ -65,9 +72,10 @@ address (`$remote_addr`); a forwarded header or a Jetpack User-Agent alone canno
 grant access. Behind a proxy, configure Nginx real-client-IP handling for that
 trusted proxy first.
 
-To keep Jetpack connected, click **Allow Jetpack** beside the site, then **Save & Apply**.
+To keep Jetpack connected, click **Allow Jetpack** in Global exceptions for all
+sites or beside an individual site, then **Save & Apply**.
 The button downloads the [official current IP ranges](https://jetpack.com/ips-v4.txt)
-and appends missing entries to that site's exceptions. It preserves manual IPs,
+and appends missing entries to the chosen global or site list. It preserves manual IPs,
 edits made while downloading, and all site selections/switches. A failed or invalid
 download leaves your list unchanged. Nothing is applied until Save & Apply.
 Ranges are not automatically synchronized: click again to add newly published
@@ -76,8 +84,8 @@ remain linked in the panel, and manual IP editing is available for other service
 External XML-RPC publishing and pingbacks also need their source IPs allowed.
 Normal wp-admin and other site routes stay available.
 Existing rate limits, endpoint lists and per-domain settings are retained;
-upgrading preserves XML-RPC selections and adds empty IP exceptions. Saving an
-older already-open panel preserves exceptions it does not know about. Clearing a
+upgrading preserves XML-RPC selections and adds an empty global list. Saving an
+older already-open panel preserves global exceptions it does not know about. Clearing a
 site's exception field in the current panel removes its exceptions on Save & Apply.
 
 ## Custom endpoint rules and log suggestions
