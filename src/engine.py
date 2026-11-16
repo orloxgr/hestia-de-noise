@@ -29,6 +29,7 @@ import country_database
 import agent_catalog
 import listing as list_sizes
 import progress
+import xmlrpc_block
 
 REVIEW_ACTIONS = ('review_mark', 'review_export', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'agents_export', 'agents_candidates') + tuple(kind + '_' + action for kind in ('agents', 'php_files', 'endpoints') for action in ('start', 'status', 'cancel'))
 
@@ -529,6 +530,13 @@ def authorize(request):
 def dispatch(request):
     if not isinstance(request, dict):
         raise ValueError('Expected a JSON object')
+    if request.get('action') == 'xmlrpc_jetpack_ips':
+        admin, owner = authorize(request)
+        if not admin or owner != request['actor']:
+            raise PermissionError('Jetpack IP lookup requires the administrator context')
+        if set(request) - {'actor', 'owner', 'action', 'listing'}:
+            raise ValueError('Only the official Jetpack IP list can be requested')
+        return {'ok': True, 'ips': xmlrpc_block.jetpack_ips(), 'source': xmlrpc_block.JETPACK_URL}
     if request.get('action') in REVIEW_ACTIONS:
         admin, owner = authorize(request)
         if request['action'] == 'review_mark':
@@ -823,9 +831,9 @@ def main():
     if not sys.argv[1:]:
         raw = sys.stdin.buffer.read()
         request = json.loads(raw)
-        # An explicit read-only review has its own queued scan lock. It
-        # must not hold the protection/recovery lock or run mutation recovery.
-        if isinstance(request, dict) and request.get('action') in REVIEW_ACTIONS:
+        # Reviews have their own queued scan lock; the IP lookup only reads.
+        # Neither should hold the protection lock or run mutation recovery.
+        if isinstance(request, dict) and request.get('action') in REVIEW_ACTIONS + ('xmlrpc_jetpack_ips',):
             return dispatch(request)
     with locked():
         recover()

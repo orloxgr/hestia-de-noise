@@ -308,13 +308,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $request['filters'] = is_string($_POST['review_filters']) ? json_decode($_POST['review_filters'], true) : false;
             if (!is_array($request['filters'])) $request['filters'] = false;
         }
-        if (!in_array($request['action'], ['save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'review_export', 'review_mark', 'agents_start', 'agents_status', 'agents_cancel', 'agents_export', 'agents_candidates', 'php_files_start', 'endpoints_start', 'php_files_status', 'php_files_cancel', 'endpoints_status', 'endpoints_cancel'], true)) {
+        if (!in_array($request['action'], ['xmlrpc_jetpack_ips', 'save', 'access_save', 'access_account_save', 'access_defaults_save', 'geoip_update', 'geoip_save', 'bulk', 'disable', 'sync', 'unban', 'cron_preview', 'cron_apply', 'domain_bans_save', 'wordpress_status', 'wordpress_save', 'wordpress_unban', 'history_clear', 'history_settings_save', 'log_scan', 'log_scan_start', 'log_scan_status', 'log_scan_cancel', 'activity_start', 'activity_status', 'activity_cancel', 'review_export', 'review_mark', 'agents_start', 'agents_status', 'agents_cancel', 'agents_export', 'agents_candidates', 'php_files_start', 'endpoints_start', 'php_files_status', 'php_files_cancel', 'endpoints_status', 'endpoints_cancel'], true)) {
             $error = 'Unsupported operation.';
         } else {
             $isReview = str_starts_with($request['action'], 'log_scan_') || str_starts_with($request['action'], 'activity_') || str_starts_with($request['action'], 'agents_') || str_starts_with($request['action'], 'php_files_') || str_starts_with($request['action'], 'endpoints_') || in_array($request['action'], ['review_mark', 'review_export'], true);
-            if ($isReview) session_write_close();
+            $isAsync = $isReview || $request['action'] === 'xmlrpc_jetpack_ips';
+            if ($isAsync) session_write_close();
             $result = $bridge($request);
-            if ($isReview && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ?? '') === '1') {
+            if ($isAsync && ($_SERVER['HTTP_X_HDN_ANALYSIS'] ?? '') === '1') {
                 if (!empty($result['job']['analysis'])) {
                     $data = ['analysis' => $result['job']['analysis']];
                     ob_start();

@@ -2,9 +2,26 @@
 
 import hashlib
 import ipaddress
+import urllib.error
+import urllib.request
 
 DEFAULT = {'enabled': False, 'targets': [], 'exceptions': {}}
 PATH = r'^/(?:[^/]+/)*xmlrpc\.php(?:/.*)?$'
+JETPACK_URL = 'https://jetpack.com/ips-v4.txt'
+
+
+def jetpack_ips():
+    """Read the complete official list; never modify policy or fetch a user URL."""
+    try:
+        with urllib.request.urlopen(JETPACK_URL, timeout=30) as response:
+            values = response.read().decode('utf-8').splitlines()
+        networks = list(dict.fromkeys(str(ipaddress.IPv4Network(value.strip(), strict=False))
+                                     for value in values if value.strip()))
+        if not networks:
+            raise ValueError('the published IP list is empty')
+    except (OSError, UnicodeError, ValueError, urllib.error.URLError) as error:
+        raise ValueError('Could not load the official Jetpack IP list: ' + str(error)) from error
+    return networks
 
 
 def validate(settings, target):

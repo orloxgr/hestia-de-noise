@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.23.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.23.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -65,9 +65,14 @@ address (`$remote_addr`); a forwarded header or a Jetpack User-Agent alone canno
 grant access. Behind a proxy, configure Nginx real-client-IP handling for that
 trusted proxy first.
 
-To keep Jetpack connected, paste its [official current IP ranges](https://jetpack.com/ips-v4.txt)
-into that site's exceptions, following the [Jetpack instructions](https://jetpack.com/support/how-to-add-jetpack-ips-allowlist/).
-The panel links to these sources; ranges are entered manually and can change.
+To keep Jetpack connected, click **Allow Jetpack** beside the site, then **Save & Apply**.
+The button downloads the [official current IP ranges](https://jetpack.com/ips-v4.txt)
+and appends missing entries to that site's exceptions. It preserves manual IPs,
+edits made while downloading, and all site selections/switches. A failed or invalid
+download leaves your list unchanged. Nothing is applied until Save & Apply.
+Ranges are not automatically synchronized: click again to add newly published
+ranges; remove obsolete entries manually. The official [Jetpack instructions](https://jetpack.com/support/how-to-add-jetpack-ips-allowlist/)
+remain linked in the panel, and manual IP editing is available for other services.
 External XML-RPC publishing and pingbacks also need their source IPs allowed.
 Normal wp-admin and other site routes stay available.
 Existing rate limits, endpoint lists and per-domain settings are retained;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.1 · 2026-11-16
+
+- Add Allow Jetpack beside each site's XML-RPC exceptions. Download the current official IP list on demand and append missing ranges without replacing manual entries, concurrent edits, switches or domain selections. Keep Save & Apply explicit; do not automatically save or enable protection.
+- Use an authenticated, CSRF-protected administrator lookup with a fixed official source. Validate the entire download before returning ranges; failed or malformed replies leave the editor untouched. Keep lookup outside protection locks and mutation recovery.
+- Simplify the XML-RPC instructions and retain manual IPv4/IPv6/CIDR exceptions. IP refresh is on demand and additive; obsolete entries can be removed manually.
+
 ## 0.23.0 · 2026-11-16
 
 - Add per-site IPv4/IPv6 and CIDR exceptions to Disable XML-RPC in Endpoints. Allowed sources reach XML-RPC on that site and its aliases; unlisted sources remain blocked. Keep all other De-Noise rules, firewall bans and XML-RPC rate limits in force.

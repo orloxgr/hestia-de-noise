@@ -31,6 +31,44 @@ const puppeteer = require(process.env.HDN_PUPPETEER || 'puppeteer-core');
         const ipForm=await page.$eval('#hdn-settings',e=>Object.fromEntries(new FormData(e)));
         assert.equal(ipForm['xmlrpc_block_exceptions[alice/one.test]'],'192.0.2.10/32\n2001:db8::/32\n198.51.100.0/24');
         assert.equal(ipForm['xmlrpc_block_exceptions[alice/extra22.test]'],'');
+        await page.evaluate(()=>{
+            window.jetpackRequests=[];
+            window.fetch=async(url,options)=>{
+                window.jetpackRequests.push({url,body:Object.fromEntries(options.body),credentials:options.credentials,headers:options.headers});
+                if (window.jetpackFailure) return {ok:false,status:400,json:async()=>({ok:false,error:'Official source unavailable'})};
+                if (window.jetpackMalformed) return {ok:true,json:async()=>({ok:true,ips:['192.0.2.1/32','invalid']})};
+                if (window.jetpackPending) await new Promise(resolve=>window.completeJetpack=resolve);
+                return {ok:true,json:async()=>({ok:true,ips:['192.0.2.10/32','203.0.113.0/24']})};
+            };
+            window.jetpackPending=true;
+            window.saves=0;document.getElementById('hdn-settings').addEventListener('submit',e=>{e.preventDefault();window.saves++});
+        });
+        const jetpackButton='#hdn-xmlrpc-block-sites tbody tr:first-child [data-hdn-allow-jetpack]';
+        await page.click(jetpackButton);
+        assert.equal(await page.$eval(jetpackButton,e=>e.disabled),true);
+        await page.$eval(ipField,e=>e.value+='\n198.51.100.1');
+        await page.evaluate(()=>{window.jetpackPending=false;window.completeJetpack()});
+        await page.waitForFunction(()=>!document.querySelector('[data-hdn-allow-jetpack]').disabled);
+        const merged='192.0.2.10/32\n2001:db8::/32\n198.51.100.0/24\n198.51.100.1\n203.0.113.0/24';
+        assert.equal(await page.$eval(ipField,e=>e.value),merged);
+        await page.click(jetpackButton);
+        assert.equal(await page.$eval(ipField,e=>e.value),merged);
+        for (const failure of ['jetpackFailure','jetpackMalformed']) {
+            await page.evaluate(key=>window[key]=true,failure);
+            await page.click(jetpackButton);
+            assert.equal(await page.$eval(ipField,e=>e.value),merged);
+            assert.equal(await page.$eval(jetpackButton,e=>e.disabled),false);
+            assert.ok(await page.$eval('[data-hdn-jetpack-status]',e=>e.textContent.includes('unavailable')||e.textContent.includes('invalid')));
+            await page.evaluate(key=>window[key]=false,failure);
+        }
+        assert.deepEqual(await page.evaluate(()=>window.jetpackRequests[0]),{
+            url:await page.url(),body:{action:'xmlrpc_jetpack_ips',token:'fixture-token'},
+            credentials:'same-origin',headers:{'X-HDN-Analysis':'1'}
+        });
+        assert.equal(await page.evaluate(()=>window.saves),0);
+        assert.deepEqual(await page.$$eval('[name="xmlrpc_block_targets[]"]:checked',nodes=>nodes.map(e=>e.value)),['alice/one.test']);
+        assert.equal(await page.$eval('[name="xmlrpc_block_enabled"]',e=>e.checked),true);
+        assert.equal(await page.$eval('[name="xmlrpc_block_exceptions[bob/two.test]"]',e=>e.value),'');
         const beforeToggle=await page.$eval('#hdn-settings',e=>new URLSearchParams(new FormData(e)).toString());
         assert.equal(await page.$eval('#hdn-endpoint404-box',e=>e.open),false);
         const closedChevron=await page.$eval('#hdn-endpoint404-box > summary',e=>getComputedStyle(e,'::after').transform);

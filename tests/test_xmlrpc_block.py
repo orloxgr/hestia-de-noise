@@ -1,5 +1,6 @@
 """XML-RPC disabling is an explicit selected-site choice, independent of limits."""
 import copy
+import io
 from pathlib import Path
 import sys
 import unittest
@@ -12,6 +13,33 @@ from policy import DEFAULT, global_config, validate
 
 
 class XmlrpcBlockTests(unittest.TestCase):
+    def test_jetpack_lookup_loads_complete_official_list_without_mutations(self):
+        with patch.object(xmlrpc_block.urllib.request, 'urlopen', return_value=io.BytesIO(
+                b'192.0.2.1\n192.0.2.1/32\n198.51.100.0/24\n')) as fetch, \
+                patch.object(engine, 'authorize', return_value=(True, 'admin')), \
+                patch.object(engine, 'collect') as collect, patch.object(engine, 'apply') as apply:
+            result = engine.dispatch(dict(actor='admin', action='xmlrpc_jetpack_ips'))
+        self.assertEqual(result, dict(ok=True,ips=['192.0.2.1/32','198.51.100.0/24'],source=xmlrpc_block.JETPACK_URL))
+        self.assertEqual(fetch.call_args.args, (xmlrpc_block.JETPACK_URL,))
+        collect.assert_not_called(); apply.assert_not_called()
+
+    def test_jetpack_lookup_rejects_partial_invalid_empty_and_failed_downloads(self):
+        for value in (b'', b'<html>Server unavailable</html>', b'192.0.2.1\nnot-an-IP', b'\xff', b'2001:db8::/32'):
+            with self.subTest(value=value), patch.object(xmlrpc_block.urllib.request, 'urlopen', return_value=io.BytesIO(value)):
+                with self.assertRaisesRegex(ValueError, 'Could not load the official Jetpack IP list'):
+                    xmlrpc_block.jetpack_ips()
+        with patch.object(xmlrpc_block.urllib.request, 'urlopen', side_effect=OSError('connection unavailable')):
+            with self.assertRaisesRegex(ValueError, 'connection unavailable'):
+                xmlrpc_block.jetpack_ips()
+
+    def test_jetpack_lookup_needs_admin_context_and_cannot_fetch_arbitrary_urls(self):
+        for identity, extra in (((False,'alice'),{}), ((True,'alice'),{}), ((True,'admin'),{'url':'http://internal.test'})):
+            with self.subTest(identity=identity,extra=extra), patch.object(engine,'authorize',return_value=identity), \
+                    patch.object(xmlrpc_block, 'jetpack_ips') as fetch:
+                with self.assertRaises((PermissionError, ValueError)):
+                    engine.dispatch(dict(actor='admin',action='xmlrpc_jetpack_ips',**extra))
+                fetch.assert_not_called()
+
     def test_previous_policy_upgrades_without_enabling_or_selecting_sites(self):
         old = copy.deepcopy(DEFAULT); old.pop('xmlrpc_block'); old['schema'] = 13
         old['mode'] = 'enforce'; old['xmlrpc'].update(enabled=True, rate=7, burst=2)
