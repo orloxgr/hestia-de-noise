@@ -12,10 +12,10 @@ import policy
 class AgentPresets(unittest.TestCase):
     def test_all_community_names_are_recognized_under_their_purpose(self):
         groups = {
-            'ai_agents': 'Amazonbot|ClaudeBot|GPTBot|Reflectionbot',
-            'search_agents': 'Owler|SeekportBot|YandexBot|OAI-SearchBot|PetalBot|MojeekBot|IbouBot|360Spider|PerplexityBot|BaiduSpider|Claude-SearchBot|ExaSearchBot',
+            'ai_agents': 'Amazonbot|ClaudeBot|GPTBot|Reflectionbot|Bytespider|VelenPublicWebCrawler|CCBot',
+            'search_agents': 'Owler|SeekportBot|YandexBot|OAI-SearchBot|PetalBot|MojeekBot|IbouBot|360Spider|PerplexityBot|BaiduSpider|Claude-SearchBot|ExaSearchBot|ZoominfoBot',
             'seo_agents': 'DataForSeoBot|SemrushBot|DotBot|MJ12bot|Barkrowler|serpstatbot|BLEXBot|AhrefsBot|SearchAtlasBot|LinkpadBot|Screaming Frog SEO Spider|SERankingBacklinksBot|MegaIndex.ru|SeobilityBot|SEOkicks-Robot|rogerbot',
-            'agents': 'Amazon Web Services|Bytespider|AwarioBot|ImagesiftBot|GoogleOther|BacklinksExtendedBot|VelenPublicWebCrawler|CCBot|Timpibot|ZoominfoBot|Magpie-Crawler|Go-http-client|RecordedFuture|quic-go|CMS-Checker|AionBot|Epochal-Search|BasegrowBot',
+            'agents': 'Amazon Web Services|AwarioBot|ImagesiftBot|GoogleOther|BacklinksExtendedBot|Timpibot|Magpie-Crawler|Go-http-client|RecordedFuture|quic-go|CMS-Checker|AionBot|Epochal-Search|BasegrowBot',
         }
         self.assertEqual(sum(len(names.split('|')) for names in groups.values()), 50)
         for field, names in groups.items():
@@ -33,7 +33,7 @@ class AgentPresets(unittest.TestCase):
         self.assertEqual(additional | major, set(catalog.CATEGORIES['search_agents']['entries']))
         self.assertTrue({'Googlebot', 'bingbot', 'meta-webindexer', 'OAI-SearchBot',
                          'Claude-SearchBot', 'PerplexityBot'} <= major)
-        self.assertTrue({'MojeekBot', 'YandexBot', 'SeekportBot', 'Owler', 'IbouBot'} <= additional)
+        self.assertTrue({'MojeekBot', 'YandexBot', 'SeekportBot', 'Owler', 'IbouBot', 'YisouSpider', 'ZoominfoBot'} <= additional)
         for name in major | additional:
             self.assertEqual(catalog.classify(name), 'search_agents')
         self.assertEqual(len(catalog.CATEGORIES), 5)
@@ -62,6 +62,19 @@ class AgentPresets(unittest.TestCase):
         compiled = policy.global_config(upgraded, [])
         for name in catalog.SEARCH_MAJOR:
             self.assertNotIn(policy.literal_regex(name), compiled)
+
+    def test_reclassified_presets_do_not_move_saved_rules_between_switches(self):
+        moved = ['Bytespider', 'ElevenlabsCrawler', 'CCBot', 'VelenPublicWebCrawler',
+                 'YisouSpider', 'ZoominfoBot']
+        for enabled in (True, False):
+            saved = copy.deepcopy(policy.DEFAULT)
+            saved.update(agents=moved, agents_enabled=enabled,
+                         ai_agents_enabled=not enabled, search_agents_enabled=not enabled)
+            upgraded = policy.validate(copy.deepcopy(saved))
+            self.assertEqual(upgraded, saved)
+            self.assertEqual(catalog.enabled(upgraded), moved if enabled else [])
+        self.assertEqual(catalog.classify('ElevenlabsCrawler'), 'ai_agents')
+        self.assertIn('research', catalog.describe('CCBot')['purpose'])
 
 
 if __name__ == '__main__':

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.1 · 2026-11-16
+
+- Classify Bytespider, ElevenlabsCrawler, CCBot and VelenPublicWebCrawler under AI Training, with descriptions noting the mixed research/business uses of Common Crawl and Velen. Put YisouSpider and ZoominfoBot in Additional search, including specialized business search.
+- Rename Other Crawlers / Data Collection to Data Collection / Monitoring. Keep GoogleOther, AwarioBot, ImagesiftBot, Magpie-Crawler and RecordedFuture there; keep the existing five categories and editor keys.
+- Update purpose information and sources. Change suggestions and new analysis classification only; preserve every saved list, enable switch and effective blocking choice without a schema migration.
+
 ## 0.25.0 · 2026-11-16
 
 - Split the Search editor's append presets into Add additional search bots (alternative/regional engines) and Add major search & AI bots (including Google, Bing, Meta and AI search). Both append to the same blocklist, with visibility warnings and button tooltips; neither saves, enables or replaces existing entries.

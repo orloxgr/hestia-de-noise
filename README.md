@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.25.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.25.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -298,7 +298,7 @@ silently overwritten.
 ## Included
 
 - Five independent User-Agent lists: Scanner tools, AI Training Crawlers, Search
-  Indexers, SEO & Backlink Crawlers, and Other Crawlers / Data Collection.
+  Indexers, SEO & Backlink Crawlers, and Data Collection / Monitoring.
   One literal, case-insensitive User-Agent substring per line.
 - Optional POST login and XML-RPC rate limits, with editable rate and burst.
 - **User enumeration:** optional protection for public WordPress REST user
@@ -314,11 +314,14 @@ silently overwritten.
   product recognition, operator/purpose/source information and per-domain counts.
   Append selected entries, or all recognized names in one category, to unsaved
   lists; enable switches stay unchanged until explicitly edited.
-  Within Search, **Add additional search bots** appends alternative/regional
-  engines; **Add major search & AI bots** appends Google, Bing, Apple, Meta and
+  Within Search, **Add additional search bots** appends alternative, regional
+  and specialized engines; **Add major search & AI bots** appends Google, Bing, Apple, Meta and
   AI search crawlers. Both add to the same **blocklist**, not an allowlist.
   Additional does not mean less useful: choose according to your audience.
   Blocking search crawlers can reduce search visibility and AI citations.
+  YisouSpider and ZoominfoBot belong to Additional search. Bytespider,
+  ElevenlabsCrawler, CCBot and VelenPublicWebCrawler belong to AI Training;
+  Common Crawl and Velen also supply general research/business datasets.
   The buttons preserve manual entries, skip duplicates and do not save or
   enable anything. Updating the addon never adds names to saved blocklists.
   Generic client libraries and names with an unconfirmed purpose are recognized
