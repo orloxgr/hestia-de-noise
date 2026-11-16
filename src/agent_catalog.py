@@ -5,9 +5,21 @@ SCANNERS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
             'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan',
             'CensysInspect', 'Expanse', 'Palo Alto Networks']
 AI = ['meta-externalagent', 'ClaudeBot', 'GPTBot', 'Reflectionbot', 'Amazonbot']
-SEARCH = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
-SEO = ['MJ12bot', 'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'SERankingBacklinksBot']
-OTHER = ['GoogleOther', 'Bytespider', 'YisouSpider', 'ElevenlabsCrawler', 'CCBot']
+SEARCH_ADDITIONAL = ['PetalBot', 'Baiduspider', 'ibou-search', 'Owler', 'SeekportBot',
+                     'YandexBot', 'MojeekBot', 'IbouBot', '360Spider']
+SEARCH_MAJOR = ['Googlebot', 'Googlebot-Image', 'Googlebot-News', 'Googlebot-Video',
+                'bingbot', 'Applebot', 'DuckDuckBot', 'DuckAssistBot', 'meta-webindexer',
+                'OAI-SearchBot', 'Claude-SearchBot', 'Amzn-SearchBot', 'PerplexityBot',
+                'ExaSearchBot', 'ExaSearchBot-Images', 'LinkupBot']
+SEARCH = SEARCH_ADDITIONAL + SEARCH_MAJOR
+# Optional append groups in the same Search editor, never saved policy defaults.
+SEARCH_PRESETS = {'search_additional': SEARCH_ADDITIONAL, 'search_major': SEARCH_MAJOR}
+SEO = ['MJ12bot', 'AhrefsBot', 'SemrushBot', 'DotBot', 'BLEXBot', 'SERankingBacklinksBot',
+       'DataForSeoBot', 'Barkrowler', 'serpstatbot', 'SearchAtlasBot', 'LinkpadBot',
+       'Screaming Frog SEO Spider', 'MegaIndex.ru', 'SeobilityBot', 'SEOkicks-Robot', 'rogerbot']
+OTHER = ['GoogleOther', 'Bytespider', 'YisouSpider', 'ElevenlabsCrawler', 'CCBot',
+         'AwarioBot', 'ImagesiftBot', 'VelenPublicWebCrawler', 'ZoominfoBot',
+         'Magpie-Crawler', 'RecordedFuture']
 
 CATEGORIES = {
     'tool_agents': dict(title='Scanner tools', entries=SCANNERS,
@@ -21,18 +33,17 @@ CATEGORIES = {
     'agents': dict(title='Other Crawlers / Data Collection', entries=OTHER,
         description='General collection, research and agents with mixed or unclassified purposes. Review individual names before blocking.')}
 
-# Recognize useful search/fetch clients without adding them to block suggestions.
+# Recognize fetch clients, variants and uncertain/generic declarations separately.
+# Generic libraries and names with no confirmed purpose are not bulk suggestions.
 EXTRA = {
-    'search_agents': ['OAI-SearchBot', 'Claude-SearchBot', 'Amzn-SearchBot',
-                      'Googlebot', 'Googlebot-Image', 'Googlebot-News', 'Googlebot-Video',
-                      'bingbot', 'Applebot', 'DuckDuckBot', 'DuckAssistBot',
-                      'PerplexityBot', 'ExaSearchBot', 'ExaSearchBot-Images',
-                      'Baiduspider-render', 'Baiduspider-image', 'Baiduspider-mobile', 'Baiduspider-video'],
+    'search_agents': ['Baiduspider-render', 'Baiduspider-image', 'Baiduspider-mobile', 'Baiduspider-video'],
     'seo_agents': ['AhrefsSiteAudit', 'SiteAuditBot'],
     'agents': ['ChatGPT-User', 'Claude-User', 'Amzn-User', 'meta-externalfetcher',
                'Perplexity-User', 'ExaUser', 'Google-InspectionTool', 'AdsBot-Google',
                'OAI-AdsBot', 'meta-externalads', 'facebookcatalog',
-               'facebookexternalhit', 'Twitterbot', 'Slackbot', 'Discordbot', 'WhatsApp', 'TelegramBot']}
+               'facebookexternalhit', 'Twitterbot', 'Slackbot', 'Discordbot', 'WhatsApp', 'TelegramBot',
+               'BacklinksExtendedBot', 'Timpibot', 'CMS-Checker', 'AionBot', 'Epochal-Search',
+               'BasegrowBot', 'Amazon Web Services', 'Go-http-client', 'quic-go']}
 
 # Keep distinct products (including image/render crawlers) separate so appending
 # a selected row never broadens an image-only rule to an entire crawler family.

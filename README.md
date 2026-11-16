@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.24.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.25.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -314,6 +314,15 @@ silently overwritten.
   product recognition, operator/purpose/source information and per-domain counts.
   Append selected entries, or all recognized names in one category, to unsaved
   lists; enable switches stay unchanged until explicitly edited.
+  Within Search, **Add additional search bots** appends alternative/regional
+  engines; **Add major search & AI bots** appends Google, Bing, Apple, Meta and
+  AI search crawlers. Both add to the same **blocklist**, not an allowlist.
+  Additional does not mean less useful: choose according to your audience.
+  Blocking search crawlers can reduce search visibility and AI citations.
+  The buttons preserve manual entries, skip duplicates and do not save or
+  enable anything. Updating the addon never adds names to saved blocklists.
+  Generic client libraries and names with an unconfirmed purpose are recognized
+  for individual review, but are not included in bulk suggestions.
 - **Filtered URL crawling:** match a path, parameter names and crawler names;
   limit or block them on selected domains. The rate budget is per crawler and
   domain across all IPs, aliases and matching URL combinations.

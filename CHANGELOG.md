@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.0 · 2026-11-16
+
+- Split the Search editor's append presets into Add additional search bots (alternative/regional engines) and Add major search & AI bots (including Google, Bing, Meta and AI search). Both append to the same blocklist, with visibility warnings and button tooltips; neither saves, enables or replaces existing entries.
+- Recognize all 50 distinct names in the community list. Add 10 SEO, six search and six other data crawlers, with purpose information and sources. Recognize six unconfirmed names and three generic client declarations for individual review without adding them to bulk suggestions.
+- Keep the existing five purpose categories, independent switches, saved lists and policy schema. Keep training, search, user-triggered fetches, advertising and link-preview clients distinct. No blocking policy changes on upgrade.
+
 ## 0.24.0 · 2026-11-16
 
 - Add a Global exceptions box to Disable XML-RPC with a general IPv4/IPv6/CIDR field and its own Allow Jetpack button, using the same append workflow as each site's box. Keep global and site lists independently editable; neither button changes switches, site selections or other lists.

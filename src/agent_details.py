@@ -92,6 +92,32 @@ add('WhatsApp', 'Meta / WhatsApp', 'Retrieves page information for shared-link p
 add('TelegramBot', 'Telegram', 'Retrieves page information for shared-link previews.', 'Article and product-link previews in Telegram conversations.', 'https://telegram.org/blog/link-preview-options')
 
 
+add('DataForSeoBot', 'DataForSEO', 'Collects links for a backlink index.', 'Backlink data and SEO analysis through DataForSEO products.', 'https://dataforseo.com/dataforseo-bot')
+add('Barkrowler', 'Babbar', 'Collects links and page metadata to build a web graph.', 'Link research and SEO analysis with Babbar.', 'https://www.babbar.tech/crawler')
+add('serpstatbot', 'Serpstat', 'Collects links for backlink analysis.', 'Backlink research and competitor analysis in Serpstat.', 'https://serpstatbot.com/')
+add('SearchAtlasBot', 'Search Atlas', 'Crawls websites for Search Atlas and OTTO SEO checks.', 'SEO audits and OTTO workflows you or your agency use.', 'https://chat.labs.searchatlas.com/hc/searchatlas-help/articles/1786754770-update-otto-sitemap-and-robots-txt-after-deleting-ur_ls')
+add('LinkpadBot', 'Linkpad', 'Collects website links for a backlink index.', 'Linkpad backlink analysis and SEO research.', 'https://www.linkpad.ru/help/')
+add('Screaming Frog SEO Spider', 'Screaming Frog (user-run tool)', 'Crawls websites for technical SEO audits.', 'Audits you or your SEO agency run; the tool can also be run by unrelated parties.', 'https://www.screamingfrog.co.uk/seo-spider/')
+add('MegaIndex.ru', 'MegaIndex (historical crawler name)', 'Historically associated with MegaIndex SEO and backlink crawling; current documentation of this exact name is unavailable.', 'Review your SEO services and requested URLs; the declared name does not verify the requester.', 'https://www.megaindex.ru/')
+add('SeobilityBot', 'Seobility', 'Crawls websites for SEO analysis.', 'Technical SEO checks and monitoring through Seobility.', 'https://www.seobility.net/en/bot/')
+add('SEOkicks-Robot', 'SEOkicks', 'Collects links for a backlink index.', 'Backlink research and SEO analysis in SEOkicks.', 'https://www.seokicks.de/robot.html')
+add('rogerbot', 'Moz', 'Crawls websites for Moz campaign site audits.', 'Moz SEO audits you or your agency requested.', 'https://moz.com/help/moz-procedures/crawlers/rogerbot')
+add('Owler', 'OpenWebSearch / OpenWebIndex', 'Crawls web pages for an open search index.', 'Discovery through services using the open web index; distinct from the similarly named business-information service.', 'https://openwebsearch.eu/owler/')
+add('SeekportBot', 'Seekport / SISTRIX', 'Crawls web pages for Seekport search.', 'Search discovery for audiences using Seekport.', 'https://bot.seekport.com/')
+add('YandexBot', 'Yandex', 'Crawls web pages for Yandex search.', 'Search visibility when your audience uses Yandex.', 'https://yandex.com/support/webmaster/en/robot-workings/check-yandex-robots.html')
+add('MojeekBot', 'Mojeek', 'Crawls pages for the independent Mojeek search index.', 'Discovery through Mojeek search and services using its index.', 'https://www2.mojeek.com/bot.html')
+add('IbouBot', 'IBOU', 'Crawls web pages for IBOU search.', 'Discovery through IBOU search; kept separate from the ibou-search declaration.', 'https://ibou.io/iboubot.html')
+add('360Spider', '360 Search', 'Crawls web pages for 360 Search.', 'Search visibility for audiences using 360 Search.', 'https://www.so.com/help/help_3_2.html')
+add('AwarioBot', 'Awario', 'Collects web mentions for brand and social listening.', 'Monitoring mentions of your brand and products through Awario.', 'https://awario.com/bots.html')
+add('ImagesiftBot', 'Hive / Imagesift', 'Collects public images and related text for web intelligence and image search.', 'Image discovery and web intelligence; this is not a general web search indexer.', 'https://imagesift.com/about')
+add('VelenPublicWebCrawler', 'Velen / Hunter', 'Collects public web data for business datasets and machine-learning models.', 'Business data and research datasets; review whether these uses benefit your site.', 'https://velen.io/')
+add('ZoominfoBot', 'ZoomInfo (as listed by Cloudflare)', 'Collects company and professional information for business data services.', 'Business discovery and company-data services; separate from consumer search indexing.', 'https://radar.cloudflare.com/bots/directory/zoominfobot')
+add('Magpie-Crawler', 'Brandwatch', 'Collects public web content for social listening.', 'Brand monitoring and consumer research through Brandwatch.', 'https://www.brandwatch.com/legal/magpie-crawler/')
+add('RecordedFuture', 'Recorded Future (declared name; requester not verified)', 'The named service collects public information for threat intelligence; its privacy policy does not confirm this exact User-Agent.', 'Threat intelligence and security research; review requested URLs before blocking.', 'https://www.recordedfuture.com/legal/privacy-policy/4-0')
+add('Go-http-client', 'Go net/http library (user-run client)', 'Default client declaration used by programs making HTTP requests with Go.', 'May be a legitimate integration, monitor or crawler; this name alone identifies no particular bot.', 'https://go.dev/src/net/http/request.go')
+add('quic-go', 'quic-go project (client library)', 'QUIC and HTTP/3 library used by multiple applications.', 'May be a legitimate client or integration; this name alone identifies no particular bot.', 'https://github.com/quic-go/quic-go')
+
+
 def describe(name):
     known = DETAILS.get(name.casefold())
     if known:
