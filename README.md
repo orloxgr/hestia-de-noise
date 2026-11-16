@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.21.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.22.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -43,9 +43,27 @@ Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
 
+## Disable XML-RPC per website
+
+In **Endpoints → Disable XML-RPC**, enable the switch and check the websites,
+then **Save & Apply**. **Select all sites** and **Clear selection** work across
+the complete paginated domain list. No checked sites means no XML-RPC blocking.
+The feature starts disabled with no selected domains on install or upgrade.
+
+In **Enforce**, Nginx returns **403** before WordPress for XML-RPC paths on the
+checked domains and their aliases, including subfolder installations and path-info.
+In **Observe**, matches appear in Activity without blocking. **Off** keeps normal
+routing. Activity labels the action **XML-RPC disabled**. This does not ban IPs
+and is separate from the existing XML-RPC POST rate limit.
+
+Jetpack XML-RPC connections, external XML-RPC publishing and pingbacks stop
+working on checked sites. Normal wp-admin and other site routes stay available.
+Existing rate limits, endpoint lists and per-domain settings are retained;
+saving an older already-open panel preserves these new XML-RPC choices.
+
 ## Custom endpoint rules and log suggestions
 
-Endpoints groups exact-path 404 bans, custom rules, log analysis/suggestions,
+Endpoints groups per-site XML-RPC disabling, exact-path 404 bans, custom rules, log analysis/suggestions,
 WordPress login limits and XML-RPC limits into separate Hestia accordions with
 visible open/close chevrons. Appending a suggestion opens its destination section.
 

@@ -29,6 +29,7 @@ $renderEndpoint = static function ($index, array $row) use ($data, $escape): voi
 <button type="button" class="button button-secondary u-mt10" data-hdn-remove title="Removes this rule from the form. Save &amp; Apply to remove the saved protection.">Remove rule</button>
 </div>
 <?php }; ?>
+<?php require __DIR__ . '/xmlrpc-block.php'; ?>
 <?php require __DIR__ . '/endpoint-404.php'; ?>
 <details class="box-collapse hdn-endpoint-section u-mb20" id="hdn-custom-endpoints-box">
 <summary class="box-collapse-header">Custom endpoint rules</summary>

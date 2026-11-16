@@ -24,7 +24,7 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):validate(saved)
 
     def test_v4_upgrade_preserves_existing_bans_and_does_not_enable_new_categories(self):
-        old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404')
+        old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old.pop('xmlrpc_block')
         old['schema'] = 4
         for field in ('ai_agents', 'search_agents', 'seo_agents'):
             old.pop(field); old.pop(field + '_enabled')
@@ -34,7 +34,7 @@ class PolicyTests(unittest.TestCase):
         for key in ('missing_files', 'suspicious_queries', 'any_404'): old['bans'].pop(key)
         old['bans'].update(enabled=True, maxretry=1, duration_days=0)
         saved = validate(old)
-        self.assertEqual(saved['schema'], 13)
+        self.assertEqual(saved['schema'], 14)
         self.assertEqual(saved['bans']['duration_days'], 0)
         for key in ('missing_files', 'suspicious_queries'):
             self.assertFalse(saved['bans'][key]['enabled'])

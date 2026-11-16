@@ -38,7 +38,7 @@ class EndpointPolicy(unittest.TestCase):
         saved=copy.deepcopy(DEFAULT); saved['custom_endpoints']=[rule(enabled=False)]
         for schema in (10,11):
             incoming=copy.deepcopy(DEFAULT); incoming['schema']=schema
-            incoming.pop('endpoint_404')
+            incoming.pop('endpoint_404'); incoming.pop('xmlrpc_block')
             if schema==10: incoming.pop('custom_endpoints')
             with patch.object(engine,'authorize',return_value=(True,'admin')), patch.object(engine,'load',return_value=saved), \
                  patch.object(engine,'collect',return_value=[]),patch.object(engine,'snapshot',return_value={}),patch.object(engine,'apply') as apply:
@@ -46,10 +46,10 @@ class EndpointPolicy(unittest.TestCase):
             self.assertEqual(apply.call_args.args[0]['custom_endpoints'], saved['custom_endpoints'] if schema==10 else [])
 
     def test_schema10_migration_has_no_active_new_rules(self):
-        old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old['schema'] = 10
+        old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old.pop('xmlrpc_block'); old['schema'] = 10
         old['mode'] = 'enforce'; old['bans']['ignore_ips'] = ['198.51.100.2']
         current = validate(old)
-        self.assertEqual(current['schema'], 13)
+        self.assertEqual(current['schema'], 14)
         self.assertEqual(current['custom_endpoints'], [])
         self.assertEqual(current['bans']['ignore_ips'], ['198.51.100.2/32'])
         self.assertEqual(current['mode'], 'enforce')

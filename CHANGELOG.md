@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.0 · 2026-11-16
+
+- Port Webuzo De-Noise's per-site Disable XML-RPC feature into the native Hestia Endpoints panel. Select sites with checkboxes and Select all / Clear selection across pages; an empty selection protects no sites. Start disabled and empty on upgrade.
+- Reject XML-RPC requests in Nginx before WordPress in Enforce, including aliases, subfolder installations, path-info and decoded URI forms. Observe logs without blocking and Off keeps routing. Keep the feature separate from XML-RPC POST rate limiting and automatic IP bans; identify XML-RPC disabled in Activity.
+- Migrate schema 13 to 14 while retaining existing policy. Preserve saved XML-RPC choices when an older already-open settings panel submits, using a dedicated presence marker in the current form.
+
 ## 0.21.0 · 2026-11-15
 
 - Add configurable attempts and counting window to selected-path final-404 bans. Count repeated requests per IP across selected paths/domains, preserve real-status routing, self/exclusion checks and expiry. Reconcile overlapping native/structured log source counts without summing duplicate layers; retain genuine same-second repeats within each source. Capture the actual threshold/window in ban details.

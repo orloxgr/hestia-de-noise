@@ -10,9 +10,10 @@ import access_protection
 import agent_catalog
 import endpoints
 import endpoint_404
+import xmlrpc_block
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.21.0'
+VERSION = '0.22.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -23,7 +24,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 13, 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 14, 'xmlrpc_block': copy.deepcopy(xmlrpc_block.DEFAULT), 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
            'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
@@ -44,7 +45,8 @@ DEFAULT = {'schema': 13, 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'c
            'domain_bans': {'allow_users': True, 'sites': {}}}
 DEFAULT.update({field: [] for field in ('ai_agents', 'search_agents', 'seo_agents')})
 DEFAULT.update({field + '_enabled': True for field in ('ai_agents', 'search_agents', 'seo_agents')})
-V11_KEYS = set(DEFAULT) - {'endpoint_404'}
+V13_KEYS = set(DEFAULT) - {'xmlrpc_block'}
+V11_KEYS = V13_KEYS - {'endpoint_404'}
 V10_KEYS = V11_KEYS - {'custom_endpoints'}
 V9_KEYS = V10_KEYS - {field + suffix for field in ('ai_agents', 'search_agents', 'seo_agents') for suffix in ('', '_enabled')}
 LEGACY_KEYS = {'schema', 'mode', 'agents', 'scanners', 'login', 'xmlrpc', 'overrides'}
@@ -151,15 +153,18 @@ def validate(raw):
         data.update(schema=11, custom_endpoints=[])
     if data.get('schema') == 11 and set(data) == V11_KEYS:
         data.update(schema=12, endpoint_404=copy.deepcopy(endpoint_404.DEFAULT))
-    if data.get('schema') == 12 and set(data) == set(DEFAULT):
+    if data.get('schema') == 12 and set(data) == V13_KEYS:
         selected = data.get('endpoint_404')
         if not isinstance(selected, dict):
             raise ValueError('Invalid selected endpoint 404 settings')
         selected.setdefault('maxretry', 1)
         selected.setdefault('findtime', 300)
         data['schema'] = 13
-    if data.get('schema') != 13 or set(data) != set(DEFAULT):
+    if data.get('schema') == 13 and set(data) == V13_KEYS:
+        data.update(schema=14, xmlrpc_block=copy.deepcopy(xmlrpc_block.DEFAULT))
+    if data.get('schema') != 14 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
+    xmlrpc_block.validate(data['xmlrpc_block'], target)
     endpoints.validate(data['custom_endpoints'], target)
     endpoint_404.validate(data['endpoint_404'], target)
     enumeration.validate(data['enumeration'], target)
@@ -404,6 +409,7 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
     web_sites = [site for site in sites if site.get('kind') != 'mail']
     lines += enumeration.compiled(policy, web_sites, pattern, parameter_pattern)
     lines += probe_rules.compile_maps(policy, web_sites, pattern, exact_uri_pattern)
+    lines += xmlrpc_block.compile_maps(policy['xmlrpc_block'], web_sites, scope_map, pattern)
     lines += endpoints.compile_maps(policy, web_sites, scope_map, exact_uri_pattern, probe_rules.event_format)
     lines += endpoint_404.compile_maps(policy['endpoint_404'], web_sites, scope_map, exact_uri_pattern, probe_rules.event_format)
     lines += ['map "$server_name:$uri" $hdn_static_exempt {', '    default 0;']
@@ -455,10 +461,10 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
     lines += ['    ' + pattern('(?:^|:)login(?:$|:)') + ' login;',
               '    ' + pattern('(?:^|:)xmlrpc(?:$|:)') + ' xmlrpc;']
-    lines += ['}', 'map "$hdn_domain_blocked:$hdn_endpoint:$hdn_match_base" $hdn_match {',
-              '    default $hdn_match_base;', '    ~^1: domain-ban;', '    ~^0:endpoint- $hdn_endpoint;', '}',
+    lines += ['}', 'map "$hdn_domain_blocked:$hdn_xmlrpc_disabled:$hdn_endpoint:$hdn_match_base" $hdn_match {',
+              '    default $hdn_match_base;', '    ~^1: domain-ban;', '    ~^0:1: xmlrpc-disabled;', '    ~^0:0:endpoint- $hdn_endpoint;', '}',
               'map $hdn_match $hdn_block {', '    default 0;', '    private-file 1;',
-              '    agent 1;', '    ~^filter-block- 1;', '    ~^endpoint- 1;', '}',
+              '    agent 1;', '    xmlrpc-disabled 1;', '    ~^filter-block- 1;', '    ~^endpoint- 1;', '}',
               'map "$hdn_mode:$hdn_static_candidate" $hdn_static_reject {', '    default 0;', '    ~^enforce:static- 1;', '}',
               # The JSON-escaped User-Agent follows the legacy fields, separated
               # by a tab. Never record IPs, URLs, queries or other headers here.
