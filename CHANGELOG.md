@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.0 · 2026-11-16
+
+- Add per-site IPv4/IPv6 and CIDR exceptions to Disable XML-RPC in Endpoints. Allowed sources reach XML-RPC on that site and its aliases; unlisted sources remain blocked. Keep all other De-Noise rules, firewall bans and XML-RPC rate limits in force.
+- Compile native Nginx geo checks against the actual client address, without trusting arbitrary forwarded headers or User-Agent names. Link the editor to Jetpack's official current IP list and instructions.
+- Migrate policy schema 14 to 15 while retaining switches, site selections and existing settings. Preserve exceptions when an older already-open panel saves; retain saved entries for unavailable sites and across paginated rows.
+
 ## 0.22.0 · 2026-11-16
 
 - Port Webuzo De-Noise's per-site Disable XML-RPC feature into the native Hestia Endpoints panel. Select sites with checkboxes and Select all / Clear selection across pages; an empty selection protects no sites. Start disabled and empty on upgrade.

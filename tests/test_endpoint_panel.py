@@ -51,5 +51,19 @@ class SaveParser(unittest.TestCase):
             self.assertEqual(policy['endpoint_404']['maxretry'],3)
             self.assertEqual(policy['endpoint_404']['findtime'],600)
 
+    def test_new_form_parses_per_site_networks_and_can_clear_all_exceptions(self):
+        for posted, expected in (({'alice/one.test':'192.0.2.1\n2001:db8::/32', 'bob/two.test':''},
+                                  {'alice/one.test':['192.0.2.1','2001:db8::/32']}), ({}, {})):
+            result=self.parse(dict(self.base(),xmlrpc_block_present='1',xmlrpc_exceptions_present='1',
+                                   xmlrpc_block_exceptions=posted))
+            self.assertEqual(result.returncode,0,result.stderr)
+            policy=json.loads(result.stdout)
+            self.assertEqual(policy['schema'],15)
+            self.assertEqual(policy['xmlrpc_block'],dict(enabled=False,targets=[],exceptions=expected))
+        for invalid in ('192.0.2.1', {'alice/one.test':['192.0.2.1']}):
+            result=self.parse(dict(self.base(),xmlrpc_block_present='1',xmlrpc_exceptions_present='1',
+                                   xmlrpc_block_exceptions=invalid))
+            self.assertNotEqual(result.returncode,0)
+
 
 if __name__=='__main__':unittest.main()

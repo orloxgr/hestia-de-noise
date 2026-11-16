@@ -203,6 +203,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $submitted['schema'] = 14;
                 $submitted['xmlrpc_block'] = ['enabled'=>isset($_POST['xmlrpc_block_enabled']),
                     'targets'=>$_POST['xmlrpc_block_targets'] ?? []];
+                if (($_POST['xmlrpc_exceptions_present'] ?? '') === '1') {
+                    $submitted['schema'] = 15;
+                    $exceptions = $_POST['xmlrpc_block_exceptions'] ?? [];
+                    if (!is_array($exceptions)) throw new RuntimeException('Invalid XML-RPC IP exceptions');
+                    $addresses = [];
+                    foreach ($exceptions as $site => $text) {
+                        if (!is_string($text)) throw new RuntimeException('Invalid XML-RPC IP exception list');
+                        $values = $list($text, true);
+                        if ($values) $addresses[$site] = $values;
+                    }
+                    $submitted['xmlrpc_block']['exceptions'] = (object)$addresses;
+                }
             }
             $request['policy'] = $submitted;
             if (is_array($submitted['static_exceptions'])) $request['policy']['static_exceptions'] = (object)$submitted['static_exceptions'];

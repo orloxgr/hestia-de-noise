@@ -1,6 +1,9 @@
 """Explicit per-site XML-RPC rejection, separate from request rate limits."""
 
-DEFAULT = {'enabled': False, 'targets': []}
+import hashlib
+import ipaddress
+
+DEFAULT = {'enabled': False, 'targets': [], 'exceptions': {}}
 PATH = r'^/(?:[^/]+/)*xmlrpc\.php(?:/.*)?$'
 
 
@@ -9,12 +12,45 @@ def validate(settings, target):
             or type(settings['enabled']) is not bool or not isinstance(settings['targets'], list)):
         raise ValueError('Invalid XML-RPC disable settings')
     settings['targets'] = list(dict.fromkeys(target(value) for value in settings['targets']))
+    if not isinstance(settings['exceptions'], dict):
+        raise ValueError('XML-RPC IP exceptions must be grouped by site')
+    exceptions = {}
+    for site, addresses in settings['exceptions'].items():
+        site = target(site)
+        if not isinstance(addresses, list):
+            raise ValueError('XML-RPC exceptions must be IP addresses or CIDRs, one per line')
+        networks = []
+        for address in addresses:
+            if not isinstance(address, str) or '%' in address:
+                raise ValueError('Invalid XML-RPC exception IP address or CIDR')
+            try:
+                network = str(ipaddress.ip_network(address, strict=False))
+            except ValueError as error:
+                raise ValueError('Invalid XML-RPC exception IP address or CIDR: ' + address) from error
+            if network not in networks:
+                networks.append(network)
+        if networks:
+            exceptions[site] = networks
+    settings['exceptions'] = exceptions
 
 
 def compile_maps(settings, sites, scope_map, pattern):
     # An empty selection means no sites, never an implicit server-wide block.
     selected = [site for site in sites if site['key'] in settings['targets'] and site.get('kind') != 'mail']
-    return scope_map('hdn_xmlrpc_disabled_site', settings, selected) + [
+    lines = scope_map('hdn_xmlrpc_disabled_site', settings, selected)
+    allowed_hosts = []
+    for site in selected:
+        networks = settings['exceptions'].get(site['key'], [])
+        if not settings['enabled'] or not networks or not site.get('supported', True) or site.get('suspended'):
+            continue
+        variable = 'hdn_xmlrpc_allow_' + hashlib.sha256(site['key'].encode()).hexdigest()[:16]
+        lines += ['geo $remote_addr $' + variable + ' {', '    default 0;']
+        lines += ['    ' + network + ' 1;' for network in networks]
+        lines += ['}']
+        # Hestia's canonical server_name covers aliases without trusting Host/XFF.
+        allowed_hosts.append('    ' + site.get('domain', site['key'].split('/')[1]) + ' $' + variable + ';')
+    lines += ['map $server_name $hdn_xmlrpc_exempt {', '    default 0;', *allowed_hosts, '}']
+    return lines + [
         'map $uri $hdn_xmlrpc_disabled_path {', '    default 0;', '    ' + pattern(PATH) + ' 1;', '}',
-        'map "$hdn_mode:$hdn_xmlrpc_disabled_site:$hdn_xmlrpc_disabled_path" $hdn_xmlrpc_disabled {',
-        '    default 0;', '    ~^(observe|enforce):1:1$ 1;', '}']
+        'map "$hdn_mode:$hdn_xmlrpc_disabled_site:$hdn_xmlrpc_disabled_path:$hdn_xmlrpc_exempt" $hdn_xmlrpc_disabled {',
+        '    default 0;', '    ~^(observe|enforce):1:1:0$ 1;', '}']

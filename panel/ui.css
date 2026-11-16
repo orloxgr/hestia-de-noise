@@ -135,3 +135,14 @@
 }
 
 .hdn-select-help { display: block; margin-top: 6px; font-size: .88em; font-weight: normal; opacity: .85; }
+
+#hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions { width: 45%; }
+#hdn-xmlrpc-block-sites td { padding-top: 8px; padding-bottom: 8px; vertical-align: middle; }
+#hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions summary { cursor: pointer; list-style: none; }
+#hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions summary::before {
+    content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 10px;
+    border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+}
+#hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions details[open] > summary::before { transform: rotate(45deg); }
+#hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions summary:focus-visible { outline: 2px solid #7e8be1; outline-offset: 3px; }
+#hdn-xmlrpc-block-sites .hdn-xmlrpc-exceptions textarea { font-family: monospace; resize: vertical; min-width: 0; }

@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.22.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.23.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -48,7 +48,8 @@ There is no mandatory observation period.
 In **Endpoints → Disable XML-RPC**, enable the switch and check the websites,
 then **Save & Apply**. **Select all sites** and **Clear selection** work across
 the complete paginated domain list. No checked sites means no XML-RPC blocking.
-The feature starts disabled with no selected domains on install or upgrade.
+New installations and upgrades from versions before 0.22.0 start with the feature
+disabled and no selected domains. Later upgrades retain your saved choices.
 
 In **Enforce**, Nginx returns **403** before WordPress for XML-RPC paths on the
 checked domains and their aliases, including subfolder installations and path-info.
@@ -56,10 +57,23 @@ In **Observe**, matches appear in Activity without blocking. **Off** keeps norma
 routing. Activity labels the action **XML-RPC disabled**. This does not ban IPs
 and is separate from the existing XML-RPC POST rate limit.
 
-Jetpack XML-RPC connections, external XML-RPC publishing and pingbacks stop
-working on checked sites. Normal wp-admin and other site routes stay available.
+Each site's **Allowed IPs / CIDRs** field accepts IPv4/IPv6 addresses and CIDR
+ranges, one per line. Those sources can use XML-RPC on that site and its aliases;
+all other sources remain blocked. These exceptions do not bypass other rules,
+firewall bans or the separate XML-RPC POST rate limit. Nginx uses its actual client
+address (`$remote_addr`); a forwarded header or a Jetpack User-Agent alone cannot
+grant access. Behind a proxy, configure Nginx real-client-IP handling for that
+trusted proxy first.
+
+To keep Jetpack connected, paste its [official current IP ranges](https://jetpack.com/ips-v4.txt)
+into that site's exceptions, following the [Jetpack instructions](https://jetpack.com/support/how-to-add-jetpack-ips-allowlist/).
+The panel links to these sources; ranges are entered manually and can change.
+External XML-RPC publishing and pingbacks also need their source IPs allowed.
+Normal wp-admin and other site routes stay available.
 Existing rate limits, endpoint lists and per-domain settings are retained;
-saving an older already-open panel preserves these new XML-RPC choices.
+upgrading preserves XML-RPC selections and adds empty IP exceptions. Saving an
+older already-open panel preserves exceptions it does not know about. Clearing a
+site's exception field in the current panel removes its exceptions on Save & Apply.
 
 ## Custom endpoint rules and log suggestions
 
