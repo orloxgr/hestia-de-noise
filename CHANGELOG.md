@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.1 · 2026-11-23
+
+- Put Analyze current agents in a native accordion; retain its form, report and background-job behavior when collapsed.
+- Rename the existing general category to Data Collection / Monitoring / Various. Split optional collection and monitoring append buttons in both editors, retaining the same saved category, switches and shared group budget.
+- Add a separate Various picker with unchecked individual choices, descriptions, source links where confirmed, and destination-specific append. Preserve current edits and manual append; no save, enable or stored-list insertion occurs automatically.
+- Add optional RiverBot/PostHog training, Keenable/Seznam/Sofya/Qwant/Sogou search, l9scan/Modat scanning and webXtrend/KStand collection suggestions. Recognize generic automation and uncertain declarations for review without bulk suggestions; do not attribute Bravebot to Brave Search or treat HeadlessChrome as a security scanner.
+- Prefer specific bot declarations over generic renderer/library tokens in new analysis. Preserve distinct search/image/news and user-triggered products, all stored rules and schema 17. Keep native request matching, budgets and Nginx transactions unchanged.
+
 ## 0.26.0 · 2026-11-23
 
 - Give all five User-Agent categories a full-width accordion, with independent block and group-rate lists side by side and a full-width editable individual-rule table below. Keep presets/analyzed append destination-specific, preserve unsaved edits, and show effective-action previews, validation and button tooltips.

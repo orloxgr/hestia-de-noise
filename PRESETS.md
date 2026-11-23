@@ -1,4 +1,4 @@
-# Presets — 0.26.0
+# Presets — 0.26.1
 
 ## User-Agent categories
 
@@ -28,6 +28,8 @@ WPScan
 CensysInspect
 Expanse
 Palo Alto Networks
+l9scan
+ModatScanner
 ```
 
 ### AI Training Crawlers
@@ -44,6 +46,8 @@ Bytespider
 ElevenlabsCrawler
 CCBot
 VelenPublicWebCrawler
+RiverBot
+PostHogImageFetcherBot
 ```
 
 ### Search Indexers
@@ -57,6 +61,12 @@ PetalBot
 Baiduspider
 ibou-search
 ShapBot
+KeenableBot
+SeznamBot
+SofyaBot
+Qwantbot
+Sogou web spider
+Sogou Pic Spider
 ```
 
 ### SEO & Backlink Crawlers
@@ -72,17 +82,53 @@ BLEXBot
 SERankingBacklinksBot
 ```
 
-### Data Collection / Monitoring
+### Data Collection / Monitoring / Various
 
-General research, image collection, brand monitoring and threat intelligence. Review individual names before blocking.
+One saved category and one shared group budget, with separate optional append groups.
+**Add Data Collection** appends:
 
 ```text
 GoogleOther
-AwarioBot
 ImagesiftBot
+webXtrendBot
+KStandBot
+```
+
+**Add Monitoring** appends:
+
+```text
+AwarioBot
 Magpie-Crawler
 RecordedFuture
 ```
+
+**Add Various…** opens individual unchecked choices. Generic names include
+HeadlessChrome, Python-urllib, python-requests, curl, httpx, Go-http-client and
+quic-go. Other choices have an unconfirmed purpose/operator, including FontScanBot,
+EchoGreyBot and Bravebot. Descriptions distinguish uncertainty from maliciousness;
+the declared Bravebot name does not establish official Brave Search identity.
+Only selected names are appended to the chosen block/group editor, preserving
+current text, switches and other lists. None are added by bulk suggestions or
+updates. Manual append and individual rate rules remain available.
+
+WP-Safe-Scanner and wp-cve-2026-87902-validator are recognized as declared scanners
+for individual analysis review, with an unverified operator and claimed checks;
+they are not bulk suggestions. Named user-triggered fetches, ad checks, social
+previews and integrations are also excluded from bulk suggestions and Various.
+Append analyzed agents can include recognized generic/unconfirmed clients found
+in the completed report; review the report first. Arbitrary unknown declarations
+remain individually selectable. Catalog grouping never authenticates a requester.
+
+Purpose documentation: [River](https://river.ai/bot),
+[PostHog](https://posthog.com/docs/ai-research/image-fetcher-bot),
+[Keenable](https://app.keenable.ai/bot), [Sofya](https://sofya.co/bot),
+[Seznam](https://o-seznam.cz/napoveda/vyhledavani/en/seznambot-crawler/),
+[Qwant](https://help.qwant.com/bot), [Sogou](https://www.sogou.com/docs/help/webmasters.htm),
+[LeakIX](https://docs.leakix.net/docs/api/domain/), [Modat](https://scanner.modat.io/),
+[webXtrend](https://webxtrend.com/crawler),
+[KStand](https://url-classification.io/wiki/index.php/Website_classification_crawler),
+[Chrome automation](https://developer.chrome.com/docs/automation-and-testing/headless)
+and [Brave's crawler declaration](https://search.brave.com/help/brave-search-crawler).
 
 **Analyze current agents** counts retained log requests. Append individual rows
 or recognized names from the completed report to the chosen unsaved list, then review

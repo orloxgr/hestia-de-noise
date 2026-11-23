@@ -1,5 +1,11 @@
 # Delivery status
 
+## Available in 0.26.1
+
+- Analyzer accordion and Data Collection / Monitoring / Various, retaining existing policy keys and budgets.
+- Separate collection/monitoring append buttons and a review-only Various picker, with no automatic list insertion or enable changes.
+- Expanded purpose information and optional crawler suggestions; specific bot declarations take priority over generic clients in new analysis grouping.
+
 ## Available in 0.26.0
 
 - Full-width accordions for all five User-Agent categories, block/group editors and individual rate tables with unsaved effective-action previews.

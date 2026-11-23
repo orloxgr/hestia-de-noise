@@ -26,13 +26,19 @@
 <label class="form-label">Burst<input form="hdn-settings" class="form-control" type="number" min="0" step="1" required name="agent_groups[<?= $escape($field) ?>][burst]" value="<?= $escape($limits['group']['burst']) ?>" title="Extra requests allowed in a short burst without queuing. Zero allows no extra burst."></label>
 </div><p class="u-mb10"><small>Shared across all server websites and IPs. A busy site can consume the group's budget for every site.</small></p><?php endif; ?>
 <div class="hdn-inventory-actions">
-<?php $appendPresets = $field === 'search_agents' ? ['search_additional'=>'Add additional search bots','search_major'=>'Add major search & AI bots'] : [$field=>'Add suggested agents'];
+<?php $appendPresets = $field === 'search_agents' ? ['search_additional'=>'Add additional search bots','search_major'=>'Add major search & AI bots'] :
+    ($field === 'agents' ? ['data_collection'=>'Add Data Collection', 'monitoring'=>'Add Monitoring'] : [$field=>'Add suggested agents']);
 foreach ($appendPresets as $preset => $caption): ?>
 <button type="button" class="button button-secondary" data-hdn-preset="<?= $escape($preset) ?>" data-hdn-agent-field="<?= $escape($editor) ?>" title="Append optional names to this <?= $isRate ? 'group rate list' : 'blocklist' ?>. <?= $field === 'search_agents' ? 'Search restrictions can reduce visibility. ' : '' ?>Review before Save &amp; Apply; this button does not save or enable settings."><?= $escape($caption) ?></button>
 <?php endforeach; ?>
+<?php if ($field === 'agents'): ?>
+<button type="button" class="button button-secondary" data-hdn-various-toggle aria-expanded="false" aria-controls="hdn-various-<?= $escape($editor) ?>" title="Choose generic automation or unconfirmed names individually for this <?= $isRate ? 'group rate list' : 'blocklist' ?>. Nothing is selected, saved or enabled automatically.">Add Various&hellip;</button>
+<?php endif; ?>
 <button type="button" class="button button-secondary" data-hdn-append-analyzed="<?= $escape($field) ?>" data-hdn-agent-field="<?= $escape($editor) ?>" aria-describedby="hdn-analyzed-<?= $escape($editor) ?>" disabled title="Append recognized names from the latest completed analysis, across all pages, to this <?= $isRate ? 'group rate list' : 'blocklist' ?>. Preserve current edits; do not save or enable settings.">Append analyzed agents</button>
 </div>
+<?php if ($field === 'agents') require $install . '/panel/agent-various.php'; ?>
 <p class="u-mt10" id="hdn-analyzed-<?= $escape($editor) ?>" role="status">Uses the latest completed agent analysis, across all result pages.</p>
+<?php if ($field === 'agents' || $field === 'tool_agents'): ?><p class="u-mt10"><small>Append analyzed agents includes recognized generic or unconfirmed names when present in the report. Review each name first; selected rows and manual editing remain available.</small></p><?php endif; ?>
 </section>
 <?php endforeach; ?>
 </div>

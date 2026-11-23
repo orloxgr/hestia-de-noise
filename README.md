@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.26.0.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.26.1.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -34,8 +34,8 @@ Run the following steps in the server's root SSH session:
 3. Refresh Hestia and open **Plugins → De-Noise** as administrator.
 
 4. For a **new installation**, in **General**, select **Enforce** and enable **Private-file protection**.
-   In **User-Agents**, click **Add scanner tools**, then **Save & Apply**.
-   **Add bulk / AI crawlers** is optional.
+   In **User-Agents**, open **Scanner tools**, review **Add suggested agents**
+   in its blocklist, then **Save & Apply**. Other crawler suggestions are optional.
 
 New installations start in **Observe with an empty blocklist**; they block nothing.
 Updates preserve the existing settings.
@@ -51,6 +51,22 @@ rate limit rules table below. On small screens the two lists stack. Preset and
 analyzed-agent buttons append only to the indicated list, preserving current
 edits and switches. Add individual rule accepts any printable literal substring;
 new rows are inactive with an empty name/rate. Review and Save & Apply explicitly.
+
+**Analyze current agents** also has its own accordion. Closing it keeps the
+current selection and report; it does not cancel a running analysis.
+**Data Collection / Monitoring / Various** keeps the same saved category key,
+switches and single server-wide group budget. **Add Data Collection** and
+**Add Monitoring** append separate optional purpose-based suggestions to their
+own editor. **Add Various…** opens an initially unchecked selection of generic
+automation and unconfirmed names, with descriptions and available sources.
+Only checked names are appended; closing the picker preserves selections.
+Generic clients such as HeadlessChrome, curl and Python libraries may belong to
+legitimate rendering, testing or integrations. They are not bulk suggestions or
+verified malicious bots. Manual entries and selected analysis rows remain usable.
+**Append analyzed agents** remains available and may include recognized generic
+or unconfirmed names actually present in the report; review before appending.
+Specific named bots take precedence over generic renderer/library declarations
+when grouping new analysis results; this does not alter saved literal rules.
 
 For each request, enabled individual rules take priority over every group limit,
 which takes priority over every blocklist, across category boundaries. Disabled
@@ -352,7 +368,7 @@ silently overwritten.
 ## Included
 
 - Five independent User-Agent lists: Scanner tools, AI Training Crawlers, Search
-  Indexers, SEO & Backlink Crawlers, and Data Collection / Monitoring.
+  Indexers, SEO & Backlink Crawlers, and Data Collection / Monitoring / Various.
   One literal, case-insensitive User-Agent substring per line.
 - Optional POST login and XML-RPC rate limits, with editable rate and burst.
 - **User enumeration:** optional protection for public WordPress REST user

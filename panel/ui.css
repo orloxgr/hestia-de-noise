@@ -179,3 +179,9 @@
 .hdn-agent-preview > summary { cursor: pointer; }
 .hdn-agent-preview > summary::before { content: "+"; display: inline-block; margin-right: 8px; font-weight: bold; }
 .hdn-agent-preview[open] > summary::before { content: "\2212"; }
+
+.hdn-agent-various { border: 1px solid currentColor; border-radius: 3px; padding: 12px; overflow-wrap: anywhere; }
+.hdn-various-choices { max-height: 24rem; overflow-y: auto; overscroll-behavior: contain; }
+.hdn-various-choice { padding: 12px 4px; border-bottom: 1px solid #777; }
+.hdn-various-choice p { margin: 6px 0; }
+.hdn-various-choice label { cursor: pointer; }

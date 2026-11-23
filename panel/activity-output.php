@@ -35,7 +35,7 @@
         $label = $labels[$rule] ?? (strpos($rule, 'filter-limit-') === 0 ? 'Filtered URL rate limit' :
             (strpos($rule, 'filter-block-') === 0 ? 'Filtered URL block' :
             (strpos($rule, 'static-') === 0 ? 'Missing static file rule' : $rule)));
-        $categories = ['tool_agents'=>'Scanner tools', 'ai_agents'=>'AI Training Crawlers', 'search_agents'=>'Search Indexers', 'seo_agents'=>'SEO & Backlink Crawlers', 'agents'=>'Data Collection / Monitoring'];
+        $categories = ['tool_agents'=>'Scanner tools', 'ai_agents'=>'AI Training Crawlers', 'search_agents'=>'Search Indexers', 'seo_agents'=>'SEO & Backlink Crawlers', 'agents'=>'Data Collection / Monitoring / Various'];
         foreach ($categories as $field => $title) {
             if ($rule === 'agent-group-' . $field) $label = 'Group rate limit: ' . $title;
             if (strpos($rule, 'agent-individual-' . $field . '-') === 0) $label = 'Individual bot rate limit: ' . $title;

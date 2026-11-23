@@ -11,9 +11,15 @@ $policy = ['search_agents' => ['My custom agent', 'gOoGlEbOt-ImAgE'], 'search_ag
 <div id="hdn-container" style="padding:16px">
 <form id="hdn-settings" method="post"><input type="hidden" name="action" value="save"></form>
 <?php require $install.'/panel/agent-lists.php'; ?>
+<?php $fields = static function($action) { echo '<input type="hidden" name="token" value="fixture-only">'; };
+$reviewKind = 'agents'; require $install.'/panel/inventory.php'; ?>
 <button form="hdn-settings" type="submit">Save &amp; Apply</button></div>
 <?php require $install.'/panel/agent-presets.php'; ?>
 <script id="hdn-probe-presets" type="application/json">{}</script>
+<script>/* UI fixture only: no server job or log access. */
+window.fetch = async () => ({ok:true,status:200,text:async()=>JSON.stringify({ok:true,job:{state:'idle'}})});
+</script>
 <script><?php readfile($install.'/panel/settings.js'); ?></script>
 <script><?php readfile($install.'/panel/agent-limits.js'); ?></script>
+<script><?php readfile($install.'/panel/agent-various.js'); ?></script>
 </body></html>

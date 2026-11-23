@@ -507,8 +507,9 @@ def snapshot(policy, sites, owner=None, wordpress_live=False, listing=None):
             'wordpress': wordpress_status,
             'cron': cron_spread.public(load('cron-spread.json', None)) if owner is None else None,
             'agent_categories': agent_catalog.CATEGORIES if owner is None else {},
+            'agent_various': agent_catalog.review_choices() if owner is None else [],
             'presets': {**{field: category['entries'] for field, category in agent_catalog.CATEGORIES.items()},
-                        **agent_catalog.SEARCH_PRESETS, 'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'search_crawlers': SEARCH_AGENTS,
+                        **agent_catalog.APPEND_PRESETS, 'scanners': SCANNER_AGENTS, 'crawlers': CRAWLER_AGENTS, 'search_crawlers': SEARCH_AGENTS,
                         'filter_agents': FILTER_AGENTS, 'rules': RULES,
                         'probe_files': probe_rules.FILES, 'probe_queries': probe_rules.QUERY_TARGETS,
                         'probe_parameters': probe_rules.QUERY_PARAMETERS} if owner is None else {}}
