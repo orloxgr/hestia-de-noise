@@ -17,6 +17,15 @@ Run the following steps in the server's root SSH session:
 
    To **update an existing checkout**, pull instead:
 
+   If you update from 0.26 and back
+
+   ```bash
+   git -C /usr/local/src/hestia-de-noise branch --set-upstream-to=origin/main
+   git -C /usr/local/src/hestia-de-noise pull --ff-only
+   ```
+
+   Normaly only
+
    ```bash
    git -C /usr/local/src/hestia-de-noise pull --ff-only
    ```
