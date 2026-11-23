@@ -119,6 +119,8 @@ add('quic-go', 'quic-go project (client library)', 'QUIC and HTTP/3 library used
 add('Bytespider', 'ByteDance', 'Collects public content, including data for AI model training, testing and validation.', 'Contributing data to ByteDance AI development; the cited training-data summary documents this use, not every use of the crawler.', 'https://aial.ie/research/gpai-training-transparency/archive/ByteDance_Seedeam_5_0_2026_09_08.pdf')
 add('YisouSpider', 'Shenma Search', 'Crawls web pages for Shenma mobile search.', 'Search visibility for audiences using Shenma in China.', 'https://zhanzhang.sm.cn/open/optimizaGuide')
 
+add('ShapBot', 'Parallel', 'Collects public web pages to build and maintain the Parallel search index.', 'Discovery through Parallel web search APIs and search features. Separate from user-triggered Shap-User requests.', 'https://parallel.ai/parallel-web-systems-bots')
+
 
 def describe(name):
     known = DETAILS.get(name.casefold())

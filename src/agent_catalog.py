@@ -7,7 +7,7 @@ SCANNERS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
 AI = ['meta-externalagent', 'ClaudeBot', 'GPTBot', 'Reflectionbot', 'Amazonbot',
       'Bytespider', 'ElevenlabsCrawler', 'CCBot', 'VelenPublicWebCrawler']
 SEARCH_ADDITIONAL = ['PetalBot', 'Baiduspider', 'ibou-search', 'Owler', 'SeekportBot',
-                     'YandexBot', 'MojeekBot', 'IbouBot', '360Spider', 'YisouSpider', 'ZoominfoBot']
+                     'YandexBot', 'MojeekBot', 'IbouBot', '360Spider', 'YisouSpider', 'ZoominfoBot', 'ShapBot']
 SEARCH_MAJOR = ['Googlebot', 'Googlebot-Image', 'Googlebot-News', 'Googlebot-Video',
                 'bingbot', 'Applebot', 'DuckDuckBot', 'DuckAssistBot', 'meta-webindexer',
                 'OAI-SearchBot', 'Claude-SearchBot', 'Amzn-SearchBot', 'PerplexityBot',

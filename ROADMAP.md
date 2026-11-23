@@ -1,5 +1,12 @@
 # Delivery status
 
+## Available in 0.26.0
+
+- Full-width accordions for all five User-Agent categories, block/group editors and individual rate tables with unsaved effective-action previews.
+- Server-wide group and individual native Nginx budgets, independent Observe counters, 429 over-limit behavior and individual → group → block priority.
+- Empty inactive rate defaults, saved-policy preservation, scoped backend permissions, Activity rate-result reporting and optional ShapBot search-indexing suggestions.
+
+
 ## Available in 0.18.0
 
 | Area | Delivered |

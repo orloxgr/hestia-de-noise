@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.26.0 · 2026-11-23
+
+- Give all five User-Agent categories a full-width accordion, with independent block and group-rate lists side by side and a full-width editable individual-rule table below. Keep presets/analyzed append destination-specific, preserve unsaved edits, and show effective-action previews, validation and button tooltips.
+- Add native server-wide group budgets shared by all listed bots across every protected website/IP, plus individual budgets that override all groups and blocklists. Match individual first, then group, then block; use longest literals within a rate level. Require resolution of conflicting duplicate settings. Keep independent protection rules active.
+- Support requests per minute/second and burst without queuing; reject excess requests with 429 and do not create IP bans. Count all matching paths/methods, including static assets. Separate Observe and Enforce counters; Off does not count.
+- Migrate schema 16 to 17 with empty inactive rate settings and preserve every existing choice. Older open panels retain saved new settings. Keep administrator backend permissions and existing Nginx validation/reload/rollback transactions.
+- Identify group/individual matches in Activity and retain the overall native rate result in individual records and complete CSV, with honest attribution when other independent limiters apply.
+- Add Parallel's ShapBot to optional additional Search Indexers suggestions and purpose information. Do not add it to saved lists on upgrade.
+
 ## 0.25.1 · 2026-11-16
 
 - Classify Bytespider, ElevenlabsCrawler, CCBot and VelenPublicWebCrawler under AI Training, with descriptions noting the mixed research/business uses of Common Crawl and Velen. Put YisouSpider and ZoominfoBot in Additional search, including specialized business search.

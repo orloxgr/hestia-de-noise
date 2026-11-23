@@ -6,6 +6,7 @@ $escape = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES | ENT_SUBSTIT
 $policy = ['search_agents' => ['My custom agent', 'gOoGlEbOt-ImAgE'], 'search_agents_enabled' => false];
 ?>
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style><?php if (isset($argv[3])) readfile($argv[3]); ?></style>
 <style><?php readfile($install.'/panel/ui.css'); ?></style></head><body>
 <div id="hdn-container" style="padding:16px">
 <form id="hdn-settings" method="post"><input type="hidden" name="action" value="save"></form>
@@ -14,4 +15,5 @@ $policy = ['search_agents' => ['My custom agent', 'gOoGlEbOt-ImAgE'], 'search_ag
 <?php require $install.'/panel/agent-presets.php'; ?>
 <script id="hdn-probe-presets" type="application/json">{}</script>
 <script><?php readfile($install.'/panel/settings.js'); ?></script>
+<script><?php readfile($install.'/panel/agent-limits.js'); ?></script>
 </body></html>

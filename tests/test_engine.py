@@ -193,6 +193,7 @@ class AuthorizationTests(unittest.TestCase):
         saved['static_exceptions'] = {'alice/example.test': ['/wp-content/dynamic.map']}
         old = {key: copy.deepcopy(value) for key, value in DEFAULT.items() if key in LEGACY_KEYS | {'filters', 'static'}}
         old['schema'] = 2
+        old.pop('agent_limits', None)
         with patch.object(engine, 'authorize', return_value=(True, 'admin')), \
                 patch.object(engine, 'load', return_value=saved), \
                 patch.object(engine, 'collect', return_value=[]), \
@@ -208,6 +209,7 @@ class AuthorizationTests(unittest.TestCase):
         saved['bans']['missing_files'].update(enabled=True, maxretry=4)
         saved['probe_exceptions']['queries'] = {'alice/example.test': ['/manager.php']}
         incoming = copy.deepcopy(DEFAULT); incoming.pop('custom_endpoints'); incoming.pop('endpoint_404'); incoming.pop('xmlrpc_block'); incoming['schema'] = 4; incoming.pop('probe_exceptions'); incoming.pop('domain_bans')
+        incoming.pop('agent_limits', None)
         for field in ('ai_agents', 'search_agents', 'seo_agents'):incoming.pop(field);incoming.pop(field + '_enabled')
         incoming.pop('enumeration')
         for key in ('missing_files', 'suspicious_queries', 'any_404'): incoming['bans'].pop(key)

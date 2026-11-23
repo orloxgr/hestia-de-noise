@@ -26,6 +26,7 @@ class PolicyTests(unittest.TestCase):
     def test_v4_upgrade_preserves_existing_bans_and_does_not_enable_new_categories(self):
         old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old.pop('xmlrpc_block')
         old['schema'] = 4
+        old.pop('agent_limits', None)
         for field in ('ai_agents', 'search_agents', 'seo_agents'):
             old.pop(field); old.pop(field + '_enabled')
         old.pop('enumeration')
@@ -34,7 +35,7 @@ class PolicyTests(unittest.TestCase):
         for key in ('missing_files', 'suspicious_queries', 'any_404'): old['bans'].pop(key)
         old['bans'].update(enabled=True, maxretry=1, duration_days=0)
         saved = validate(old)
-        self.assertEqual(saved['schema'], 16)
+        self.assertEqual(saved['schema'], 17)
         self.assertEqual(saved['bans']['duration_days'], 0)
         for key in ('missing_files', 'suspicious_queries'):
             self.assertFalse(saved['bans'][key]['enabled'])
@@ -118,6 +119,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(upgraded['static_exceptions'], {})
         old2 = {key: copy.deepcopy(value) for key, value in DEFAULT.items() if key in LEGACY_KEYS | {'filters', 'static'}}
         old2['schema'] = 2
+        old2.pop('agent_limits', None)
         old2['static'] = [{'id': 'maps', 'enabled': True, 'path': '/wp-content/', 'extensions': ['map'], 'targets': []}]
         upgraded2 = validate(old2)
         self.assertEqual(upgraded2['static'], old2['static'])

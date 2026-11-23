@@ -1,10 +1,13 @@
-# Presets — 0.18.0
+# Presets — 0.26.0
 
 ## User-Agent categories
 
-Each category has its own enable switch and **Add suggested agents** button.
-Names are literal case-insensitive substrings. Suggestions are optional; nothing
-is added on upgrade. Declared names are not verified identities.
+Each category has independent block and shared group-rate lists, plus individual
+rate rules. Optional append buttons target the indicated editor and do not save
+or enable settings. Individual rules override groups, which override blocklists
+across all categories. Budgets are server-wide across websites and IPs; Observe
+has separate counters. Names are literal case-insensitive substrings. Nothing
+is added to saved lists on upgrade. Declared names are not verified identities.
 
 ### Scanner tools
 
@@ -37,6 +40,10 @@ ClaudeBot
 GPTBot
 Reflectionbot
 Amazonbot
+Bytespider
+ElevenlabsCrawler
+CCBot
+VelenPublicWebCrawler
 ```
 
 ### Search Indexers
@@ -49,6 +56,7 @@ meta-webindexer
 PetalBot
 Baiduspider
 ibou-search
+ShapBot
 ```
 
 ### SEO & Backlink Crawlers
@@ -64,21 +72,24 @@ BLEXBot
 SERankingBacklinksBot
 ```
 
-### Other Crawlers / Data Collection
+### Data Collection / Monitoring
 
-General collection, research and agents with mixed or unclassified purposes. Review individual names before blocking.
+General research, image collection, brand monitoring and threat intelligence. Review individual names before blocking.
 
 ```text
 GoogleOther
-Bytespider
-YisouSpider
-ElevenlabsCrawler
-CCBot
+AwarioBot
+ImagesiftBot
+Magpie-Crawler
+RecordedFuture
 ```
 
 **Analyze current agents** counts retained log requests. Append individual rows
-or recognized names from the completed report to unsaved lists, then review
-and **Save & Apply**. Appending never enables a category. Unknown/browser-like
+or recognized names from the completed report to the chosen unsaved list, then review
+and **Save & Apply**. Appending never enables a category. The current complete suggestion catalog is
+`src/agent_catalog.py`; lists below illustrate the purposes. ShapBot belongs to
+Search Indexers (additional search), as documented by
+[Parallel](https://parallel.ai/parallel-web-systems-bots). Unknown/browser-like
 declarations are not automatically classified as malicious.
 
 ## Paths and request budgets

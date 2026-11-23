@@ -8,12 +8,13 @@ import probe_rules
 import enumeration
 import access_protection
 import agent_catalog
+import agent_limits
 import endpoints
 import endpoint_404
 import xmlrpc_block
 
 MARKER = '# Managed by hestia-de-noise'
-VERSION = '0.25.1'
+VERSION = '0.26.0'
 MODES = ('off', 'observe', 'enforce')
 SCANNER_AGENTS = ['TLM-Audit-Scanner', 'sqlmap', 'Nikto', 'Nuclei', 'zgrab',
                   'masscan', 'ZmEu', 'DirBuster', 'gobuster', 'ffuf', 'WPScan']
@@ -24,7 +25,7 @@ CRAWLER_AGENTS = ['meta-externalagent', 'GoogleOther', 'MJ12bot', 'Bytespider',
 SEARCH_AGENTS = ['LinkupBot', 'meta-webindexer', 'PetalBot', 'Baiduspider', 'ibou-search']
 PRESET_AGENTS = SCANNER_AGENTS + CRAWLER_AGENTS[:3]
 FILTER_AGENTS = ['Applebot', 'Amazonbot', 'Reflectionbot', 'Googlebot', 'bingbot']
-DEFAULT = {'schema': 16, 'xmlrpc_block': copy.deepcopy(xmlrpc_block.DEFAULT), 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
+DEFAULT = {'schema': 17, 'agent_limits': copy.deepcopy(agent_limits.DEFAULT), 'xmlrpc_block': copy.deepcopy(xmlrpc_block.DEFAULT), 'endpoint_404': copy.deepcopy(endpoint_404.DEFAULT), 'custom_endpoints': [], 'mode': 'observe', 'agents': [], 'scanners': False,
            'enumeration': copy.deepcopy(enumeration.SETTINGS),
            'log_rejections': False, 'mail_protection': False,
            'login': {'enabled': False, 'rate': 5, 'burst': 3},
@@ -45,7 +46,8 @@ DEFAULT = {'schema': 16, 'xmlrpc_block': copy.deepcopy(xmlrpc_block.DEFAULT), 'e
            'domain_bans': {'allow_users': True, 'sites': {}}}
 DEFAULT.update({field: [] for field in ('ai_agents', 'search_agents', 'seo_agents')})
 DEFAULT.update({field + '_enabled': True for field in ('ai_agents', 'search_agents', 'seo_agents')})
-V13_KEYS = set(DEFAULT) - {'xmlrpc_block'}
+V16_KEYS = set(DEFAULT) - {'agent_limits'}
+V13_KEYS = V16_KEYS - {'xmlrpc_block'}
 V11_KEYS = V13_KEYS - {'endpoint_404'}
 V10_KEYS = V11_KEYS - {'custom_endpoints'}
 V9_KEYS = V10_KEYS - {field + suffix for field in ('ai_agents', 'search_agents', 'seo_agents') for suffix in ('', '_enabled')}
@@ -162,17 +164,19 @@ def validate(raw):
         data['schema'] = 13
     if data.get('schema') == 13 and set(data) == V13_KEYS:
         data.update(schema=14, xmlrpc_block={'enabled': False, 'targets': []})
-    if data.get('schema') == 14 and set(data) == set(DEFAULT):
+    if data.get('schema') == 14 and set(data) == V16_KEYS:
         block = data['xmlrpc_block']
         if isinstance(block, dict) and set(block) == {'enabled', 'targets'}:
             block['exceptions'] = {}
             data['schema'] = 15
-    if data.get('schema') == 15 and set(data) == set(DEFAULT):
+    if data.get('schema') == 15 and set(data) == V16_KEYS:
         block = data['xmlrpc_block']
         if isinstance(block, dict) and set(block) == {'enabled', 'targets', 'exceptions'}:
             block['global_exceptions'] = []
             data['schema'] = 16
-    if data.get('schema') != 16 or set(data) != set(DEFAULT):
+    if data.get('schema') == 16 and set(data) == V16_KEYS:
+        data.update(schema=17, agent_limits=copy.deepcopy(agent_limits.DEFAULT))
+    if data.get('schema') != 17 or set(data) != set(DEFAULT):
         raise ValueError('Unsupported policy format')
     xmlrpc_block.validate(data['xmlrpc_block'], target)
     endpoints.validate(data['custom_endpoints'], target)
@@ -184,6 +188,7 @@ def validate(raw):
         raise ValueError('Invalid User-Agent list switch')
     for field in agent_catalog.CATEGORIES:
         data[field] = validate_agents(data[field])
+    agent_limits.validate(data['agent_limits'], validate_agents)
     ban = data['bans']
     if (not isinstance(ban, dict) or set(ban) != set(DEFAULT['bans']) or
             any(type(ban[key]) is not bool for key in ('enabled', 'private_files', 'repositories')) or
@@ -400,10 +405,12 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
     lines += ['map $server_name $hdn_domain_blocked {', '    default 0;']
     lines += ['    ' + host + ' $' + name + ';' for host, name in block_variables]
     lines += ['}', 'map $server_name $hdn_mode { default off; }',
-             'map $http_user_agent $hdn_agent {', '    default 0;']
+             'map $http_user_agent $hdn_agent_list {', '    default 0;']
     entries = agent_catalog.enabled(policy)
     lines += ['    ' + literal_regex(entry) + ' 1;' for entry in dict.fromkeys(entries)]
-    lines += ['}', 'map $uri $hdn_private {', '    default 0;']
+    lines += ['}']
+    lines += agent_limits.compile_maps(policy['agent_limits'], literal_regex)
+    lines += ['map $hdn_ua_rule $hdn_agent {', '    default 0;', '    "" $hdn_agent_list;', '}', 'map $uri $hdn_private {', '    default 0;']
     if policy['scanners']:
         lines += ['    ' + pattern(p) + ' 1;' for _, p in PRIVATE_PATTERNS]
     lines += ['}']
@@ -459,7 +466,7 @@ def global_config(policy, sites, domain_blocks=None, access_settings=None, geo_p
         label = 'static-' + rule['id']
         lines += ['    ' + pattern('(?:^|:)' + label + '(?:$|:)') + ' ' + label + ';']
     lines += ['}', 'map "$hdn_direct_reject:$hdn_private:$hdn_agent:' + ':'.join('$hdn_b' + str(i) for i in range(len(block_variables))) + ':$hdn_static_candidate:$hdn_login_label:$hdn_xmlrpc_label:$hdn_probe_query:$hdn_probe_file:$hdn_enum_match" $hdn_match_base {',
-              '    default "";', '    ' + pattern('^1:') + ' private-file;',
+              '    default $hdn_ua_rule;', '    ' + pattern('^1:') + ' private-file;',
               '    ' + pattern('^[01]:1:') + ' private-file;',
               '    ' + pattern('^[01]:[01]:1:') + ' agent;']
     lines += ['    ' + pattern(':1$') + ' user-enumeration;',
@@ -503,7 +510,11 @@ def site_config(policy, site, document_root=None, access_settings=None):
     lines += access_protection.site_lines(access_settings or {'sites': {}}, site, mode)
     if mode == 'enforce':
         lines += ['if ($hdn_domain_blocked) { return 403; }']
+    ua_rates = agent_limits.site_lines(policy['agent_limits'], mode)
     if site.get('kind') == 'mail':
+        lines += ua_rates
+        if ua_rates:
+            lines += ['limit_req_status 429;', 'limit_req_dry_run ' + ('off' if mode == 'enforce' else 'on') + ';']
         if mode == 'enforce':
             lines += ['if ($hdn_direct_reject) { return 403; }', 'if ($hdn_block) { return 403; }']
         lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']
@@ -538,7 +549,8 @@ def site_config(policy, site, document_root=None, access_settings=None):
     for index, rule in enumerate(policy['filters']):
         if rule['action'] == 'limit' and applies(rule, site):
             lines.append('limit_req zone=hdn_f' + str(index) + ((' burst=' + str(rule['burst']) + ' nodelay') if rule['burst'] else '') + ';')
-    if any(policy[key]['enabled'] for key in ('login', 'xmlrpc')) or rate_rules:
+    lines += ua_rates
+    if any(policy[key]['enabled'] for key in ('login', 'xmlrpc')) or rate_rules or ua_rates:
         lines += ['limit_req_status 429;', 'limit_req_dry_run ' + ('off' if mode == 'enforce' else 'on') + ';',
                   'limit_req_log_level ' + ('error' if policy['log_rejections'] else 'notice') + ';']
     lines += ['access_log /var/log/hestia-de-noise/matches.log hdn if=$hdn_log;']

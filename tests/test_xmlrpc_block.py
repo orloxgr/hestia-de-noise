@@ -42,9 +42,10 @@ class XmlrpcBlockTests(unittest.TestCase):
 
     def test_previous_policy_upgrades_without_enabling_or_selecting_sites(self):
         old = copy.deepcopy(DEFAULT); old.pop('xmlrpc_block'); old['schema'] = 13
+        old.pop('agent_limits', None)
         old['mode'] = 'enforce'; old['xmlrpc'].update(enabled=True, rate=7, burst=2)
         new = validate(old)
-        self.assertEqual(new['schema'], 16)
+        self.assertEqual(new['schema'], 17)
         self.assertEqual(new['xmlrpc_block'], dict(global_exceptions=[], exceptions={}, enabled=False, targets=[]))
         self.assertEqual(new['xmlrpc'], old['xmlrpc'])
 
@@ -81,12 +82,15 @@ class XmlrpcBlockTests(unittest.TestCase):
         saved = copy.deepcopy(DEFAULT)
         saved['xmlrpc_block'] = dict(global_exceptions=[], exceptions={}, enabled=True, targets=['alice/one.test'])
         old = copy.deepcopy(DEFAULT); old.pop('xmlrpc_block'); old['schema'] = 13
+        old.pop('agent_limits', None)
         saved['xmlrpc_block']['exceptions'] = {'alice/one.test': ['192.0.2.1/32']}
         saved['xmlrpc_block']['global_exceptions'] = ['203.0.113.0/24']
         previous_form = copy.deepcopy(DEFAULT); previous_form['schema'] = 14
+        previous_form.pop('agent_limits', None)
         previous_form['xmlrpc_block'] = dict(enabled=False, targets=[])
         retained = dict(enabled=False, targets=[], exceptions=saved['xmlrpc_block']['exceptions'], global_exceptions=saved['xmlrpc_block']['global_exceptions'])
         form15 = copy.deepcopy(saved); form15['schema'] = 15; form15['xmlrpc_block'].pop('global_exceptions')
+        form15.pop('agent_limits', None)
         for incoming, expected in ((old, saved['xmlrpc_block']), (previous_form, retained),
                                    (form15, saved['xmlrpc_block']),
                                    (copy.deepcopy(DEFAULT), xmlrpc_block.DEFAULT)):
@@ -98,12 +102,14 @@ class XmlrpcBlockTests(unittest.TestCase):
 
     def test_schema14_keeps_selections_and_adds_empty_exceptions(self):
         old = copy.deepcopy(DEFAULT); old['schema'] = 14
+        old.pop('agent_limits', None)
         old['xmlrpc_block'] = dict(enabled=True, targets=['alice/one.test'])
         block = validate(old)['xmlrpc_block']
         self.assertEqual(block, dict(enabled=True, targets=['alice/one.test'], exceptions={}, global_exceptions=[]))
 
     def test_schema15_preserves_per_site_exceptions_and_adds_empty_global_list(self):
         old = copy.deepcopy(DEFAULT); old['schema'] = 15; old['xmlrpc_block'].pop('global_exceptions')
+        old.pop('agent_limits', None)
         old['xmlrpc_block']['exceptions'] = {'alice/one.test':['192.0.2.10']}
         block = validate(old)['xmlrpc_block']
         self.assertEqual(block['exceptions'], {'alice/one.test':['192.0.2.10/32']})

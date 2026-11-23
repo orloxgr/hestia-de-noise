@@ -1,6 +1,6 @@
 # Hestia De-Noise
 
-Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.25.1.**
+Request filtering in Nginx, before Varnish, Apache and PHP. **Preview 0.26.0.**
 Targets Ubuntu with HestiaCP's Nginx proxy and accounts under `/home`.
 
 ## Quick start
@@ -42,6 +42,60 @@ Updates preserve the existing settings.
 Observe records matching requests while allowing them. Enforce returns **403**
 for agent/private-file matches and **429** for exceeded rate limits.
 There is no mandatory observation period.
+
+## User-Agent blocklists and server-wide rate limits
+
+Each of the five purpose categories has its own full-width accordion. Blocklist
+is on the left, Group rate limit list on the right, and the editable Individual
+rate limit rules table below. On small screens the two lists stack. Preset and
+analyzed-agent buttons append only to the indicated list, preserving current
+edits and switches. Add individual rule accepts any printable literal substring;
+new rows are inactive with an empty name/rate. Review and Save & Apply explicitly.
+
+For each request, enabled individual rules take priority over every group limit,
+which takes priority over every blocklist, across category boundaries. Disabled
+rules do not override anything. Removing/disabling an individual rule can expose
+the next group limit or a blocklist again. Within the individual or group level,
+the longest literal substring wins; equal-length matches use case-insensitive
+lexical name order, then category key. Matching remains case-insensitive against
+the full declared User-Agent, without treating that declaration as verified identity.
+Conflicting individual budgets for the same literal name, or an identical name
+in multiple enabled groups, must be resolved before saving. The effective-action
+preview uses unsaved editor values and shows the action for each configured name.
+
+**All budgets are shared across all supported server websites and all client IPs.**
+Every bot in a category's group list spends the same group budget. A bot selected
+by an individual rule spends only its own budget, not the group budget. Neither
+changing IP nor moving to another website or alias grants another budget. Heavy
+crawling on one website can exhaust the budget for the others. Webmail participates
+only when the existing Protect webmail HTTP hosts setting enables its protection.
+
+Set a positive average rate per minute or second and a nonnegative burst. All
+matching methods and paths count, including images, CSS and JavaScript. Native
+Nginx uses a leaky bucket rather than a fixed calendar-minute quota. Burst permits
+short spikes without delaying requests; excess requests receive **429** in Enforce,
+without an automatic IP ban. Observe permits requests and records excesses using
+separate counters, so it cannot consume Enforce's budget; Off does not count.
+Other endpoint/private-file/URL/login/access/firewall protections still apply.
+
+Activity identifies the selected group or individual policy when it is the match
+label; higher-priority independent protection matches retain their own labels.
+Individual records and complete CSV include the native overall rate result:
+REJECTED is a real limiter rejection, REJECTED_DRY_RUN an Observe overrun.
+Multiple independent URL/login limiters can apply, so this status does not prove
+which limiter rejected a request. Older saved reports say Not recorded for the
+new rate-result field; refresh Activity to collect it.
+
+Updates retain every saved blocklist, switch, override and other policy setting.
+New group lists are empty, disabled and have no preselected rate; individual
+lists are empty. Saving from an older already-open panel preserves saved rate
+settings. New controls use the existing journaled candidate validation, confirmed
+reload and rollback path, and remain administrator-only in the backend.
+
+ShapBot is an optional Search Indexers / additional search suggestion. Parallel
+[documents it as its search-index crawler](https://parallel.ai/parallel-web-systems-bots),
+separate from user-triggered Shap-User. Adding this catalog entry never inserts it
+into a saved blocklist or enables a rule on upgrade.
 
 ## Disable XML-RPC per website
 
@@ -316,7 +370,7 @@ silently overwritten.
   lists; enable switches stay unchanged until explicitly edited.
   Within Search, **Add additional search bots** appends alternative, regional
   and specialized engines; **Add major search & AI bots** appends Google, Bing, Apple, Meta and
-  AI search crawlers. Both add to the same **blocklist**, not an allowlist.
+  AI search crawlers. Each button appends to its indicated blocklist or group-rate editor; neither is an allowlist.
   Additional does not mean less useful: choose according to your audience.
   Blocking search crawlers can reduce search visibility and AI citations.
   YisouSpider and ZoominfoBot belong to Additional search. Bytespider,

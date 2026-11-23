@@ -30,6 +30,7 @@ class UpgradeTests(unittest.TestCase):
     def test_v7_keeps_custom_limits_lists_and_adds_guardrails_without_new_blocks(self):
         old = copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old.pop('xmlrpc_block')
         old.update(schema=7)
+        old.pop('agent_limits', None)
         for field in ('ai_agents', 'search_agents', 'seo_agents'):old.pop(field);old.pop(field + '_enabled')
         old.pop('enumeration')
         old.pop('mail_protection'); old.pop('log_rejections')
@@ -37,7 +38,7 @@ class UpgradeTests(unittest.TestCase):
         old['agents'] = ['CustomBot']
         old['bans']['missing_files']['paths'] = ['/custom.php']
         new = validate(old)
-        self.assertEqual(new['schema'], 16)
+        self.assertEqual(new['schema'], 17)
         self.assertEqual(new['agents'], ['CustomBot'])
         self.assertEqual(new['bans']['missing_files']['paths'], ['/custom.php'])
         self.assertEqual(new['bans']['any_404'], {**old['bans']['any_404'], 'exclude_static':True, 'min_distinct_paths':3})
@@ -51,6 +52,7 @@ class UpgradeTests(unittest.TestCase):
         saved['bans']['any_404']['min_distinct_paths']=7
         saved['domain_bans']['sites']={'alice/one.test':dict(missing_files=True,suspicious_queries=False,any_404=False)}
         old=copy.deepcopy(DEFAULT); old.pop('custom_endpoints'); old.pop('endpoint_404'); old.pop('xmlrpc_block');old.update(schema=7)
+        old.pop('agent_limits', None)
         for field in ('ai_agents', 'search_agents', 'seo_agents'):old.pop(field);old.pop(field + '_enabled')
         old.pop('enumeration')
         for key in ('mail_protection','log_rejections'):old.pop(key)

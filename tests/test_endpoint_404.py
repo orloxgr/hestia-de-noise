@@ -21,6 +21,7 @@ from test_auto_bans import FakeNative
 class Selections(unittest.TestCase):
     def test_schema11_migration_and_old_panel_preserve_new_list(self):
         old=copy.deepcopy(DEFAULT);old.pop('endpoint_404'); old.pop('xmlrpc_block');old['schema']=11
+        old.pop('agent_limits', None)
         self.assertEqual(validate(old)['endpoint_404'],endpoint_404.DEFAULT)
         saved=copy.deepcopy(DEFAULT);saved['endpoint_404']['paths']=['/probe.js','/bak.sql.gz']
         with patch.object(engine,'authorize',return_value=(True,'admin')),patch.object(engine,'load',return_value=saved),patch.object(engine,'collect',return_value=[]),patch.object(engine,'snapshot',return_value={}),patch.object(engine,'apply') as apply:
@@ -29,6 +30,7 @@ class Selections(unittest.TestCase):
 
     def test_schema12_upgrade_and_old_panel_preserve_attempt_controls(self):
         old=copy.deepcopy(DEFAULT);old.pop('xmlrpc_block');old['schema']=12
+        old.pop('agent_limits', None)
         old['endpoint_404'].pop('maxretry');old['endpoint_404'].pop('findtime')
         upgraded=validate(old)
         self.assertEqual(upgraded['endpoint_404']['maxretry'],1)
